@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
+import { addMember } from "../support/members"
 import { createProject, workspaceIdBySlug } from "../support/projects"
 import { style, tokenValue } from "../support/styles"
 
@@ -273,4 +274,192 @@ test("table view lists the seeded tasks with status, priority and due labels", a
   await expect(row("Far item")).toContainText(dayLabel(FAR))
   await expect(row("Urgent item")).toContainText("Review")
   await expect(row("Done item")).toContainText("Complete")
+})
+
+test("sheet structure: subtask progress ring and strike-through, blocker row, relationship and field controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const { slug, project } = await seededProject(page)
+  const post = async (path: string, data: object) => {
+    const res = await page.request.post(path, { data })
+    expect(res.ok(), path).toBe(true)
+    return (await res.json()) as Record<string, { id: string; key: string }>
+  }
+  const parent = (await post(`/api/projects/${project.id}/tasks`, { title: "Parent work" })).task
+  if (!parent) throw new Error("seed failed")
+  const done = (
+    await post(`/api/projects/${project.id}/tasks`, {
+      title: "Finished part",
+      parentTaskId: parent.id,
+    })
+  ).task
+  await post(`/api/projects/${project.id}/tasks`, { title: "Open part", parentTaskId: parent.id })
+  const blocker = (await post(`/api/projects/${project.id}/tasks`, { title: "Blocking work" })).task
+  if (!done || !blocker) throw new Error("seed failed")
+  const patched = await page.request.patch(`/api/tasks/${done.id}`, {
+    data: { status: "complete" },
+  })
+  expect(patched.ok()).toBe(true)
+  await post(`/api/tasks/${parent.id}/relationships`, { type: "blocked_by", taskId: blocker.id })
+  await post(`/api/projects/${project.id}/custom-fields`, {
+    name: "Stage",
+    type: "select",
+    options: ["Alpha", "Beta"],
+  })
+  await post(`/api/projects/${project.id}/custom-fields`, { name: "Notes", type: "text" })
+
+  await page.goto(`/w/${slug}/projects/${project.id}/board?task=${parent.id}`)
+  const sheet = page.getByRole("dialog", { name: parent.key })
+
+  const subtasks = sheet.getByRole("region", { name: "Subtasks" })
+  await expect(subtasks).toContainText("1/2")
+  const ring = subtasks.locator("svg.-rotate-90")
+  await expect(ring).toBeVisible()
+  const [track, progress] = await ring.locator("circle").evaluateAll((els) =>
+    els.map((el) => ({
+      dash: Number.parseFloat(el.getAttribute("stroke-dasharray") ?? "0"),
+      offset: Number.parseFloat(el.getAttribute("stroke-dashoffset") ?? "0"),
+    })),
+  )
+  // Half of the circumference is hidden when one of two subtasks is complete.
+  expect(progress?.dash).toBeGreaterThan(0)
+  expect(progress?.offset).toBeCloseTo((progress?.dash ?? 0) / 2, 1)
+  expect(track?.offset ?? 0).toBe(0)
+
+  const lineThrough = (title: string) =>
+    style(subtasks.getByRole("button", { name: title, exact: true }), "text-decoration-line")
+  expect(await lineThrough("Finished part")).toContain("line-through")
+  expect(await lineThrough("Open part")).toBe("none")
+
+  const blockedBy = sheet.getByRole("group", { name: "Blocked by", exact: true })
+  await expect(blockedBy).toContainText(blocker.key)
+  await expect(blockedBy).toContainText("Blocking work")
+  await expect(blockedBy.getByRole("button", { name: `Remove ${blocker.key}` })).toBeVisible()
+  await expect(sheet.getByRole("button", { name: "Add relationship" })).toBeVisible()
+
+  const fields = sheet.getByRole("region", { name: "Fields" })
+  const stage = fields.getByRole("combobox", { name: "Stage" })
+  await expect(stage).toHaveValue("")
+  expect(await stage.evaluate((el: HTMLSelectElement) => el.selectedOptions[0]?.textContent)).toBe(
+    "None",
+  )
+  await expect(fields.getByRole("textbox", { name: "Notes", exact: true })).toHaveValue("")
+})
+
+test.describe("phone", () => {
+  test.use({ viewport: { width: 375, height: 812 } })
+
+  test("board: compact top bar, toolbar row under the title, one snapping column at a time", async ({
+    page,
+  }) => {
+    const { slug, project } = await seededProject(page)
+    await page.goto(`/w/${slug}/projects/${project.id}/board`)
+    await expect(column(page, "Backlog")).toBeVisible()
+
+    const bar = page.getByRole("banner")
+    await expect(bar.getByRole("button", { name: "Open navigation" })).toBeVisible()
+    expect(
+      await bar
+        .getByRole("navigation", { name: "Breadcrumb" })
+        .evaluate((el) => (el as HTMLElement).innerText.trim()),
+    ).toBe("Contract board")
+    await expect(bar.getByRole("group", { name: "View" })).toHaveCount(0)
+    await expect(bar.getByRole("button", { name: "Project options" })).toHaveCount(0)
+    const newTask = await bar.getByRole("button", { name: "New task" }).boundingBox()
+    expect(newTask?.width ?? 999).toBeLessThanOrEqual(40)
+
+    const title = await page
+      .getByRole("heading", { name: "Contract board", level: 1 })
+      .boundingBox()
+    const switcher = await page.getByRole("group", { name: "View" }).boundingBox()
+    const options = await page.getByRole("button", { name: "Project options" }).boundingBox()
+    const barBox = await bar.boundingBox()
+    if (!title || !switcher || !options || !barBox) throw new Error("toolbar not laid out")
+    expect(switcher.y).toBeGreaterThanOrEqual(title.y + title.height - 1)
+    expect(options.y).toBeGreaterThanOrEqual(barBox.y + barBox.height)
+    const centreGap = Math.abs(options.y + options.height / 2 - (switcher.y + switcher.height / 2))
+    expect(centreGap).toBeLessThan(switcher.height)
+
+    const canvas = column(page, "Todo").locator(
+      "xpath=ancestor::div[contains(@class,'overflow-x-auto')][1]",
+    )
+    expect(await style(canvas, "scroll-snap-type")).toMatch(/x\s+mandatory/)
+    expect(await canvas.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await style(column(page, "Backlog"), "scroll-snap-align")).toContain("center")
+
+    const boxes = await Promise.all(
+      ["Backlog", "Todo", "In Progress", "Review", "Complete"].map((n) =>
+        column(page, n).boundingBox(),
+      ),
+    )
+    for (const box of boxes) expect(box?.width).toBeCloseTo(375 * 0.85, 0)
+    const fullyVisible = boxes.filter((b) => b && b.x >= 0 && b.x + b.width <= 375 + 1)
+    expect(fullyVisible).toHaveLength(1)
+  })
+
+  test("members: the table scrolls inside its panel and the page does not", async ({ page }) => {
+    await signIn(page, { email: uniqueEmail("pm"), name: "Phone Owner" })
+    const slug = await createWorkspace(page, uniqueName("Phone"))
+    const workspaceId = await workspaceIdBySlug(page, slug)
+    await addMember(
+      page,
+      workspaceId,
+      `a-very-long-colleague-address-for-overflow-${uniqueEmail("x")}`,
+    )
+    await page.goto(`/w/${slug}/members`)
+    const table = page.getByRole("table", { name: "Workspace members" })
+    await expect(table).toBeVisible()
+
+    const scroller = table.locator("xpath=..")
+    expect(await style(scroller, "overflow-x")).toBe("auto")
+    expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    const panel = scroller.locator("xpath=..")
+    expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+      ),
+    ).toBe(true)
+  })
+})
+
+test.describe("light theme", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("intesa-theme", "light"))
+  })
+
+  test("board and task sheet render on light surfaces; due chips keep their meaning", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const { slug, project } = await seededProject(page)
+    await page.goto(`/w/${slug}/projects/${project.id}/board`)
+    await expect(page.locator("html")).not.toHaveClass(/(^|\s)dark(\s|$)/)
+    await expect(column(page, "Backlog")).toBeVisible()
+
+    const background = await tokenValue(page, "--background", "backgroundColor")
+    expect(await style(page.locator("body"), "background-color")).toBe(background)
+
+    const overdueCard = card(page, "Overdue item")
+    expect(await style(overdueCard, "background-color")).toBe(background)
+    expect(await style(overdueCard, "border-top-color")).toBe(await tokenValue(page, "--border"))
+    const columnFill = await style(column(page, "Backlog"), "background-color")
+    expect(columnFill).not.toBe(background)
+    expect(columnFill).not.toBe("rgba(0, 0, 0, 0)")
+
+    const destructive = await tokenValue(page, "--destructive-foreground")
+    const overdue = overdueCard.getByText("(overdue)").locator("..")
+    expect(await style(overdue, "color")).toBe(destructive)
+    const far = chip(card(page, "Far item")).filter({ hasText: dayLabel(FAR) })
+    expect(await style(far, "color")).not.toBe(destructive)
+    expect(await style(far, "color")).not.toBe(await tokenValue(page, "--warning-foreground"))
+
+    await card(page, "Far item").click()
+    const sheet = page.getByRole("dialog", { name: new RegExp(`^${project.key}-\\d+$`) })
+    await expect(sheet).toBeVisible()
+    const sheetBg = await style(sheet, "background-color")
+    expect(sheetBg).toBe(background)
+    expect(sheetBg).toBe(await tokenValue(page, "--popover", "backgroundColor"))
+  })
 })
