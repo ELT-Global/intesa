@@ -42,30 +42,31 @@ function FieldValueRow({
   // if the cache hasn't changed yet, and the cache write happens after an awaited cancel.
   const [local, setLocal] = useState<{ value: Value } | null>(null)
 
-  // Drop the override once the cache has caught up with it.
-  useEffect(() => {
-    if (local && local.value === value) setLocal(null)
-  }, [value, local])
+  const inflight = useRef(0)
+  const lastCall = useRef(0)
 
   const shown = local ? local.value : value
   const empty = shown === null || shown === ""
 
   function commit(next: Value) {
+    const call = ++lastCall.current
+    inflight.current += 1
     setRejected(false)
     setLocal({ value: next })
-    update.mutate(
-      {
+    update
+      .mutateAsync({
         taskId: task.id,
         projectId: task.projectId,
         patch: { customFields: { [field.id]: next } },
-      },
-      {
-        onError: () => {
-          setLocal(null)
-          setRejected(true)
-        },
-      },
-    )
+      })
+      .catch(() => {
+        if (call === lastCall.current) setRejected(true)
+      })
+      .finally(() => {
+        // Settling, not equality, ends the override: the server may store a normalised value.
+        inflight.current -= 1
+        if (inflight.current === 0) setLocal(null)
+      })
   }
 
   return (

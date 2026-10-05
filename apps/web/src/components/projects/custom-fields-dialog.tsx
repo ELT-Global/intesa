@@ -56,9 +56,15 @@ function FieldsBody({ projectId }: { projectId: string }) {
   // One slot for the latest outcome, so an old failure from another action never lingers.
   const [error, setError] = useState<string | null>(null)
   const nameInput = useRef<HTMLInputElement>(null)
-  const handlers = {
-    onSuccess: () => setError(null),
-    onError: (e: Error) => setError(e.message),
+  // mutateAsync per call, so every call reports its own outcome even when edits overlap.
+  async function run(action: Promise<unknown>, onDone?: () => void) {
+    setError(null)
+    try {
+      await action
+      onDone?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.")
+    }
   }
 
   return (
@@ -71,21 +77,11 @@ function FieldsBody({ projectId }: { projectId: string }) {
           <FieldRow
             key={`${f.id}:${f.name}:${f.options.join("\n")}`}
             field={f}
-            onChange={(json) => {
-              setError(null)
-              m.update.mutate({ fieldId: f.id, json }, handlers)
-            }}
-            onDelete={() => {
-              setError(null)
-              m.remove.mutate(f.id, {
-                ...handlers,
-                // The row is gone, so keep keyboard focus inside the dialog.
-                onSuccess: () => {
-                  setError(null)
-                  nameInput.current?.focus()
-                },
-              })
-            }}
+            onChange={(json) => void run(m.update.mutateAsync({ fieldId: f.id, json }))}
+            onDelete={() =>
+              // The row is gone afterwards, so keep keyboard focus inside the dialog.
+              void run(m.remove.mutateAsync(f.id), () => nameInput.current?.focus())
+            }
           />
         ))}
       </ul>
@@ -93,16 +89,7 @@ function FieldsBody({ projectId }: { projectId: string }) {
       <NewFieldForm
         nameRef={nameInput}
         pending={m.create.isPending}
-        onCreate={(json, done) => {
-          setError(null)
-          m.create.mutate(json, {
-            onError: handlers.onError,
-            onSuccess: () => {
-              setError(null)
-              done()
-            },
-          })
-        }}
+        onCreate={(json, done) => void run(m.create.mutateAsync(json), done)}
       />
     </div>
   )

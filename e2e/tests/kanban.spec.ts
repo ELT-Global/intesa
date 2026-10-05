@@ -92,8 +92,9 @@ test("a failed move rolls back and shows the error", async ({ page }) => {
 test("Alt+Arrow keys move a focused card one column and keep focus", async ({ page }) => {
   await setup(page, [{ title: "Write spec" }])
   const patches: string[] = []
-  page.on("request", (r) => {
-    if (r.method() === "PATCH") patches.push(r.url())
+  await page.route("**/api/tasks/*", (route) => {
+    if (route.request().method() === "PATCH") patches.push(route.request().url())
+    return route.continue()
   })
   const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
   await card.focus()
@@ -119,7 +120,8 @@ test("Alt+Arrow keys move a focused card one column and keep focus", async ({ pa
   await page.keyboard.press("Alt+ArrowLeft")
   await expect(page.getByRole("status").filter({ hasText: "already in Backlog" })).toBeVisible()
   await expect(backlogCard).toBeFocused()
-  await page.waitForTimeout(300)
+  // A request round-trip after the keypress: anything the keypress had sent is counted by now.
+  await page.evaluate(() => fetch("/api/health"))
   expect(patches.length).toBe(sentBefore)
 })
 

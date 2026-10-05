@@ -220,7 +220,14 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
   function remove(type: RelationType, otherId: string, button: HTMLElement) {
     const all = [...(root.current?.querySelectorAll("[data-remove-relationship]") ?? [])]
     afterRemove.current = { index: all.indexOf(button), total }
-    change.mutate({ action: "remove", type, otherId })
+    change.mutate(
+      { action: "remove", type, otherId },
+      {
+        onError: () => {
+          afterRemove.current = null
+        },
+      },
+    )
   }
 
   return (

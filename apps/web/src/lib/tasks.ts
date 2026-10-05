@@ -1,6 +1,5 @@
 import {
   keepPreviousData,
-  MutationObserver,
   type QueryClient,
   queryOptions,
   useMutation,
@@ -122,12 +121,17 @@ const notifyMeta = (message: string) => ({ errorNotice: message })
 // optimistic state, so only the last one to settle refreshes.
 const TASK_MUTATION = ["task-mutation"] as const
 
+// Runs inside each mutation's onSettled, while that mutation still counts as pending. So a
+// count of 1 means it is the last one in flight (queued same-task mutations count too), and
+// only then is it safe to refetch without overwriting another mutation's optimistic state.
 function settleTaskMutation(qc: QueryClient, projectId?: string) {
   if (qc.isMutating({ mutationKey: TASK_MUTATION }) === 1) invalidateTaskGraph(qc, projectId)
 }
 
 // Edits to one task run one after another, so responses cannot land out of order. The scope
-// depends on the variables, which a hook cannot express, hence an observer per call.
+// depends on the variables, which a hook cannot express, so these mutations are built and
+// executed directly on the cache. With no observer attached they are garbage collected after
+// gcTime once settled (an observer would hold on to them until it was unsubscribed).
 const taskScope = (taskId: string) => ({ id: `task:${taskId}` })
 
 type UpdateVars = {
@@ -244,7 +248,10 @@ export function useUpdateTask() {
   const qc = useQueryClient()
   const mutateAsync = useCallback(
     (vars: UpdateVars, callbacks?: { onError?: () => void }) =>
-      new MutationObserver(qc, updateOptions(qc, vars, callbacks?.onError)).mutate(vars),
+      qc
+        .getMutationCache()
+        .build(qc, updateOptions(qc, vars, callbacks?.onError))
+        .execute(vars),
     [qc],
   )
   const mutate = useCallback(
@@ -291,26 +298,27 @@ export function useDeleteTask() {
   const mutate = useCallback(
     (vars: DeleteVars) => {
       const { taskId, projectId } = vars
-      new MutationObserver(qc, {
-        mutationKey: TASK_MUTATION,
-        scope: taskScope(taskId),
-        meta: notifyMeta("Could not delete the task."),
-        mutationFn: (v: DeleteVars) => taskApi.remove(v.taskId),
-        onMutate: async () => {
-          await qc.cancelQueries({ queryKey: taskKeys.list(projectId) })
-          const list = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
-          qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-            old?.filter((t) => t.id !== taskId),
-          )
-          return { list }
-        },
-        onError: (_error, _vars, ctx) => {
-          if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
-        },
-        onSuccess: () => qc.removeQueries({ queryKey: taskKeys.detail(taskId) }),
-        onSettled: () => settleTaskMutation(qc, projectId),
-      })
-        .mutate(vars)
+      qc.getMutationCache()
+        .build(qc, {
+          mutationKey: TASK_MUTATION,
+          scope: taskScope(taskId),
+          meta: notifyMeta("Could not delete the task."),
+          mutationFn: (v: DeleteVars) => taskApi.remove(v.taskId),
+          onMutate: async () => {
+            await qc.cancelQueries({ queryKey: taskKeys.list(projectId) })
+            const list = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
+            qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
+              old?.filter((t) => t.id !== taskId),
+            )
+            return { list }
+          },
+          onError: (_error, _vars, ctx) => {
+            if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
+          },
+          onSuccess: () => qc.removeQueries({ queryKey: taskKeys.detail(taskId) }),
+          onSettled: () => settleTaskMutation(qc, projectId),
+        })
+        .execute(vars)
         .catch(() => {})
     },
     [qc],
