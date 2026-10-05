@@ -16,14 +16,17 @@ export function Avatar({
   name,
   size = "md",
   className,
+  labelled,
 }: {
   name: string
   size?: keyof typeof sizes
   className?: string
+  /** Exposes the person's name to assistive tech; decorative otherwise (the name is usually beside it). */
+  labelled?: boolean
 }) {
   return (
     <span
-      aria-hidden
+      {...(labelled ? { role: "img", "aria-label": name } : { "aria-hidden": true })}
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full border border-border/30 bg-muted font-medium text-subtle-foreground",
         sizes[size],

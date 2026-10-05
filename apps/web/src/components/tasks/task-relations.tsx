@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PickerPopover } from "./picker-popover"
 import { StatusIcon } from "./properties"
+import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
 
 /** Sheet sections for subtask and relationship management; pass from the sheet's `sections` slot. */
@@ -117,6 +118,7 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
                     update.mutate({
                       taskId: s.id,
                       projectId: s.projectId,
+                      parentTaskId: task.id,
                       patch: { status: complete ? "todo" : "complete" },
                     })
                   }
@@ -124,7 +126,7 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
                 >
                   <StatusIcon status={s.status} />
                 </button>
-                <span className="font-mono text-[11px] text-subtle-foreground">{s.key}</span>
+                <TaskKey>{s.key}</TaskKey>
                 <button
                   type="button"
                   onClick={() => openTask(s.id)}
@@ -206,7 +208,7 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
                   className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded py-1 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <StatusIcon status={ref.status} />
-                  <span className="font-mono text-[11px] text-subtle-foreground">{ref.key}</span>
+                  <TaskKey>{ref.key}</TaskKey>
                   <span className="truncate">{ref.title}</span>
                 </button>
                 <Button
@@ -263,7 +265,7 @@ function AddRelationship({
       content: (
         <>
           <StatusIcon status={r.status} />
-          <span className="font-mono text-[11px] text-subtle-foreground">{r.key}</span>
+          <TaskKey>{r.key}</TaskKey>
           <span className="truncate">{r.title}</span>
         </>
       ),

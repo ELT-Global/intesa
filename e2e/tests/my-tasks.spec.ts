@@ -97,7 +97,7 @@ test("clicking a task opens it in its project", async ({ page, browser }) => {
   const { slug, alphaId } = await setup(page, browser)
   await page.goto(`/w/${slug}/my-tasks`)
   await page.getByRole("button", { name: /Mine in alpha/ }).click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${alphaId}/board\\?.*task=`))
+  await expect(page).toHaveURL(new RegExp(`/projects/${alphaId}(/\\w+)?\\?.*task=`))
   await expect(page.getByRole("dialog", { name: /-1$/ })).toBeVisible()
 })
 

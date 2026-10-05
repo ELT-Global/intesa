@@ -6,6 +6,7 @@ import { createContext, type ReactNode, useContext, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import type { Workspace } from "@/lib/api"
+import { useRememberProjectView } from "@/lib/last-view"
 import { projectQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { SidebarContent, Wordmark } from "./sidebar"
@@ -27,6 +28,7 @@ function TopBar({
   trigger: ReactNode
   setSlot: (el: HTMLElement | null) => void
 }) {
+  useRememberProjectView()
   const matches = useMatches()
   const projectId = (
     matches.find((m) => m.routeId === "/_app/w/$slug/projects/$projectId")?.params as

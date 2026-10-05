@@ -27,12 +27,13 @@ test("tasks appear in the column for their status", async ({ page }) => {
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
   await expect(column(page, "In Progress").getByRole("button", { name: /Build it/ })).toBeVisible()
   await expect(column(page, "Complete").getByRole("button", { name: /Ship it/ })).toBeVisible()
-  await expect(column(page, "Review").getByRole("button")).toHaveCount(1) // only the add button
+  await expect(column(page, "Review").getByRole("listitem")).toHaveCount(0)
 })
 
 test("dragging a card to another column changes its status and persists", async ({ page }) => {
   await setup(page, [{ title: "Write spec" }])
   const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
   await card.dragTo(column(page, "In Progress"))
 
   await expect(
@@ -40,7 +41,7 @@ test("dragging a card to another column changes its status and persists", async 
   ).toBeVisible()
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toHaveCount(0)
 
-  await page.waitForLoadState("networkidle")
+  await saved
   await page.reload()
   await expect(
     column(page, "In Progress").getByRole("button", { name: /Write spec/ }),
@@ -81,4 +82,26 @@ test("a failed move rolls back and shows the error", async ({ page }) => {
   await expect(column(page, "In Progress").getByRole("button", { name: /Write spec/ })).toHaveCount(
     0,
   )
+})
+
+test("Alt+Arrow keys move a focused card one column and keep focus", async ({ page }) => {
+  await setup(page, [{ title: "Write spec" }])
+  const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
+  await card.focus()
+
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
+  await page.keyboard.press("Alt+ArrowRight")
+  const moved = column(page, "In Progress").getByRole("button", { name: /Write spec/ })
+  await expect(moved).toBeVisible()
+  await expect(moved).toBeFocused()
+  await saved
+
+  await page.keyboard.press("Alt+ArrowLeft")
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeFocused()
+
+  // Backlog is the first column, so there is nothing further left.
+  await page.keyboard.press("Alt+ArrowLeft")
+  await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeFocused()
+  await page.keyboard.press("Alt+ArrowLeft")
+  await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeVisible()
 })

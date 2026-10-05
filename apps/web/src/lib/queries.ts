@@ -35,9 +35,16 @@ export const membersQuery = (workspaceId: string) =>
     queryFn: async () => (await api.members(workspaceId)).members,
   })
 
+/** The client's local calendar day, so "due soon" matches what the user sees. */
+function localToday(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export const homeQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: keys.home(workspaceId),
-    queryFn: () => api.home(workspaceId),
+    queryFn: () => api.home(workspaceId, localToday()),
     staleTime: 0,
   })

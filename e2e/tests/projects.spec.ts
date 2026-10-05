@@ -3,7 +3,7 @@ import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/aut
 import { addMember, pageAs } from "../support/members"
 import { createProject as apiCreateProject, workspaceIdBySlug } from "../support/projects"
 
-const projectsNav = (page: Page) => page.getByRole("region", { name: "Projects" })
+const projectsNav = (page: Page) => page.getByRole("region", { name: "Projects", exact: true })
 const breadcrumb = (page: Page) => page.getByRole("navigation", { name: "Breadcrumb" })
 
 async function createProject(page: Page, name: string, key?: string) {
@@ -144,3 +144,18 @@ test("a project id under another workspace's slug shows not-found", async ({ pag
 async function apiProject(page: Page, slug: string) {
   return apiCreateProject(page, await workspaceIdBySlug(page, slug), uniqueName("Other"))
 }
+
+test("project links reopen the last used view", async ({ page }) => {
+  await setup(page)
+  const name = uniqueName("Remembered")
+  await createProject(page, name)
+  await page.getByRole("button", { name: "Table" }).click()
+  await expect(page).toHaveURL(/\/table$/)
+
+  await page
+    .getByRole("navigation", { name: "Primary" })
+    .getByRole("link", { name: "Home" })
+    .click()
+  await projectsNav(page).getByRole("link", { name }).click()
+  await expect(page).toHaveURL(/\/table$/)
+})

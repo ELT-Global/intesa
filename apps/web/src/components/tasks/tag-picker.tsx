@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Tag as TagIcon, X } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { ApiError } from "@/lib/api"
 import { type Tag, tagsQuery, useCreateTag } from "@/lib/tags"
-import { type TaskDetail, type TaskSummary, useUpdateTask } from "@/lib/tasks"
+import { type TaskDetail, type TaskSummary, taskKeys, useUpdateTask } from "@/lib/tasks"
 import { PickerPopover } from "./picker-popover"
-import { TagDot } from "./task-card"
+import { TagDot } from "./tag-chip"
 
 export function TagPicker({
   task,
@@ -15,6 +16,7 @@ export function TagPicker({
   workspaceId: string
 }) {
   const update = useUpdateTask()
+  const qc = useQueryClient()
   const createTag = useCreateTag(workspaceId)
   const tags = useQuery(tagsQuery(workspaceId)).data ?? []
   const [filter, setFilter] = useState("")
@@ -40,12 +42,22 @@ export function TagPicker({
   }
 
   async function create() {
+    const wanted = name
     setFilter("")
+    let tag: Tag | undefined
     try {
-      setTags([...task.tags, await createTag.mutateAsync(name)])
-    } catch {
-      // A duplicate means another tab created it first; the refetched list will show it.
+      tag = await createTag.mutateAsync(wanted)
+    } catch (error) {
+      // Someone else created it first: use theirs.
+      if (!(error instanceof ApiError && error.status === 409)) return
+      const fresh = await qc.fetchQuery({ ...tagsQuery(workspaceId), staleTime: 0 })
+      tag = fresh.find((t) => t.name.toLowerCase() === wanted.toLowerCase())
     }
+    if (!tag) return
+    // The task may have changed while the tag was being created.
+    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.tags ?? task.tags
+    const created = tag
+    if (!current.some((t) => t.id === created.id)) setTags([...current, created])
   }
 
   return (

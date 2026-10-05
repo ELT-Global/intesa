@@ -62,50 +62,57 @@ function ProjectLayout() {
   }
   if (!project.data) return null
 
+  const viewSwitcher = (
+    <SegmentedControl<View>
+      label="View"
+      value={view}
+      onChange={(next) =>
+        void navigate({
+          to:
+            next === "board"
+              ? "/w/$slug/projects/$projectId/board"
+              : "/w/$slug/projects/$projectId/table",
+          params: { slug, projectId },
+        })
+      }
+      segments={[
+        { value: "board", label: "Board", icon: <Columns3 /> },
+        { value: "table", label: "Table", icon: <Table2 /> },
+      ]}
+    />
+  )
+  const optionsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" icon aria-label="Project options">
+          <Ellipsis />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Project settings</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setFieldsOpen(true)}>Custom fields…</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
   return (
     <>
       <TopBarActions>
-        <SegmentedControl<View>
-          label="View"
-          value={view}
-          onChange={(next) =>
-            void navigate({
-              to:
-                next === "board"
-                  ? "/w/$slug/projects/$projectId/board"
-                  : "/w/$slug/projects/$projectId/table",
-              params: { slug, projectId },
-            })
-          }
-          segments={[
-            { value: "board", label: "Board", icon: <Columns3 /> },
-            { value: "table", label: "Table", icon: <Table2 /> },
-          ]}
-        />
+        <div className="hidden lg:block">{viewSwitcher}</div>
         <div className="ml-auto flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" icon aria-label="Project options">
-                <Ellipsis />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
-                Project settings
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setFieldsOpen(true)}>
-                Custom fields…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="hidden lg:block">{optionsMenu}</div>
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
             <Plus />
-            New task
+            <span className="max-sm:sr-only">New task</span>
           </Button>
         </div>
       </TopBarActions>
 
       <PageTitle title={project.data.name} description={project.data.description ?? undefined} />
+      <div className="-mt-3 mb-4 flex flex-wrap items-center gap-2 lg:hidden">
+        {viewSwitcher}
+        {optionsMenu}
+      </div>
       <Outlet />
       <CreateTaskDialog projectId={projectId} open={createOpen} onOpenChange={setCreateOpen} />
       <TaskDetailSheet

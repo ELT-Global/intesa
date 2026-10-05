@@ -1,6 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import type { InferRequestType, InferResponseType } from "hono/client"
 import { client, unwrap } from "./api"
+import { taskKeys } from "./tasks"
 
 const projectFields = client.api.projects[":projectId"]["custom-fields"]
 const fieldById = client.api["custom-fields"][":fieldId"]
@@ -35,6 +36,7 @@ export function useFieldMutations(projectId: string) {
     await Promise.all([
       qc.invalidateQueries({ queryKey: fieldKeys.list(projectId) }),
       qc.invalidateQueries({ queryKey: ["tasks"] }),
+      qc.invalidateQueries({ queryKey: taskKeys.list(projectId) }),
     ])
   }
   return {

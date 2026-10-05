@@ -1,32 +1,14 @@
 import { ListChecks } from "lucide-react"
+import { memo } from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { Chip } from "@/components/ui/badge"
 import type { TaskSummary } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { DueDateChip, PriorityChip } from "./properties"
+import { TagDot } from "./tag-chip"
+import { TaskKey } from "./task-key"
 
-export function TagDot({ name, color }: { name: string; color: string }) {
-  return (
-    <Chip className="font-medium text-foreground/90">
-      <span
-        aria-hidden
-        className="size-1.5 rounded-full"
-        style={{ background: `var(--chart-${TAG_SLOT[color] ?? "ink"})` }}
-      />
-      {name}
-    </Chip>
-  )
-}
-
-const TAG_SLOT: Record<string, string> = {
-  blue: "1",
-  orange: "2",
-  aqua: "3",
-  violet: "4",
-  magenta: "5",
-}
-
-export function TaskCard({
+export const TaskCard = memo(function TaskCard({
   task,
   onOpen,
   className,
@@ -51,11 +33,11 @@ export function TaskCard({
       aria-describedby={describedBy}
     >
       <span className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-subtle-foreground">{task.key}</span>
+        <TaskKey>{task.key}</TaskKey>
         {task.assignees.length > 0 && (
           <span className="flex -space-x-1">
             {task.assignees.slice(0, 3).map((a) => (
-              <Avatar key={a.id} name={a.name} className="border-background" />
+              <Avatar key={a.id} name={a.name} labelled className="border-background" />
             ))}
           </span>
         )}
@@ -83,4 +65,4 @@ export function TaskCard({
       )}
     </button>
   )
-}
+})

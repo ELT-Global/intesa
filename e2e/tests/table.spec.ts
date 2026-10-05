@@ -52,8 +52,7 @@ test("sorting by priority orders urgent to low and puts unset last", async ({ pa
 
 test("clicking a row opens the task sheet", async ({ page }) => {
   await setup(page, [{ title: "Open me" }])
-  // The last cell (due date) is empty and has no control of its own.
-  await row(page, "Open me").getByRole("cell").last().click()
+  await row(page, "Open me").getByRole("button", { name: "Open me" }).click()
   await expect(page.getByRole("dialog", { name: /-1$/ })).toBeVisible()
   await expect(page).toHaveURL(/task=/)
 })

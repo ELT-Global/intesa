@@ -48,7 +48,7 @@ function TaskRow({ slug, task }: { slug: string; task: HomeTask }) {
   return (
     <li>
       <Link
-        to="/w/$slug/projects/$projectId/board"
+        to="/w/$slug/projects/$projectId"
         params={{ slug, projectId: task.project.id }}
         search={{ task: task.id }}
         className={rowClass}

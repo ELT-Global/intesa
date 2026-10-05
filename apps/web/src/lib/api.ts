@@ -55,7 +55,8 @@ export const api = {
     unwrap(memberApi.$patch({ param: { workspaceId, memberId }, json: { role } })),
   removeMember: (workspaceId: string, memberId: string) =>
     unwrap(memberApi.$delete({ param: { workspaceId, memberId } })),
-  home: (workspaceId: string) => unwrap(workspaceApi.home.$get({ param: { workspaceId } })),
+  home: (workspaceId: string, today: string) =>
+    unwrap(workspaceApi.home.$get({ param: { workspaceId }, query: { today } })),
 
   projects: (workspaceId: string) =>
     unwrap(client.api.workspaces[":workspaceId"].projects.$get({ param: { workspaceId } })),

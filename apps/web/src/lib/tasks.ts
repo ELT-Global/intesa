@@ -1,6 +1,6 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import type { InferRequestType, InferResponseType } from "hono/client"
-import { ApiError, client, unwrap } from "./api"
+import { ApiError, client, keys, unwrap } from "./api"
 
 const taskById = client.api.tasks[":taskId"]
 const projectTasks = client.api.projects[":projectId"].tasks
@@ -94,6 +94,53 @@ export const taskHistoryQuery = (taskId: string) =>
     queryFn: async () => (await taskApi.history(taskId)).history,
   })
 
+type TaskGraphScope = {
+  projectId?: string
+  taskId?: string
+  /** Defaults to the parent in the cached detail. */
+  parentTaskId?: string | null
+  /** Defaults to the relationships in the cached detail. */
+  relatedTaskIds?: string[]
+  /** Without it, every workspace's my-tasks and home data is refreshed. */
+  workspaceId?: string
+}
+
+/** Refreshes everything that can show a change to one task: lists, details, history and dashboards. */
+export function invalidateTaskGraph(qc: QueryClient, scope: TaskGraphScope) {
+  const { projectId, taskId, workspaceId } = scope
+  const cached = taskId ? qc.getQueryData<TaskDetail>(taskKeys.detail(taskId)) : undefined
+  const parentId = scope.parentTaskId === undefined ? cached?.parent?.id : scope.parentTaskId
+  const relatedIds =
+    scope.relatedTaskIds ??
+    (cached ? [...cached.blocks, ...cached.blockedBy, ...cached.related].map((r) => r.id) : [])
+
+  if (projectId) void qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
+  if (taskId) {
+    void qc.invalidateQueries({ queryKey: taskKeys.detail(taskId), exact: true })
+    void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
+  }
+  if (parentId) void qc.invalidateQueries({ queryKey: taskKeys.detail(parentId), exact: true })
+  for (const id of relatedIds) {
+    void qc.invalidateQueries({ queryKey: taskKeys.detail(id), exact: true })
+  }
+  void qc.invalidateQueries({ queryKey: workspaceId ? myTasksKey(workspaceId) : ["my-tasks"] })
+  void qc.invalidateQueries({
+    queryKey: workspaceId ? keys.home(workspaceId) : ["workspaces"],
+    predicate: (q) => q.queryKey[2] === "home",
+  })
+}
+
+/** Refreshes every cached task view, e.g. after a member's assignments are removed. */
+export function invalidateWorkspaceTasks(qc: QueryClient, workspaceId: string) {
+  void qc.invalidateQueries({
+    queryKey: ["projects"],
+    predicate: (q) => q.queryKey[2] === "tasks" && q.queryKey.length === 3,
+  })
+  void qc.invalidateQueries({ queryKey: ["tasks"] })
+  void qc.invalidateQueries({ queryKey: myTasksKey(workspaceId) })
+  void qc.invalidateQueries({ queryKey: keys.home(workspaceId) })
+}
+
 /** Mutations carrying this meta have their failures shown by MutationErrorNotice. */
 const notifyMeta = (message: string) => ({ errorNotice: message })
 
@@ -112,8 +159,10 @@ export function useUpdateTask() {
       projectId: string
       patch: TaskPatch
       view?: TaskPatchView
+      /** For subtask edits: the parent's detail shows this task, so it is updated and refreshed too. */
+      parentTaskId?: string | null
     }) => taskApi.update(taskId, patch).then((r) => r.task),
-    onMutate: async ({ taskId, projectId, patch: fullPatch, view }) => {
+    onMutate: async ({ taskId, projectId, patch: fullPatch, view, parentTaskId }) => {
       const { assigneeIds: _a, tagIds: _t, customFields: _c, ...plain } = fullPatch
       const optimistic: Record<string, unknown> = { ...plain, ...view }
       const fields = Object.keys(optimistic)
@@ -136,11 +185,16 @@ export function useUpdateTask() {
       qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) =>
         old ? { ...old, ...optimistic } : old,
       )
-      return ctx
+      const parentStatus = parentTaskId
+        ? setSubtaskStatus(qc, parentTaskId, taskId, fullPatch.status)
+        : undefined
+      return { ...ctx, parentStatus }
     },
-    onError: (_error, { taskId, projectId }, ctx) => {
+    onError: (_error, { taskId, projectId, parentTaskId }, ctx) => {
       if (!ctx) return
       const { list, detail } = ctx
+      if (parentTaskId && ctx.parentStatus)
+        setSubtaskStatus(qc, parentTaskId, taskId, ctx.parentStatus)
       if (list) {
         qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
           old?.map((t) => (t.id === taskId ? { ...t, ...list } : t)),
@@ -152,21 +206,40 @@ export function useUpdateTask() {
         )
       }
     },
-    onSettled: (_data, _error, { taskId, projectId, patch }) => {
+    onSettled: (_data, _error, { taskId, projectId, parentTaskId }) => {
       // Refetching while another edit is in flight would overwrite its optimistic state.
-      if (qc.isMutating({ mutationKey: UPDATE_KEY }) > 1) return
-      void qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
-      void qc.invalidateQueries({ queryKey: taskKeys.detail(taskId), exact: true })
-      if (patch.status) {
-        void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
-        // A subtask's status feeds its parent's progress, which lives in the parent's detail.
-        void qc.invalidateQueries({
-          queryKey: ["tasks"],
-          predicate: (q) => q.queryKey.length === 2,
-        })
-      }
+      const pending = qc
+        .getMutationCache()
+        .findAll({ mutationKey: UPDATE_KEY, status: "pending" })
+        .map((m) => m.state.variables as { taskId: string; projectId: string })
+      if (pending.filter((v) => v.taskId === taskId).length > 1) return
+      const projectBusy = pending.filter((v) => v.projectId === projectId).length > 1
+      invalidateTaskGraph(qc, {
+        taskId,
+        parentTaskId,
+        projectId: projectBusy ? undefined : projectId,
+      })
     },
   })
+}
+
+/** Sets a subtask's status inside its parent's cached detail; returns the previous status. */
+function setSubtaskStatus(
+  qc: QueryClient,
+  parentId: string,
+  subtaskId: string,
+  status: TaskStatus | undefined,
+): TaskStatus | undefined {
+  const parent = qc.getQueryData<TaskDetail>(taskKeys.detail(parentId))
+  const previous = parent?.subtasks.find((t) => t.id === subtaskId)?.status
+  if (!parent || !status || !previous) return undefined
+  const subtasks = parent.subtasks.map((t) => (t.id === subtaskId ? { ...t, status } : t))
+  qc.setQueryData<TaskDetail>(taskKeys.detail(parentId), {
+    ...parent,
+    subtasks,
+    subtaskDoneCount: subtasks.filter((t) => t.status === "complete").length,
+  })
+  return previous
 }
 
 function pickFields(task: Record<string, unknown>, fields: string[]) {
@@ -177,7 +250,8 @@ export function useCreateTask(projectId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateTaskInput) => taskApi.create(projectId, input).then((r) => r.task),
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.list(projectId) }),
+    onSettled: (_d, _e, input) =>
+      invalidateTaskGraph(qc, { projectId, parentTaskId: input.parentTaskId ?? null }),
   })
 }
 
@@ -192,7 +266,14 @@ export function useDeleteTask() {
       qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
         old?.filter((t) => t.id !== taskId),
       )
-      return { list }
+      const cached = qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))
+      return {
+        list,
+        parentTaskId: cached?.parent?.id ?? null,
+        relatedTaskIds: cached
+          ? [...cached.blocks, ...cached.blockedBy, ...cached.related].map((r) => r.id)
+          : [],
+      }
     },
     onError: (_error, { projectId }, ctx) => {
       if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
@@ -200,8 +281,12 @@ export function useDeleteTask() {
     onSuccess: (_d, { taskId }) => {
       qc.removeQueries({ queryKey: taskKeys.detail(taskId) })
     },
-    onSettled: (_d, _e, { projectId }) =>
-      qc.invalidateQueries({ queryKey: taskKeys.list(projectId) }),
+    onSettled: (_d, _e, { projectId }, ctx) =>
+      invalidateTaskGraph(qc, {
+        projectId,
+        parentTaskId: ctx?.parentTaskId,
+        relatedTaskIds: ctx?.relatedTaskIds,
+      }),
   })
 }
 
@@ -211,10 +296,7 @@ export function useCreateSubtask(parent: { id: string; projectId: string }) {
     meta: notifyMeta("Could not add the subtask."),
     mutationFn: (title: string) =>
       taskApi.create(parent.projectId, { title, parentTaskId: parent.id }).then((r) => r.task),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: taskKeys.detail(parent.id), exact: true })
-      void qc.invalidateQueries({ queryKey: taskKeys.list(parent.projectId) })
-    },
+    onSettled: () => invalidateTaskGraph(qc, { projectId: parent.projectId, taskId: parent.id }),
   })
 }
 
@@ -237,7 +319,7 @@ export function useChangeRelationship(taskId: string) {
         : taskApi.removeRelation(taskId, type, otherId),
     onSuccess: (data) => qc.setQueryData(taskKeys.detail(taskId), data.task),
     onSettled: (_d, _e, { otherId }) =>
-      qc.invalidateQueries({ queryKey: taskKeys.detail(otherId), exact: true }),
+      invalidateTaskGraph(qc, { taskId, relatedTaskIds: [otherId] }),
   })
 }
 

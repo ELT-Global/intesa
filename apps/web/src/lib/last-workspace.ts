@@ -13,3 +13,9 @@ export function setLastWorkspace(slug: string) {
     localStorage.setItem(KEY, slug)
   } catch {}
 }
+
+export function clearLastWorkspace(slug: string) {
+  try {
+    if (localStorage.getItem(KEY) === slug) localStorage.removeItem(KEY)
+  } catch {}
+}

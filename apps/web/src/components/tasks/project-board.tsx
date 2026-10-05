@@ -1,6 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
-import { type DragEvent, useState } from "react"
+import {
+  type DragEvent,
+  type KeyboardEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { Message } from "@/components/page"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,29 +28,61 @@ import { useTaskParam } from "./task-param"
 
 const DRAG_HINT_ID = "kanban-drag-hint"
 
-/** Kanban board: one column per status, cards draggable between columns. */
+/** Kanban board: one column per status; cards move by drag and drop or Alt+Left/Right. */
 export function ProjectBoard({ projectId }: { projectId: string }) {
   const tasks = useQuery(projectTasksQuery(projectId))
   const { openTask } = useTaskParam()
-  const update = useUpdateTask()
+  const { mutate } = useUpdateTask()
   const [createStatus, setCreateStatus] = useState<TaskStatus | null>(null)
+  const all = tasks.data
+  const byStatus = useMemo(() => {
+    const groups = new Map<TaskStatus, TaskSummary[]>(TASK_STATUSES.map((s) => [s, []]))
+    for (const t of all ?? []) groups.get(t.status)?.push(t)
+    return groups
+  }, [all])
+
+  // Moving a card re-parents its element, so focus is put back once the new column renders.
+  const focusAfterMove = useRef<string | null>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs after every list change
+  useEffect(() => {
+    const id = focusAfterMove.current
+    if (!id) return
+    focusAfterMove.current = null
+    document.querySelector<HTMLElement>(`[data-task-id="${id}"] button`)?.focus()
+  }, [all])
+
+  const tasksRef = useRef(all)
+  tasksRef.current = all
+  const move = useCallback(
+    (taskId: string, status: TaskStatus) => {
+      const task = tasksRef.current?.find((t) => t.id === taskId)
+      if (!task || task.status === status) return
+      mutate({ taskId, projectId, patch: { status } })
+    },
+    [mutate, projectId],
+  )
+  const moveBy = useCallback(
+    (taskId: string, delta: -1 | 1) => {
+      const task = tasksRef.current?.find((t) => t.id === taskId)
+      const next = task && TASK_STATUSES[TASK_STATUSES.indexOf(task.status) + delta]
+      if (!next) return
+      focusAfterMove.current = taskId
+      move(taskId, next)
+    },
+    [move],
+  )
+  const addTo = useCallback((status: TaskStatus) => setCreateStatus(status), [])
 
   if (tasks.isError) {
     return <Message title="Couldn't load tasks." body={tasks.error.message} />
   }
-  if (!tasks.data) return null
-  const all = tasks.data
-
-  function move(taskId: string, status: TaskStatus) {
-    const task = all.find((t) => t.id === taskId)
-    if (!task || task.status === status) return
-    update.mutate({ taskId, projectId, patch: { status } })
-  }
+  if (!all) return null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <p id={DRAG_HINT_ID} className="sr-only">
-        Drag to another column to change status, or open the task to change it.
+        Drag to another column, or press Alt with the left or right arrow key, to change status. You
+        can also open the task to change it.
       </p>
       <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-linear-to-b from-muted/20 to-background [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] md:snap-none">
         <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
@@ -49,10 +90,11 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
             <Column
               key={status}
               status={status}
-              tasks={all.filter((t) => t.status === status)}
+              tasks={byStatus.get(status) ?? []}
               onOpen={openTask}
               onMove={move}
-              onAdd={() => setCreateStatus(status)}
+              onMoveBy={moveBy}
+              onAdd={addTo}
             />
           ))}
         </div>
@@ -67,18 +109,20 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   )
 }
 
-function Column({
+const Column = memo(function Column({
   status,
   tasks,
   onOpen,
   onMove,
+  onMoveBy,
   onAdd,
 }: {
   status: TaskStatus
   tasks: TaskSummary[]
   onOpen: (taskId: string) => void
   onMove: (taskId: string, status: TaskStatus) => void
-  onAdd: () => void
+  onMoveBy: (taskId: string, delta: -1 | 1) => void
+  onAdd: (status: TaskStatus) => void
 }) {
   const [over, setOver] = useState(false)
   const label = STATUS_LABELS[status]
@@ -115,28 +159,14 @@ function Column({
       </header>
       <ul className="flex min-h-12 flex-1 flex-col gap-2 overflow-y-auto p-2 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]">
         {tasks.map((task) => (
-          <li
-            key={task.id}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData("text/plain", task.id)
-              e.dataTransfer.effectAllowed = "move"
-              e.currentTarget.dataset.dragging = ""
-            }}
-            onDragEnd={(e) => {
-              delete e.currentTarget.dataset.dragging
-            }}
-            className="rounded-lg data-[dragging]:shadow-2xl data-[dragging]:ring-1 data-[dragging]:ring-black/5"
-          >
-            <TaskCard task={task} onOpen={onOpen} describedBy={DRAG_HINT_ID} />
-          </li>
+          <DraggableCard key={task.id} task={task} onOpen={onOpen} onMoveBy={onMoveBy} />
         ))}
       </ul>
       <footer className="border-t border-border/60 p-1.5">
         <Button
           variant="ghost"
           size="xs"
-          onClick={onAdd}
+          onClick={() => onAdd(status)}
           className="w-full justify-start opacity-100 transition-opacity duration-150 md:opacity-0 md:focus-visible:opacity-100 md:group-hover/column:opacity-100"
         >
           <Plus />
@@ -145,4 +175,40 @@ function Column({
       </footer>
     </section>
   )
-}
+})
+
+const DraggableCard = memo(function DraggableCard({
+  task,
+  onOpen,
+  onMoveBy,
+}: {
+  task: TaskSummary
+  onOpen: (taskId: string) => void
+  onMoveBy: (taskId: string, delta: -1 | 1) => void
+}) {
+  function onKeyDown(e: KeyboardEvent) {
+    if (!e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return
+    e.preventDefault()
+    onMoveBy(task.id, e.key === "ArrowLeft" ? -1 : 1)
+  }
+
+  return (
+    // Key handling is delegated from the card button inside.
+    <li
+      data-task-id={task.id}
+      draggable
+      onKeyDown={onKeyDown}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", task.id)
+        e.dataTransfer.effectAllowed = "move"
+        e.currentTarget.dataset.dragging = ""
+      }}
+      onDragEnd={(e) => {
+        delete e.currentTarget.dataset.dragging
+      }}
+      className="rounded-lg data-[dragging]:shadow-2xl data-[dragging]:ring-1 data-[dragging]:ring-black/5"
+    >
+      <TaskCard task={task} onOpen={onOpen} describedBy={DRAG_HINT_ID} />
+    </li>
+  )
+})

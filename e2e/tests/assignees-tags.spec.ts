@@ -33,11 +33,11 @@ test("assign and unassign people; avatars persist on the card; Assign to me", as
   await page.keyboard.press("Escape")
   await page.keyboard.press("Escape")
 
-  await expect(card(page, "Task in A")).toContainText("OO")
+  await expect(card(page, "Task in A").getByRole("img", { name: "Olive Owner" })).toBeVisible()
   await page.waitForLoadState("networkidle")
   await page.reload()
-  await expect(card(page, "Task in A")).toContainText("OO")
-  await expect(card(page, "Task in A").locator("span.rounded-full")).toHaveCount(2)
+  await expect(card(page, "Task in A").getByRole("img", { name: "Olive Owner" })).toBeVisible()
+  await expect(card(page, "Task in A").getByRole("img")).toHaveCount(2)
 
   // Unassign the teammate through the keyboard-operable filter.
   await card(page, "Task in A").click()
@@ -46,14 +46,14 @@ test("assign and unassign people; avatars persist on the card; Assign to me", as
   await page.keyboard.press("Enter")
   await page.keyboard.press("Escape")
   await page.keyboard.press("Escape")
-  await expect(card(page, "Task in A").locator("span.rounded-full")).toHaveCount(1)
+  await expect(card(page, "Task in A").getByRole("img")).toHaveCount(1)
 
   // Clear everyone, then use the shortcut.
   await card(page, "Task in A").click()
   await sheet(page).getByRole("button", { name: "Change assignees" }).click()
   await popover.getByRole("option", { name: /Olive Owner/ }).click()
   await expect(popover.getByRole("option", { selected: true })).toHaveCount(0)
-  await popover.getByRole("button", { name: "Assign to me" }).click()
+  await popover.getByRole("option", { name: "Assign to me" }).click()
   await expect(popover.getByRole("option", { selected: true })).toHaveCount(1)
   await expect(popover.getByRole("option", { name: /Olive Owner/, selected: true })).toBeVisible()
 })

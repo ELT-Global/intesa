@@ -1,6 +1,6 @@
 import * as P from "@radix-ui/react-popover"
 import { Check } from "lucide-react"
-import { type ReactNode, useId, useState } from "react"
+import { type ReactNode, useEffect, useId, useState } from "react"
 import { cn } from "@/lib/utils"
 
 export type PickerOption = {
@@ -31,7 +31,7 @@ export function PickerPopover({
   label: string
   placeholder: string
   options: PickerOption[]
-  /** Rendered above the list, e.g. a shortcut button. */
+  /** Optional content between the filter input and the list. */
   leading?: ReactNode
   filter: string
   onFilterChange: (value: string) => void
@@ -41,6 +41,11 @@ export function PickerPopover({
   const baseId = useId()
   const [active, setActive] = useState(0)
   const current = Math.min(active, Math.max(options.length - 1, 0))
+  const activeDomId = options[current] ? `${baseId}-${options[current].id}` : undefined
+
+  useEffect(() => {
+    if (activeDomId) document.getElementById(activeDomId)?.scrollIntoView({ block: "nearest" })
+  }, [activeDomId])
 
   return (
     <P.Root onOpenChange={onOpenChange}>
@@ -56,11 +61,9 @@ export function PickerPopover({
           <input
             role="combobox"
             aria-label={`Filter ${label.toLowerCase()}`}
-            aria-expanded
+            aria-expanded={options.length > 0}
             aria-controls={`${baseId}-list`}
-            aria-activedescendant={
-              options[current] ? `${baseId}-${options[current].id}` : undefined
-            }
+            aria-activedescendant={activeDomId}
             value={filter}
             placeholder={placeholder}
             onChange={(e) => {
@@ -74,6 +77,10 @@ export function PickerPopover({
               } else if (e.key === "ArrowUp" && options.length) {
                 e.preventDefault()
                 setActive((current - 1 + options.length) % options.length)
+              } else if ((e.key === "Home" || e.key === "End") && !filter && options.length) {
+                // With text in the field these keys keep moving the caret.
+                e.preventDefault()
+                setActive(e.key === "Home" ? 0 : options.length - 1)
               } else if (e.key === "Enter") {
                 e.preventDefault()
                 options[current]?.onSelect()
@@ -86,7 +93,7 @@ export function PickerPopover({
             id={`${baseId}-list`}
             role="listbox"
             aria-multiselectable
-            aria-label={label}
+            aria-label={`Available ${label.toLowerCase()}`}
             className="max-h-60 overflow-y-auto"
           >
             {options.map((o, i) => (

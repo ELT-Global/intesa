@@ -5,7 +5,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import type { Member } from "@/lib/api"
 import { membersQuery, meQuery } from "@/lib/queries"
-import { type TaskDetail, type TaskSummary, useUpdateTask } from "@/lib/tasks"
+import { type TaskDetail, type TaskSummary, type UserRef, useUpdateTask } from "@/lib/tasks"
 import { PickerPopover } from "./picker-popover"
 
 export function AssigneePicker({
@@ -27,23 +27,28 @@ export function AssigneePicker({
       !needle || m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle),
   )
 
-  function setAssignees(next: Member[]) {
+  const meMember = members.find((m) => m.userId === me?.id)
+  const showMe =
+    meMember !== undefined &&
+    !assignedIds.has(meMember.userId) &&
+    (!needle || "assign to me".includes(needle))
+
+  function setAssignees(next: UserRef[]) {
     update.mutate({
       taskId: task.id,
       projectId: task.projectId,
-      patch: { assigneeIds: next.map((m) => m.userId) },
-      view: {
-        assignees: next.map((m) => ({ id: m.userId, name: m.name, avatarUrl: m.avatarUrl })),
-      },
+      patch: { assigneeIds: next.map((a) => a.id) },
+      view: { assignees: next },
     })
   }
 
   function toggle(member: Member) {
-    const kept = members.filter((m) => assignedIds.has(m.userId) && m.userId !== member.userId)
-    setAssignees(assignedIds.has(member.userId) ? kept : [...kept, member])
+    // Built from the task's own assignees so a still-loading members list can't drop anyone.
+    const kept = task.assignees.filter((a) => a.id !== member.userId)
+    if (assignedIds.has(member.userId)) setAssignees(kept)
+    else
+      setAssignees([...kept, { id: member.userId, name: member.name, avatarUrl: member.avatarUrl }])
   }
-
-  const meMember = members.find((m) => m.userId === me?.id)
 
   return (
     <PickerPopover
@@ -72,33 +77,38 @@ export function AssigneePicker({
           )}
         </Button>
       }
-      leading={
-        meMember && !assignedIds.has(meMember.userId) ? (
-          <button
-            type="button"
-            onClick={() => toggle(meMember)}
-            className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-foreground outline-none hover:bg-accent focus-visible:bg-accent"
-          >
-            <UserPlus aria-hidden className="size-4 text-muted-foreground" />
-            Assign to me
-          </button>
-        ) : null
-      }
-      options={visible.map((m) => ({
-        id: m.userId,
-        label: `${m.name} ${m.email}`,
-        selected: assignedIds.has(m.userId),
-        onSelect: () => toggle(m),
-        content: (
-          <>
-            <Avatar name={m.name} />
-            <span className="min-w-0 flex-1 truncate">
-              {m.name}
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">{m.email}</span>
-            </span>
-          </>
-        ),
-      }))}
+      options={[
+        ...(showMe
+          ? [
+              {
+                id: "assign-me",
+                label: "Assign to me",
+                onSelect: () => meMember && toggle(meMember),
+                content: (
+                  <>
+                    <UserPlus aria-hidden className="size-4 text-muted-foreground" />
+                    Assign to me
+                  </>
+                ),
+              },
+            ]
+          : []),
+        ...visible.map((m) => ({
+          id: m.userId,
+          label: `${m.name} ${m.email}`,
+          selected: assignedIds.has(m.userId),
+          onSelect: () => toggle(m),
+          content: (
+            <>
+              <Avatar name={m.name} />
+              <span className="min-w-0 flex-1 truncate">
+                {m.name}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">{m.email}</span>
+              </span>
+            </>
+          ),
+        })),
+      ]}
     />
   )
 }

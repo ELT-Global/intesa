@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp } from "lucide-react"
-import { useMemo, useState } from "react"
+import { memo, useCallback, useMemo, useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { TASK_STATUSES, type TaskPriority, type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
@@ -11,12 +11,13 @@ import {
   StatusIcon,
   StatusPicker,
 } from "./properties"
-import { TagDot } from "./task-card"
+import { TagDot } from "./tag-chip"
 
 export type TableTask = TaskSummary & { project?: { id: string; name: string; key: string } }
 export type TableColumn = "task" | "project" | "status" | "priority" | "assignees" | "tags" | "due"
 export const ALL_COLUMNS: TableColumn[] = ["task", "status", "priority", "assignees", "tags", "due"]
 
+type RowPatch = { status: TaskSummary["status"] } | { priority: TaskSummary["priority"] }
 type SortKey = "task" | "status" | "priority" | "due"
 type Sort = { key: SortKey; dir: "asc" | "desc" }
 
@@ -115,26 +116,32 @@ function Dash() {
   return <span className="text-muted-foreground">—</span>
 }
 
-function Row({
+const Row = memo(function Row({
   task,
   columns,
   editable,
   onOpen,
+  onPatch,
 }: {
   task: TableTask
   columns: TableColumn[]
   editable: boolean
   onOpen: (task: TableTask) => void
+  onPatch: (task: TableTask, patch: RowPatch) => void
 }) {
-  const update = useUpdateTask()
-  const patch = (p: { status: TaskSummary["status"] } | { priority: TaskSummary["priority"] }) =>
-    update.mutate({ taskId: task.id, projectId: task.projectId, patch: p })
+  const patch = (p: RowPatch) => onPatch(task, p)
 
   const renderCell = (column: TableColumn) => {
     switch (column) {
       case "task":
         return (
-          <td key={column} className={cn(cell, "sticky left-0 z-10 bg-card")}>
+          <td
+            key={column}
+            className={cn(
+              cell,
+              "sticky left-0 z-10 bg-card group-hover/row:bg-[color-mix(in_oklab,var(--muted)_40%,var(--card))]",
+            )}
+          >
             <button
               type="button"
               onClick={(e) => {
@@ -230,7 +237,7 @@ function Row({
       {columns.map(renderCell)}
     </tr>
   )
-}
+})
 
 export function TaskTable({
   tasks,
@@ -249,6 +256,12 @@ export function TaskTable({
   const [sort, setSort] = useState<Sort | null>(null)
   const rows = useMemo(() => (sort ? [...tasks].sort(compareBy(sort)) : tasks), [tasks, sort])
 
+  const update = useUpdateTask()
+  const onPatch = useCallback(
+    (task: TableTask, patch: RowPatch) =>
+      update.mutate({ taskId: task.id, projectId: task.projectId, patch }),
+    [update.mutate],
+  )
   const onSort = (key: SortKey) =>
     setSort((s) =>
       s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
@@ -266,7 +279,14 @@ export function TaskTable({
         </thead>
         <tbody>
           {rows.map((t) => (
-            <Row key={t.id} task={t} columns={columns} editable={editable} onOpen={onOpen} />
+            <Row
+              key={t.id}
+              task={t}
+              columns={columns}
+              editable={editable}
+              onOpen={onOpen}
+              onPatch={onPatch}
+            />
           ))}
         </tbody>
       </table>

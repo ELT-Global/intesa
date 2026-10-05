@@ -17,7 +17,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Panel, PanelHeader } from "@/components/ui/panel"
 import { api, keys, type Member } from "@/lib/api"
+import { clearLastWorkspace } from "@/lib/last-workspace"
 import { membersQuery, meQuery, workspacesQuery } from "@/lib/queries"
+import { invalidateWorkspaceTasks } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/members")({
   staticData: { title: "Members" },
@@ -43,6 +45,8 @@ function MembersPage() {
   const [removing, setRemoving] = useState<Member | null>(null)
 
   const refresh = () => qc.invalidateQueries({ queryKey: keys.members(workspaceId) })
+  // Assignees appear in task lists, home and my tasks; membership changes can unassign people.
+  const refreshAssignees = () => invalidateWorkspaceTasks(qc, workspaceId)
   const changeRole = useMutation({
     mutationFn: (m: Member) =>
       api.changeRole(workspaceId, m.id, m.role === "owner" ? "member" : "owner"),
@@ -50,14 +54,20 @@ function MembersPage() {
   })
   const remove = useMutation({
     mutationFn: (m: Member) => api.removeMember(workspaceId, m.id),
-    onSuccess: async (_, m) => {
-      if (m.userId === me.id) {
-        await qc.invalidateQueries({ queryKey: keys.workspaces })
-        await navigate({ to: "/" })
-      } else {
-        setRemoving(null)
-        await refresh()
-      }
+    onSuccess: async () => {
+      setRemoving(null)
+      await refreshAssignees()
+    },
+  })
+  const leave = useMutation({
+    mutationFn: (m: Member) => api.removeMember(workspaceId, m.id),
+    onSuccess: async () => {
+      clearLastWorkspace(slug)
+      qc.removeQueries({ queryKey: ["workspaces", workspaceId] })
+      qc.removeQueries({ queryKey: ["projects"] })
+      qc.removeQueries({ queryKey: ["tasks"] })
+      await qc.invalidateQueries({ queryKey: keys.workspaces })
+      await navigate({ to: "/" })
     },
   })
 
@@ -77,7 +87,7 @@ function MembersPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                remove.reset()
+                leave.reset()
                 setLeaving(true)
               }}
             >
@@ -99,7 +109,7 @@ function MembersPage() {
           note={members ? <CountBadge>{members.length}</CountBadge> : undefined}
         />
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[13px]">
+          <table aria-label="Workspace members" className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="text-left text-[12px] font-medium text-muted-foreground">
                 <th className="h-9 border-b border-border px-4 font-medium">Name</th>
@@ -112,20 +122,25 @@ function MembersPage() {
             </thead>
             <tbody>
               {members?.map((m) => (
-                <tr key={m.id} className="transition-colors hover:bg-muted/40">
-                  <td className="h-12 border-b border-border/70 px-4 last:border-0">
+                <tr
+                  key={m.id}
+                  className="transition-colors hover:bg-muted/40 [&:not(:last-child)>td]:border-b [&>td]:border-border/70"
+                >
+                  <td className="h-10 px-4">
                     <div className="flex items-center gap-2">
-                      <Avatar name={m.name} size="lg" />
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{m.name}</div>
-                        <div className="truncate text-xs text-muted-foreground">{m.email}</div>
-                      </div>
+                      <Avatar name={m.name} />
+                      <span className="truncate font-medium">{m.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">{m.email}</span>
                     </div>
                   </td>
-                  <td className="border-b border-border/70 px-4">
-                    {m.role === "owner" && <Chip>Owner</Chip>}
+                  <td className="px-4">
+                    {m.role === "owner" ? (
+                      <Chip>Owner</Chip>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </td>
-                  <td className="whitespace-nowrap border-b border-border/70 px-4 text-muted-foreground">
+                  <td className="whitespace-nowrap px-4 text-muted-foreground">
                     {joined(m.createdAt)}
                   </td>
                   <td className="border-b border-border/70 px-4 text-right">
@@ -137,6 +152,7 @@ function MembersPage() {
                             size="sm"
                             icon
                             aria-label={`Actions for ${m.name}`}
+                            disabled={changeRole.isPending}
                           >
                             <Ellipsis />
                           </Button>
@@ -193,9 +209,9 @@ function MembersPage() {
         title="Leave workspace."
         description={`You'll lose access to ${workspace.name} and be unassigned from its tasks.`}
         confirmLabel="Confirm leave"
-        pending={remove.isPending}
-        error={remove.error?.message}
-        onConfirm={() => mine && remove.mutate(mine)}
+        pending={leave.isPending}
+        error={leave.error?.message}
+        onConfirm={() => mine && leave.mutate(mine)}
       />
     </>
   )

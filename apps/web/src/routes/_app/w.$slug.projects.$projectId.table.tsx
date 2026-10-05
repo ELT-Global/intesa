@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
+import { useCallback } from "react"
 import { EmptyState } from "@/components/page"
 import { useTaskParam } from "@/components/tasks/task-param"
 import { TaskTable } from "@/components/tasks/task-table"
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/_app/w/$slug/projects/$projectId/table")(
 function TablePage() {
   const { projectId } = Route.useParams()
   const { openTask } = useTaskParam()
+  const onOpen = useCallback((t: { id: string }) => openTask(t.id), [openTask])
   const { data: tasks, isError } = useQuery(projectTasksQuery(projectId))
 
   if (isError) {
@@ -28,7 +30,7 @@ function TablePage() {
   }
   return (
     <Panel>
-      <TaskTable tasks={tasks} label="Tasks" onOpen={(t) => openTask(t.id)} />
+      <TaskTable tasks={tasks} label="Tasks" onOpen={onOpen} />
     </Panel>
   )
 }

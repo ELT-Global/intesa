@@ -1,10 +1,10 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { FolderKanban, ListTodo } from "lucide-react"
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useCallback, useMemo, useState } from "react"
 import { EmptyState, PageTitle } from "@/components/page"
 import { STATUS_LABELS, StatusIcon } from "@/components/tasks/properties"
-import { type TableColumn, TaskTable } from "@/components/tasks/task-table"
+import { type TableColumn, type TableTask, TaskTable } from "@/components/tasks/task-table"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Panel, PanelHeader } from "@/components/ui/panel"
@@ -59,6 +59,16 @@ function MyTasksPage() {
   const workspaceId = workspaces.find((w) => w.slug === slug)?.id ?? ""
   const { data: tasks } = useQuery({ ...myTasksQuery(workspaceId), enabled: !!workspaceId })
   const [showCompleted, setShowCompleted] = useState(false)
+
+  const onOpen = useCallback(
+    (t: TableTask) =>
+      void navigate({
+        to: "/w/$slug/projects/$projectId",
+        params: { slug, projectId: t.projectId },
+        search: { task: t.id },
+      }),
+    [navigate, slug],
+  )
 
   const sections = useMemo(() => {
     const visible = (tasks ?? []).filter((t) => showCompleted || t.status !== "complete")
@@ -115,13 +125,7 @@ function MyTasksPage() {
                   label={s.name}
                   editable={false}
                   columns={group === "status" ? STATUS_COLUMNS : PROJECT_COLUMNS}
-                  onOpen={(t) =>
-                    void navigate({
-                      to: "/w/$slug/projects/$projectId/board",
-                      params: { slug, projectId: t.projectId },
-                      search: { task: t.id },
-                    })
-                  }
+                  onOpen={onOpen}
                 />
               </Panel>
             ))}

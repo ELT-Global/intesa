@@ -14,6 +14,7 @@ import {
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { DuePicker, PriorityPicker, STATUS_LABELS, StatusIcon, StatusPicker } from "./properties"
+import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
 
 /**
@@ -124,7 +125,7 @@ function SheetBody({
   return (
     <>
       <header className="flex min-h-12 items-center gap-2 border-b border-border px-4 text-[13px] font-medium text-muted-foreground">
-        <span className="text-subtle-foreground">{task.key}</span>
+        <TaskKey className="text-xs">{task.key}</TaskKey>
         <span className="flex-1 truncate font-normal">{task.project.name}</span>
         <DeleteTaskButton task={task} onDeleted={onClose} />
         <CloseButton />
@@ -147,7 +148,8 @@ function SheetBody({
               onClick={() => task.parent && openTask(task.parent.id)}
               className="-mb-4 flex cursor-pointer items-center gap-1.5 self-start rounded text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Parent: <span className="font-mono">{task.parent.key}</span> {task.parent.title}
+              Parent: <TaskKey className="text-[inherit]">{task.parent.key}</TaskKey>{" "}
+              {task.parent.title}
             </button>
           )}
           <EditableText
