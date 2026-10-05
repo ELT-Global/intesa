@@ -41,30 +41,43 @@ test("title, body, status, priority and due date persist after reload", async ({
   await page.getByRole("button", { name: /Draft launch notes/ }).click()
   const sheet = page.getByRole("dialog", { name: /-1$/ })
 
+  // Each edit is saved by a PATCH; waiting for it makes the reload below deterministic.
+  const saved = async (edit: () => Promise<void>) => {
+    const response = page.waitForResponse(
+      (r) => r.request().method() === "PATCH" && /\/api\/tasks\//.test(r.url()),
+    )
+    await edit()
+    expect((await response).ok()).toBe(true)
+  }
+
   const title = sheet.getByRole("textbox", { name: "Task title" })
-  await title.fill("Publish launch notes")
-  await title.press("Enter")
+  await saved(async () => {
+    await title.fill("Publish launch notes")
+    await title.press("Enter")
+  })
 
   const body = sheet.getByRole("textbox", { name: "Description" })
-  await body.fill("Cover pricing, the migration guide and known limits.")
-  await body.blur()
+  await saved(async () => {
+    await body.fill("Cover pricing, the migration guide and known limits.")
+    await body.blur()
+  })
 
-  await sheet.getByRole("button", { name: "Change status" }).click()
-  await page.getByRole("menuitemradio", { name: "In Progress" }).click()
-  await expect(sheet.getByRole("button", { name: "Change status" })).toContainText("In Progress")
+  await saved(async () => {
+    await sheet.getByRole("button", { name: "Change status" }).click()
+    await page.getByRole("menuitemradio", { name: "In Progress" }).click()
+  })
 
-  await sheet.getByRole("button", { name: "Change priority" }).click()
-  await page.getByRole("menuitemradio", { name: "High" }).click()
-  await expect(sheet.getByRole("button", { name: "Change priority" })).toContainText("High")
+  await saved(async () => {
+    await sheet.getByRole("button", { name: "Change priority" }).click()
+    await page.getByRole("menuitemradio", { name: "High" }).click()
+  })
 
-  await sheet.getByLabel("Due date", { exact: true }).fill("2031-03-14")
-  await expect(sheet.getByLabel("Due date", { exact: true })).toHaveValue("2031-03-14")
+  await saved(async () => {
+    const due = sheet.getByLabel("Due date", { exact: true })
+    await due.fill("2031-03-14")
+    await due.press("Enter")
+  })
 
-  // Wait for the writes to settle before reloading.
-  await expect(sheet.getByRole("textbox", { name: "Task title" })).toHaveValue(
-    "Publish launch notes",
-  )
-  await page.waitForLoadState("networkidle")
   await page.reload()
 
   const reloaded = page.getByRole("dialog", { name: /-1$/ })

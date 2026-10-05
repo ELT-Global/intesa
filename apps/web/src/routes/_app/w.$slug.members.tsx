@@ -20,6 +20,7 @@ import { api, keys, type Member } from "@/lib/api"
 import { membersQuery, meQuery, workspacesQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/w/$slug/members")({
+  staticData: { title: "Members" },
   head: () => ({ meta: [{ title: "Members · Intesa" }] }),
   component: MembersPage,
 })

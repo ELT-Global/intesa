@@ -1,12 +1,6 @@
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
-import type { InferResponseType } from "hono/client"
-import { useSyncExternalStore } from "react"
+import type { InferRequestType, InferResponseType } from "hono/client"
 import { ApiError, client, unwrap } from "./api"
-
-export const TASK_STATUSES = ["backlog", "todo", "in_progress", "review", "complete"] as const
-export type TaskStatus = (typeof TASK_STATUSES)[number]
-export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const
-export type TaskPriority = (typeof TASK_PRIORITIES)[number]
 
 const taskById = client.api.tasks[":taskId"]
 const projectTasks = client.api.projects[":projectId"].tasks
@@ -17,21 +11,22 @@ export type HistoryEntry = InferResponseType<(typeof taskById.history)["$get"]>[
 export type UserRef = TaskSummary["assignees"][number]
 export type TagRef = TaskSummary["tags"][number]
 
-export type CreateTaskInput = {
-  title: string
-  status?: TaskStatus
-  priority?: TaskPriority
-  dueAt?: string
-  body?: string
-}
+export type TaskStatus = TaskSummary["status"]
+export type TaskPriority = NonNullable<TaskSummary["priority"]>
+export const TASK_STATUSES: readonly TaskStatus[] = [
+  "backlog",
+  "todo",
+  "in_progress",
+  "review",
+  "complete",
+]
+export const TASK_PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high", "urgent"]
 
-export type TaskPatch = {
-  title?: string
-  body?: string | null
-  status?: TaskStatus
-  priority?: TaskPriority | null
-  dueAt?: string | null
-}
+export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"]
+export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]
+
+/** Resolved people/tags matching a patch's id sets, so the cache can update before the server answers. */
+export type TaskPatchView = { assignees?: UserRef[]; tags?: TagRef[] }
 
 const taskApi = {
   list: (projectId: string) => unwrap(projectTasks.$get({ param: { projectId } })),
@@ -68,63 +63,67 @@ export const taskHistoryQuery = (taskId: string) =>
     queryFn: async () => (await taskApi.history(taskId)).history,
   })
 
-// Mutation failures are shown by one notice component, so the hooks report through this store.
-let currentError: { id: number; message: string } | null = null
-const listeners = new Set<() => void>()
-let errorSeq = 0
+/** Mutations carrying this meta have their failures shown by MutationErrorNotice. */
+const notifyMeta = (message: string) => ({ errorNotice: message })
 
-function notify() {
-  for (const l of listeners) l()
-}
-
-function reportTaskError(error: unknown, fallback: string) {
-  const message = error instanceof Error && error.message ? error.message : fallback
-  currentError = { id: ++errorSeq, message }
-  notify()
-}
-
-export function dismissTaskError() {
-  currentError = null
-  notify()
-}
-
-export function useTaskError() {
-  return useSyncExternalStore(
-    (cb) => {
-      listeners.add(cb)
-      return () => listeners.delete(cb)
-    },
-    () => currentError,
-    () => null,
-  )
-}
+export const UPDATE_KEY = ["task-update"] as const
 
 export function useUpdateTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ taskId, patch }: { taskId: string; projectId: string; patch: TaskPatch }) =>
-      taskApi.update(taskId, patch).then((r) => r.task),
-    onMutate: async ({ taskId, projectId, patch }) => {
+    mutationKey: UPDATE_KEY,
+    meta: notifyMeta("Could not save the task."),
+    mutationFn: ({
+      taskId,
+      patch,
+    }: {
+      taskId: string
+      projectId: string
+      patch: TaskPatch
+      view?: TaskPatchView
+    }) => taskApi.update(taskId, patch).then((r) => r.task),
+    onMutate: async ({ taskId, projectId, patch: fullPatch, view }) => {
+      const { assigneeIds: _a, tagIds: _t, ...plain } = fullPatch
+      const optimistic: Record<string, unknown> = { ...plain, ...view }
+      const fields = Object.keys(optimistic)
       await Promise.all([
         qc.cancelQueries({ queryKey: taskKeys.list(projectId) }),
         qc.cancelQueries({ queryKey: taskKeys.detail(taskId), exact: true }),
       ])
-      const list = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
-      const detail = qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))
+      // Only the fields this mutation touches are remembered, so a rollback can't undo other edits.
+      const previous = (task: object | undefined) =>
+        task ? pickFields(task as Record<string, unknown>, fields) : undefined
+      const ctx = {
+        list: previous(
+          qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))?.find((t) => t.id === taskId),
+        ),
+        detail: previous(qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))),
+      }
       qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-        old?.map((t) => (t.id === taskId ? { ...t, ...patch } : t)),
+        old?.map((t) => (t.id === taskId ? { ...t, ...optimistic } : t)),
       )
       qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) =>
-        old ? { ...old, ...patch } : old,
+        old ? { ...old, ...optimistic } : old,
       )
-      return { list, detail }
+      return ctx
     },
-    onError: (error, { taskId, projectId }, ctx) => {
-      if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
-      if (ctx?.detail) qc.setQueryData(taskKeys.detail(taskId), ctx.detail)
-      reportTaskError(error, "Could not save the task.")
+    onError: (_error, { taskId, projectId }, ctx) => {
+      if (!ctx) return
+      const { list, detail } = ctx
+      if (list) {
+        qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
+          old?.map((t) => (t.id === taskId ? { ...t, ...list } : t)),
+        )
+      }
+      if (detail) {
+        qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) =>
+          old ? { ...old, ...detail } : old,
+        )
+      }
     },
     onSettled: (_data, _error, { taskId, projectId, patch }) => {
+      // Refetching while another edit is in flight would overwrite its optimistic state.
+      if (qc.isMutating({ mutationKey: UPDATE_KEY }) > 1) return
       void qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
       void qc.invalidateQueries({ queryKey: taskKeys.detail(taskId), exact: true })
       if (patch.status) void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
@@ -132,15 +131,14 @@ export function useUpdateTask() {
   })
 }
 
+function pickFields(task: Record<string, unknown>, fields: string[]) {
+  return Object.fromEntries(fields.map((f) => [f, task[f]]))
+}
+
 export function useCreateTask(projectId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateTaskInput) => taskApi.create(projectId, input).then((r) => r.task),
-    onSuccess: (task) => {
-      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-        old ? [task, ...old.filter((t) => t.id !== task.id)] : old,
-      )
-    },
     onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.list(projectId) }),
   })
 }
@@ -148,6 +146,7 @@ export function useCreateTask(projectId: string) {
 export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
+    meta: notifyMeta("Could not delete the task."),
     mutationFn: ({ taskId }: { taskId: string; projectId: string }) => taskApi.remove(taskId),
     onMutate: async ({ taskId, projectId }) => {
       await qc.cancelQueries({ queryKey: taskKeys.list(projectId) })
@@ -157,9 +156,8 @@ export function useDeleteTask() {
       )
       return { list }
     },
-    onError: (error, { projectId }, ctx) => {
+    onError: (_error, { projectId }, ctx) => {
       if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
-      reportTaskError(error, "Could not delete the task.")
     },
     onSuccess: (_d, { taskId }) => {
       qc.removeQueries({ queryKey: taskKeys.detail(taskId) })
@@ -214,3 +212,16 @@ export function relativeTime(iso: string, now = Date.now()): string {
   }
   return rtf.format(0, "second")
 }
+
+const myTasksApi = client.api.workspaces[":workspaceId"]["my-tasks"]
+export type MyTask = InferResponseType<(typeof myTasksApi)["$get"]>["tasks"][number]
+
+export const myTasksKey = (workspaceId: string) => ["my-tasks", workspaceId] as const
+
+// Always refetch on mount: edits made on a project page do not touch this cache.
+export const myTasksQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: myTasksKey(workspaceId),
+    queryFn: async () => (await unwrap(myTasksApi.$get({ param: { workspaceId } }))).tasks,
+    staleTime: 0,
+  })

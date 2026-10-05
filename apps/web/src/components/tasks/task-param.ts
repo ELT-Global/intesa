@@ -6,7 +6,7 @@ import { useCallback } from "react"
  * The host route should accept it with `validateSearch: (s) => ({ task: typeof s.task === "string" ? s.task : undefined })`.
  */
 export function useTaskParam() {
-  const search = useSearch({ strict: false }) as { task?: unknown }
+  const search = useSearch({ strict: false })
   const navigate = useNavigate()
   const taskId = typeof search.task === "string" && search.task ? search.task : null
 
@@ -14,7 +14,7 @@ export function useTaskParam() {
     (id: string | null) => {
       void navigate({
         to: ".",
-        search: ((prev: Record<string, unknown>) => ({ ...prev, task: id ?? undefined })) as never,
+        search: (prev) => ({ ...prev, task: id ?? undefined }),
         replace: id === null,
       })
     },

@@ -5,7 +5,9 @@ import { useState } from "react"
 import { Message, PageTitle } from "@/components/page"
 import { ProjectSettingsDialog } from "@/components/projects/project-settings-dialog"
 import { TopBarActions } from "@/components/shell/app-shell"
+import { AssigneePicker } from "@/components/tasks/assignee-picker"
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog"
+import { TagChips, TagPicker } from "@/components/tasks/tag-picker"
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet"
 import { Button, buttonClass } from "@/components/ui/button"
 import {
@@ -38,7 +40,11 @@ function ProjectLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
 
-  if (project.isError || !workspace) {
+  if (
+    project.isError ||
+    !workspace ||
+    (project.data && project.data.workspaceId !== workspace.id)
+  ) {
     return (
       <Message
         title="Project not found."
@@ -95,7 +101,15 @@ function ProjectLayout() {
       <PageTitle title={project.data.name} description={project.data.description ?? undefined} />
       <Outlet />
       <CreateTaskDialog projectId={projectId} open={createOpen} onOpenChange={setCreateOpen} />
-      <TaskDetailSheet />
+      <TaskDetailSheet
+        propertySlots={(task) => (
+          <>
+            <AssigneePicker task={task} workspaceId={workspace.id} />
+            <TagPicker task={task} workspaceId={workspace.id} />
+            <TagChips task={task} />
+          </>
+        )}
+      />
       <ProjectSettingsDialog
         workspace={workspace}
         project={project.data}

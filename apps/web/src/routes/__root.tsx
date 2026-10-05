@@ -7,6 +7,7 @@ import {
   Scripts,
 } from "@tanstack/react-router"
 import type { ReactNode } from "react"
+import { MutationErrorNotice } from "@/components/mutation-error-notice"
 import { Message } from "@/components/page"
 import { buttonClass } from "@/components/ui/button"
 import { themeInitScript } from "@/lib/theme"
@@ -48,6 +49,7 @@ function RootComponent() {
     <RootDocument>
       <QueryClientProvider client={queryClient}>
         <Outlet />
+        <MutationErrorNotice />
       </QueryClientProvider>
     </RootDocument>
   )

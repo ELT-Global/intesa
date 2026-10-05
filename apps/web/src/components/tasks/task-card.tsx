@@ -1,5 +1,4 @@
 import { ListChecks } from "lucide-react"
-import type { ButtonHTMLAttributes } from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { Chip } from "@/components/ui/badge"
 import type { TaskSummary } from "@/lib/tasks"
@@ -31,11 +30,14 @@ export function TaskCard({
   task,
   onOpen,
   className,
-  ...props
+  describedBy,
 }: {
   task: TaskSummary
   onOpen?: (taskId: string) => void
-} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
+  className?: string
+  /** Id of an element that explains how to use the card. */
+  describedBy?: string
+}) {
   const hasMeta = task.priority || task.subtaskCount > 0 || task.dueAt
   return (
     <button
@@ -46,7 +48,7 @@ export function TaskCard({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
-      {...props}
+      aria-describedby={describedBy}
     >
       <span className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-subtle-foreground">{task.key}</span>

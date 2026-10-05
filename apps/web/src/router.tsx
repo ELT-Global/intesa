@@ -15,6 +15,13 @@ export function getRouter() {
 }
 
 declare module "@tanstack/react-router" {
+  interface StaticDataRouteOption {
+    /** Breadcrumb label for the page. */
+    title?: string
+    /** Page owns the whole main area and scrolls internally. */
+    fullBleed?: boolean
+  }
+
   interface Register {
     router: ReturnType<typeof getRouter>
   }

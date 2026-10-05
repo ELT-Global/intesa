@@ -8,7 +8,7 @@ import {
   Minus,
   X,
 } from "lucide-react"
-import type { ReactNode } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { Chip } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,12 +44,13 @@ export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   urgent: "Urgent",
 }
 
+// Only "in progress" is a signal; the other statuses are told apart by shape.
 const STATUS_COLOR: Record<TaskStatus, string> = {
   backlog: "text-muted-foreground",
   todo: "text-muted-foreground",
   in_progress: "text-info-foreground",
-  review: "text-warning-foreground",
-  complete: "text-success-foreground",
+  review: "text-muted-foreground",
+  complete: "text-muted-foreground",
 }
 
 export function StatusIcon({ status, className }: { status: TaskStatus; className?: string }) {
@@ -202,7 +203,7 @@ export function PriorityPicker({
   )
 }
 
-/** Native date input; a value is committed only when the browser reports a complete date. */
+/** Native date input; the value is committed on blur or Enter, never mid-typing. */
 export function DuePicker({
   value,
   status,
@@ -212,15 +213,26 @@ export function DuePicker({
   status: TaskStatus
   onChange: (dueAt: string | null) => void
 }) {
+  const [draft, setDraft] = useState(value ?? "")
+  useEffect(() => setDraft(value ?? ""), [value])
   const state = value ? dueState(value, status) : "neutral"
+
+  function commit() {
+    const year = Number(draft.slice(0, 4))
+    if (draft && draft !== value && year >= 1900 && year <= 2999) onChange(draft)
+    else setDraft(value ?? "")
+  }
+
   return (
     <div className="flex items-center gap-1">
       <input
         type="date"
         aria-label="Due date"
-        value={value ?? ""}
-        onChange={(e) => {
-          if (e.target.value) onChange(e.target.value)
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit()
         }}
         className={cn(
           "h-7 rounded-lg border border-input bg-background px-2 text-xs shadow-xs/5 outline-none transition-shadow",

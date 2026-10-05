@@ -1,19 +1,14 @@
 import * as Dialog from "@radix-ui/react-dialog"
 import { useQuery } from "@tanstack/react-query"
-import { useLocation } from "@tanstack/react-router"
+import { useMatches } from "@tanstack/react-router"
 import { Menu, X } from "lucide-react"
 import { createContext, type ReactNode, useContext, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import type { Workspace } from "@/lib/api"
 import { projectQuery } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 import { SidebarContent, Wordmark } from "./sidebar"
-
-const PAGE_TITLES: Record<string, string> = {
-  home: "Home",
-  "my-tasks": "My Tasks",
-  members: "Members",
-}
 
 const TopBarSlot = createContext<HTMLElement | null>(null)
 
@@ -32,10 +27,16 @@ function TopBar({
   trigger: ReactNode
   setSlot: (el: HTMLElement | null) => void
 }) {
-  const [, , section, projectId] = useLocation({ select: (l) => l.pathname.split("/").slice(1) })
-  const inProject = section === "projects" && !!projectId
-  const { data: project } = useQuery({ ...projectQuery(projectId ?? ""), enabled: inProject })
-  const page = inProject ? (project?.name ?? "Project") : (PAGE_TITLES[section ?? ""] ?? "Home")
+  const matches = useMatches()
+  const projectId = (
+    matches.find((m) => m.routeId === "/_app/w/$slug/projects/$projectId")?.params as
+      | { projectId?: string }
+      | undefined
+  )?.projectId
+  const { data: project } = useQuery({ ...projectQuery(projectId ?? ""), enabled: !!projectId })
+  const page = projectId
+    ? (project?.name ?? "Project")
+    : (matches.findLast((m) => m.staticData.title)?.staticData.title ?? "Home")
   return (
     <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur-md">
       {trigger}
@@ -64,6 +65,8 @@ export function AppShell({
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [slot, setSlot] = useState<HTMLElement | null>(null)
+  // The kanban board needs the full main area and its own scrolling.
+  const fullBleed = useMatches({ select: (ms) => ms.some((m) => m.staticData.fullBleed) })
   return (
     <div className="flex h-dvh overflow-hidden">
       <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block lg:max-xl:w-60">
@@ -90,8 +93,19 @@ export function AppShell({
                 </Dialog.Trigger>
               }
             />
-            <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-              <div className="mx-auto max-w-4xl">{children}</div>
+            <main
+              className={cn(
+                "min-h-0 flex-1 px-4 py-6 sm:px-8",
+                fullBleed ? "flex flex-col overflow-hidden" : "overflow-y-auto",
+              )}
+            >
+              <div
+                className={cn(
+                  fullBleed ? "flex min-h-0 w-full flex-1 flex-col" : "mx-auto max-w-4xl",
+                )}
+              >
+                {children}
+              </div>
             </main>
           </div>
 

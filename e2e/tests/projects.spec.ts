@@ -1,7 +1,7 @@
 import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { addMember, pageAs } from "../support/members"
-import { workspaceIdBySlug } from "../support/projects"
+import { createProject as apiCreateProject, workspaceIdBySlug } from "../support/projects"
 
 const projectsNav = (page: Page) => page.getByRole("region", { name: "Projects" })
 const breadcrumb = (page: Page) => page.getByRole("navigation", { name: "Breadcrumb" })
@@ -131,3 +131,16 @@ test("members do not see the delete control", async ({ page, browser }) => {
   await expect(dialog.getByLabel("Project name")).toHaveValue(name)
   await expect(dialog.getByRole("button", { name: "Delete project" })).toHaveCount(0)
 })
+
+test("a project id under another workspace's slug shows not-found", async ({ page }) => {
+  const slugA = await setup(page)
+  const project = await apiProject(page, slugA)
+  const slugB = await createWorkspace(page, uniqueName())
+
+  await page.goto(`/w/${slugB}/projects/${project.id}/board`)
+  await expect(page.getByRole("heading", { name: "Project not found." })).toBeVisible()
+})
+
+async function apiProject(page: Page, slug: string) {
+  return apiCreateProject(page, await workspaceIdBySlug(page, slug), uniqueName("Other"))
+}

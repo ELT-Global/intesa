@@ -9,6 +9,7 @@ import type { HomeData } from "@/lib/api"
 import { homeQuery, workspacesQuery } from "@/lib/queries"
 
 export const Route = createFileRoute("/_app/w/$slug/home")({
+  staticData: { title: "Home" },
   head: () => ({ meta: [{ title: "Home · Intesa" }] }),
   component: HomePage,
 })
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/_app/w/$slug/home")({
 type HomeTask = HomeData["assigned"][number]
 
 const rowClass =
-  "flex items-center gap-2.5 px-4 py-2 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40"
+  "flex items-center gap-2.5 px-4 py-2 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
 
 function HomePanel({
   title,

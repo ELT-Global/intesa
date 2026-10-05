@@ -21,12 +21,7 @@ export function ProjectSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Project settings." description={`Key ${project.key} can't be changed.`}>
-        <SettingsForm
-          key={project.updatedAt}
-          workspace={workspace}
-          project={project}
-          onDone={() => onOpenChange(false)}
-        />
+        <SettingsForm workspace={workspace} project={project} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   )
@@ -48,7 +43,8 @@ function SettingsForm({
   const [confirming, setConfirming] = useState(false)
 
   const save = useMutation({
-    mutationFn: () => api.updateProject(project.id, { name: name.trim(), description }),
+    mutationFn: () =>
+      api.updateProject(project.id, { name: name.trim(), description: description.trim() || null }),
     onSuccess: async ({ project: updated }) => {
       qc.setQueryData(keys.project(project.id), updated)
       await qc.invalidateQueries({ queryKey: keys.projects(workspace.id) })
@@ -86,6 +82,7 @@ function SettingsForm({
           <Label htmlFor="settings-description">Description</Label>
           <Textarea
             id="settings-description"
+            maxLength={2000}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />

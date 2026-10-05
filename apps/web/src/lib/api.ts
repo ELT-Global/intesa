@@ -66,7 +66,7 @@ export const api = {
     unwrap(client.api.workspaces[":workspaceId"].projects.$post({ param: { workspaceId }, json })),
   project: (projectId: string) =>
     unwrap(client.api.projects[":projectId"].$get({ param: { projectId } })),
-  updateProject: (projectId: string, json: { name?: string; description?: string }) =>
+  updateProject: (projectId: string, json: { name?: string; description?: string | null }) =>
     unwrap(client.api.projects[":projectId"].$patch({ param: { projectId }, json })),
   deleteProject: (projectId: string) =>
     unwrap(client.api.projects[":projectId"].$delete({ param: { projectId } })),
@@ -92,8 +92,9 @@ export const keys = {
   me: ["me"] as const,
   workspaces: ["workspaces"] as const,
   authConfig: ["auth-config"] as const,
-  projects: (workspaceId: string) => ["projects", workspaceId] as const,
-  project: (projectId: string) => ["project", projectId] as const,
-  members: (workspaceId: string) => ["members", workspaceId] as const,
-  home: (workspaceId: string) => ["home", workspaceId] as const,
+  projects: (workspaceId: string) => ["workspaces", workspaceId, "projects"] as const,
+  // Prefix of the task keys, so invalidating it also covers a project's tasks.
+  project: (projectId: string) => ["projects", projectId] as const,
+  members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
+  home: (workspaceId: string) => ["workspaces", workspaceId, "home"] as const,
 }

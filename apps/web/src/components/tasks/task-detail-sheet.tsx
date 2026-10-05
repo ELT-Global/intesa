@@ -14,7 +14,6 @@ import {
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { DuePicker, PriorityPicker, STATUS_LABELS, StatusIcon, StatusPicker } from "./properties"
-import { TaskErrorNotice } from "./task-error-notice"
 import { useTaskParam } from "./task-param"
 
 /**
@@ -34,38 +33,35 @@ export function TaskDetailSheet({
   const task = query.data
 
   return (
-    <>
-      <D.Root open={taskId !== null} onOpenChange={(open) => !open && closeTask()}>
-        <D.Portal>
-          <D.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
-          <D.Content
-            aria-describedby={undefined}
-            className={cn(
-              "fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground outline-none",
-              "md:left-auto md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl",
-            )}
-          >
-            <D.Title className="sr-only">{task?.key ?? "Task"}</D.Title>
-            {task ? (
-              <SheetBody
-                key={task.id}
-                task={task}
-                onClose={closeTask}
-                propertySlots={propertySlots}
-                sections={sections}
-              />
-            ) : (
-              <SheetPlaceholder
-                notFound={query.isError}
-                loading={query.isPending}
-                onClose={closeTask}
-              />
-            )}
-          </D.Content>
-        </D.Portal>
-      </D.Root>
-      <TaskErrorNotice />
-    </>
+    <D.Root open={taskId !== null} onOpenChange={(open) => !open && closeTask()}>
+      <D.Portal>
+        <D.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
+        <D.Content
+          aria-describedby={undefined}
+          className={cn(
+            "fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground outline-none",
+            "md:left-auto md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl",
+          )}
+        >
+          <D.Title className="sr-only">{task?.key ?? "Task"}</D.Title>
+          {task ? (
+            <SheetBody
+              key={task.id}
+              task={task}
+              onClose={closeTask}
+              propertySlots={propertySlots}
+              sections={sections}
+            />
+          ) : (
+            <SheetPlaceholder
+              notFound={query.isError}
+              loading={query.isPending}
+              onClose={closeTask}
+            />
+          )}
+        </D.Content>
+      </D.Portal>
+    </D.Root>
   )
 }
 
@@ -121,8 +117,8 @@ function SheetBody({
   sections?: (task: TaskDetail) => ReactNode
 }) {
   const update = useUpdateTask()
-  const patch = (p: Parameters<typeof update.mutate>[0]["patch"]) =>
-    update.mutate({ taskId: task.id, projectId: task.projectId, patch: p })
+  const patch = (p: Parameters<typeof update.mutate>[0]["patch"], onError?: () => void) =>
+    update.mutate({ taskId: task.id, projectId: task.projectId, patch: p }, { onError })
 
   return (
     <>
@@ -148,7 +144,7 @@ function SheetBody({
             label="Task title"
             value={task.title}
             required
-            onCommit={(title) => patch({ title })}
+            onCommit={(title, revert) => patch({ title }, revert)}
             className="text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]"
           />
           <EditableText
@@ -156,7 +152,7 @@ function SheetBody({
             value={task.body ?? ""}
             multiline
             placeholder="Add a description."
-            onCommit={(body) => patch({ body: body || null })}
+            onCommit={(body, revert) => patch({ body: body || null }, revert)}
             className="min-h-32 text-[15px] leading-[1.7]"
           />
           {sections?.(task)}
@@ -214,7 +210,7 @@ function EditableText({
 }: {
   label: string
   value: string
-  onCommit: (value: string) => void
+  onCommit: (value: string, revert: () => void) => void
   multiline?: boolean
   required?: boolean
   placeholder?: string
@@ -246,7 +242,7 @@ function EditableText({
       return
     }
     setDraft(next)
-    onCommit(next)
+    onCommit(next, () => setDraft(value))
   }
 
   return (
@@ -256,7 +252,7 @@ function EditableText({
       rows={1}
       value={draft}
       placeholder={placeholder}
-      maxLength={multiline ? 20000 : 500}
+      maxLength={multiline ? 20000 : 200}
       onFocus={() => {
         focused.current = true
       }}

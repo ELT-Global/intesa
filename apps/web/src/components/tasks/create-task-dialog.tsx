@@ -60,7 +60,7 @@ function CreateTaskForm({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="What needs doing?"
-        maxLength={500}
+        maxLength={200}
         autoFocus
         autoComplete="off"
       />
