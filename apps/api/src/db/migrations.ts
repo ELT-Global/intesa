@@ -224,7 +224,27 @@ const tagNameIndex: Migration = {
   },
 }
 
+const customFieldNamesAndRelated: Migration = {
+  async up(db: Kysely<any>) {
+    // Field names are unique per project ignoring case; the index decides concurrent creates.
+    await sql`create unique index custom_fields_project_lower_name on custom_field_definitions (project_id, lower(name))`.execute(
+      db,
+    )
+
+    // "related" is symmetric and is now stored with source < target so the unique constraint
+    // also catches reversed duplicates. Drop any reversed duplicate first, then swap the rest
+    // (both dialects evaluate the right-hand sides against the old row).
+    await sql`delete from task_relationships where type = 'related' and source_task_id > target_task_id and exists (select 1 from task_relationships r where r.type = 'related' and r.source_task_id = task_relationships.target_task_id and r.target_task_id = task_relationships.source_task_id)`.execute(
+      db,
+    )
+    await sql`update task_relationships set source_task_id = target_task_id, target_task_id = source_task_id where type = 'related' and source_task_id > target_task_id`.execute(
+      db,
+    )
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
+  "0003_custom_field_names_related_order": customFieldNamesAndRelated,
 }

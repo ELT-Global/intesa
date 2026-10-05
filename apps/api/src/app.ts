@@ -1,8 +1,11 @@
 import { Hono } from "hono"
+import { sql } from "kysely"
 import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "./auth/attempts"
 import type { Config } from "./config"
 import type { Db } from "./db"
+import { compressJson } from "./lib/compress-json"
 import { ApiError, onError } from "./lib/errors"
+import { requestLog } from "./lib/request-log"
 import { authRoutes } from "./routes/auth"
 import { fieldRoutes, projectFieldRoutes } from "./routes/custom-fields"
 import { homeRoutes } from "./routes/home"
@@ -25,7 +28,11 @@ export type AppDeps = {
 export function createApp({ db, config, webDist }: AppDeps) {
   const deps = { db, config, attempts: createAttemptLimiter(MAX_CODE_ATTEMPTS, LOCKOUT_MS) }
   const api = new Hono()
-    .get("/health", (c) => c.json({ ok: true as const }))
+    .get("/health", async (c) => {
+      // Touches the database so an orchestrator health check notices a lost connection.
+      await sql`select 1`.execute(db)
+      return c.json({ ok: true as const })
+    })
     .route("/auth", authRoutes(deps))
     .route("/me", meRoutes(deps))
     .route("/workspaces", workspaceRoutes(deps))
@@ -45,7 +52,7 @@ export function createApp({ db, config, webDist }: AppDeps) {
     throw new ApiError("NOT_FOUND", "Not found")
   })
 
-  const app = new Hono().route("/api", api)
+  const app = new Hono().use(requestLog).use("/api/*", compressJson).route("/api", api)
   app.onError(onError)
 
   if (webDist) serveSpa(app, webDist)

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { isUniqueViolation } from "../src/db"
 import { addMember, createTestApp, setupProject, signIn } from "./helpers"
 
 async function setup() {
@@ -155,7 +156,11 @@ describe("tag name uniqueness is enforced by the database", () => {
         .values({ id: crypto.randomUUID(), workspaceId, name, color: "blue", createdAt: "x" })
         .execute()
     await insert("Bug")
-    await expect(insert("bUG")).rejects.toThrow()
+    const err = await insert("bUG").then(
+      () => undefined,
+      (e) => e,
+    )
+    expect(isUniqueViolation(err)).toBe(true)
   })
 
   test("renaming onto an existing name (any case) is a conflict", async () => {

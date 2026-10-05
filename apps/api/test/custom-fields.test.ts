@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { isUniqueViolation } from "../src/db"
 import { addMember, createTestApp, setupProject, signIn } from "./helpers"
 
 async function setup() {
@@ -329,6 +330,8 @@ describe("custom field edge cases", () => {
 
     await owner.call("PATCH", `/api/custom-fields/${f.id}`, { options: ["b"] })
 
+    // now() never repeats a timestamp within the process, so this does not depend on the
+    // clock resolution: any write after the first is strictly later.
     expect(await updatedAt(affected.id)).not.toBe(before.affected)
     expect(await updatedAt(untouched.id)).toBe(before.untouched)
   })
@@ -350,5 +353,63 @@ describe("custom field edge cases", () => {
     const res = await setValues(t1.id, many)
     expect(res.status).toBe(400)
     expect(res.body.code).toBe("VALIDATION_ERROR")
+  })
+})
+
+describe("custom field names and ordering", () => {
+  test("simultaneous creates with the same name (any case) give one field and one conflict", async () => {
+    const { owner, fieldsUrl } = await setup()
+    const results = await Promise.all([
+      owner.call("POST", fieldsUrl, { name: "Estimate", type: "number" }),
+      owner.call("POST", fieldsUrl, { name: "ESTIMATE", type: "text" }),
+    ])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect((await owner.call("GET", fieldsUrl)).body.fields).toHaveLength(1)
+  })
+
+  test("the database rejects a case-variant duplicate name in one project", async () => {
+    const { t, project } = await setup()
+    const insert = (name: string, projectId = project.id) =>
+      t.db
+        .insertInto("customFieldDefinitions")
+        .values({
+          id: crypto.randomUUID(),
+          projectId,
+          name,
+          type: "text",
+          required: 0,
+          position: 0,
+          createdAt: "x",
+        })
+        .execute()
+    await insert("Estimate")
+    const err = await insert("eSTIMATE").then(
+      () => undefined,
+      (e) => e,
+    )
+    expect(isUniqueViolation(err)).toBe(true)
+  })
+
+  test("renaming onto another field's name is a conflict, re-casing your own is fine", async () => {
+    const { owner, field } = await setup()
+    const a = await field({ name: "Alpha", type: "text" })
+    await field({ name: "Beta", type: "text" })
+    expect((await owner.call("PATCH", `/api/custom-fields/${a.id}`, { name: "BETA" })).status).toBe(
+      409,
+    )
+    expect(
+      (await owner.call("PATCH", `/api/custom-fields/${a.id}`, { name: "ALPHA" })).status,
+    ).toBe(200)
+  })
+
+  test("fields created at the same time all list, in a stable order", async () => {
+    const { owner, fieldsUrl } = await setup()
+    await Promise.all(
+      ["a", "b", "c", "d"].map((name) => owner.call("POST", fieldsUrl, { name, type: "text" })),
+    )
+    const first = (await owner.call("GET", fieldsUrl)).body.fields.map((f: { id: string }) => f.id)
+    const second = (await owner.call("GET", fieldsUrl)).body.fields.map((f: { id: string }) => f.id)
+    expect(first).toHaveLength(4)
+    expect(second).toEqual(first)
   })
 })

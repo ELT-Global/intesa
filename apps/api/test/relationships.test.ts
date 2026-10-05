@@ -254,6 +254,9 @@ describe("relationship integrity", () => {
     expect(await rows()).toHaveLength(1)
   })
 
+  // Only the Postgres run (TEST_DATABASE_URL) exercises real concurrency here: SQLite
+  // serialises the two transactions, so it passes trivially. The workspace row lock is what
+  // makes this hold on Postgres.
   test("two simultaneous opposite blocks cannot both succeed", async () => {
     const { a, b, link, rows } = await setup()
     const results = await Promise.all([link(a, "blocks", b), link(b, "blocks", a)])

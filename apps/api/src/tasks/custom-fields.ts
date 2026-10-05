@@ -1,5 +1,5 @@
 import type { Selectable } from "kysely"
-import { type Db, inTransaction, newId, now } from "../db"
+import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import type { CustomFieldDefinitionTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import { isRealDate } from "./schemas"
@@ -37,6 +37,7 @@ export const listFields = async (db: Db, projectId: string): Promise<CustomField
       .where("projectId", "=", projectId)
       .orderBy("position")
       .orderBy("createdAt")
+      .orderBy("id")
       .execute()
   ).map(toFieldJson)
 
@@ -59,14 +60,15 @@ export async function requireField(db: Db, userId: string, fieldId: string): Pro
   return field
 }
 
-async function assertNameFree(db: Db, projectId: string, name: string, exceptId?: string) {
-  const rows = await db
-    .selectFrom("customFieldDefinitions")
-    .select(["id", "name"])
-    .where("projectId", "=", projectId)
-    .execute()
-  if (rows.some((r) => r.id !== exceptId && r.name.toLowerCase() === name.toLowerCase())) {
-    throw new ApiError("CONFLICT", "A field with that name already exists")
+// Names are unique per project ignoring case, enforced by an index on (project_id, lower(name)).
+async function orNameConflict<T>(write: Promise<T>): Promise<T> {
+  try {
+    return await write
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new ApiError("CONFLICT", "A field with that name already exists")
+    }
+    throw err
   }
 }
 
@@ -83,26 +85,29 @@ export async function createField(
     throw new ApiError("VALIDATION_ERROR", "options: only select fields have options")
   }
   return inTransaction(db, async (trx) => {
-    await assertNameFree(trx, projectId, input.name)
     const last = await trx
       .selectFrom("customFieldDefinitions")
       .select((eb) => eb.fn.max("position").as("max"))
       .where("projectId", "=", projectId)
       .executeTakeFirst()
-    const row = await trx
-      .insertInto("customFieldDefinitions")
-      .values({
-        id: newId(),
-        projectId,
-        name: input.name,
-        type: input.type,
-        required: input.required ? 1 : 0,
-        options: input.type === "select" ? JSON.stringify(options) : null,
-        position: last?.max === null || last?.max === undefined ? 0 : Number(last.max) + 1,
-        createdAt: now(),
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow()
+    // Concurrent creates can read the same maximum and share a position; that is harmless
+    // because lists order by (position, created_at, id) and created_at is strictly increasing.
+    const row = await orNameConflict(
+      trx
+        .insertInto("customFieldDefinitions")
+        .values({
+          id: newId(),
+          projectId,
+          name: input.name,
+          type: input.type,
+          required: input.required ? 1 : 0,
+          options: input.type === "select" ? JSON.stringify(options) : null,
+          position: last?.max === null || last?.max === undefined ? 0 : Number(last.max) + 1,
+          createdAt: now(),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow(),
+    )
     return toFieldJson(row)
   })
 }
@@ -119,17 +124,18 @@ export async function updateField(
     throw new ApiError("VALIDATION_ERROR", "options: a select field needs at least one option")
   }
   return inTransaction(db, async (trx) => {
-    if (patch.name) await assertNameFree(trx, field.projectId, patch.name, field.id)
-    const row = await trx
-      .updateTable("customFieldDefinitions")
-      .set({
-        ...(patch.name !== undefined && { name: patch.name }),
-        ...(patch.required !== undefined && { required: patch.required ? 1 : 0 }),
-        ...(patch.options !== undefined && { options: JSON.stringify(patch.options) }),
-      })
-      .where("id", "=", field.id)
-      .returningAll()
-      .executeTakeFirstOrThrow()
+    const row = await orNameConflict(
+      trx
+        .updateTable("customFieldDefinitions")
+        .set({
+          ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.required !== undefined && { required: patch.required ? 1 : 0 }),
+          ...(patch.options !== undefined && { options: JSON.stringify(patch.options) }),
+        })
+        .where("id", "=", field.id)
+        .returningAll()
+        .executeTakeFirstOrThrow(),
+    )
 
     if (patch.options) {
       // Values (stored as JSON text) that point at a removed option would be invalid, so they
@@ -227,6 +233,8 @@ export async function applyCustomFields(
       }
       writes.push({ fieldId, value: null })
     } else {
+      // Values are always stored as JSON.stringify output; the select-option cleanup in
+      // updateField compares against JSON-encoded options and relies on this.
       writes.push({ fieldId, value: JSON.stringify(validateFieldValue(field, raw)) })
     }
   }

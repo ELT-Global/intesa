@@ -93,15 +93,19 @@ export async function addRelationship(
   const exists = new ApiError("CONFLICT", "That relationship already exists")
 
   await inTransaction(db, async (trx) => {
-    // Serialises relationship writes within a workspace so two requests cannot each pass the
-    // cycle check and then both insert (a no-op update that still takes the row lock).
-    await trx
-      .updateTable("workspaces")
-      .set((eb) => ({ updatedAt: eb.ref("updatedAt") }))
-      .where("id", "=", task.workspaceId)
-      .execute()
-
     if (storedType === "blocks") {
+      // Two requests could each pass the cycle check below and then both insert (A->B and
+      // B->A). Taking a row lock on the workspace first (a no-op update) serialises block
+      // writes within it. This relies on READ COMMITTED, the default on Postgres: the second
+      // transaction waits for the first to commit and then sees its edge. SQLite runs one
+      // writer at a time, so it needs nothing extra. Related links cannot cycle and are
+      // protected by the unique constraint alone, so they skip the lock.
+      await trx
+        .updateTable("workspaces")
+        .set((eb) => ({ updatedAt: eb.ref("updatedAt") }))
+        .where("id", "=", task.workspaceId)
+        .execute()
+
       // Adding source -> target closes a loop if source is already reachable from target.
       const { rows } = await sql<{ id: string }>`
         with recursive reach(id) as (

@@ -1,7 +1,54 @@
 import { resolve, sep } from "node:path"
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 
 const SHELL = "_shell.html"
+
+// Precompressed siblings written at build time (scripts/precompress.ts), best first.
+const VARIANTS = [
+  { encoding: "br", suffix: ".br" },
+  { encoding: "gzip", suffix: ".gz" },
+] as const
+
+// Encodings the client accepts, honouring q=0 as "not acceptable".
+function acceptedEncodings(header: string | undefined): Set<string> {
+  const accepted = new Set<string>()
+  for (const part of (header ?? "").split(",")) {
+    const [name, ...params] = part.trim().toLowerCase().split(";")
+    const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="))
+    if (name && (q === undefined || Number(q.slice(2)) > 0)) accepted.add(name)
+  }
+  return accepted
+}
+
+async function sendFile(c: Context, path: string, cacheControl: string) {
+  const original = Bun.file(path)
+  const accepted = acceptedEncodings(c.req.header("accept-encoding"))
+
+  let file = original
+  let encoding: string | undefined
+  for (const variant of VARIANTS) {
+    if (!accepted.has(variant.encoding)) continue
+    const candidate = Bun.file(path + variant.suffix)
+    if (await candidate.exists()) {
+      file = candidate
+      encoding = variant.encoding
+      break
+    }
+  }
+
+  // Weak validators: cheap, and enough for no-cache files to revalidate with a 304.
+  const etag = `W/"${file.size}-${file.lastModified}${encoding ?? ""}"`
+  const headers = new Headers({
+    "Content-Type": original.type,
+    "Cache-Control": cacheControl,
+    ETag: etag,
+    Vary: "Accept-Encoding",
+  })
+  if (encoding) headers.set("Content-Encoding", encoding)
+
+  if (c.req.header("if-none-match") === etag) return new Response(null, { status: 304, headers })
+  return new Response(file, { headers })
+}
 
 // Serves the built SPA. Real files are returned as-is; any other GET that is not an
 // API call gets the SPA shell so client-side routes survive reloads and deep links.
@@ -12,15 +59,16 @@ export function serveSpa(app: Hono, webDist: string) {
     const path = decodeURIComponent(new URL(c.req.url).pathname)
     const file = resolve(root, `.${path}`)
 
-    if (path !== "/" && file.startsWith(root + sep)) {
-      const f = Bun.file(file)
-      if (await f.exists()) {
-        // Hashed build assets never change; everything else must revalidate.
-        const cache = path.startsWith("/assets/")
-          ? "public, max-age=31536000, immutable"
-          : "no-cache"
-        return new Response(f, { headers: { "Cache-Control": cache } })
-      }
+    const isVariant = VARIANTS.some((v) => path.endsWith(v.suffix))
+    if (
+      !isVariant &&
+      path !== "/" &&
+      file.startsWith(root + sep) &&
+      (await Bun.file(file).exists())
+    ) {
+      // Hashed build assets never change; everything else must revalidate.
+      const cache = path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache"
+      return sendFile(c, file, cache)
     }
 
     // A missing path with an extension is a missing asset, not a client route.
@@ -28,12 +76,10 @@ export function serveSpa(app: Hono, webDist: string) {
       return c.json({ code: "NOT_FOUND", message: "Not found" }, 404)
     }
 
-    const shell = Bun.file(resolve(root, SHELL))
-    if (!(await shell.exists())) {
+    const shell = resolve(root, SHELL)
+    if (!(await Bun.file(shell).exists())) {
       return c.json({ code: "NOT_FOUND", message: "Web build not found" }, 404)
     }
-    return new Response(shell, {
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
-    })
+    return sendFile(c, shell, "no-cache")
   })
 }

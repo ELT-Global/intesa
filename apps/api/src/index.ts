@@ -22,8 +22,12 @@ log("server started", { port: server.port, env: config.nodeEnv })
 
 const shutdown = async (signal: string) => {
   log("server stopping", { signal })
-  server.stop()
+  // Let in-flight requests finish, but never hang a deploy on a stuck connection.
+  const force = setTimeout(() => process.exit(1), 10_000)
+  await server.stop()
   await db.destroy()
+  clearTimeout(force)
+  log("server stopped")
   process.exit(0)
 }
 process.on("SIGINT", () => void shutdown("SIGINT"))
