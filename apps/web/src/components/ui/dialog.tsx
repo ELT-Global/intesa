@@ -1,6 +1,6 @@
 import * as D from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
-import type { ComponentProps, ReactNode } from "react"
+import type { ComponentProps, ReactNode, RefObject } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "./button"
 
@@ -13,10 +13,15 @@ export function DialogContent({
   description,
   className,
   children,
+  returnFocusRef,
   ...props
-}: { title: string; description?: string; children: ReactNode } & ComponentProps<
-  typeof D.Content
->) {
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+  /** Element to focus on close; for dialogs opened from a menu item, whose own element is gone. */
+  returnFocusRef?: RefObject<HTMLElement | null>
+} & ComponentProps<typeof D.Content>) {
   return (
     <D.Portal>
       <D.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]" />
@@ -25,6 +30,13 @@ export function DialogContent({
           "fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-1/2 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl outline-none",
           className,
         )}
+        onCloseAutoFocus={(e) => {
+          if (returnFocusRef?.current) {
+            e.preventDefault()
+            returnFocusRef.current.focus()
+          }
+          props.onCloseAutoFocus?.(e)
+        }}
         {...props}
       >
         <div className="mb-4 flex items-start gap-2">

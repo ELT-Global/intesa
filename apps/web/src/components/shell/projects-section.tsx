@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { ChevronDown, Plus } from "lucide-react"
 import { useState } from "react"
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog"
+import { Skeleton } from "@/components/skeleton"
 import type { Workspace } from "@/lib/api"
 import { projectsQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
@@ -16,7 +17,8 @@ export function ProjectsSection({
 }) {
   const [open, setOpen] = useState(true)
   const [creating, setCreating] = useState(false)
-  const { data: projects } = useQuery(projectsQuery(workspace.id))
+  const list = useQuery(projectsQuery(workspace.id))
+  const projects = list.data
 
   return (
     <section aria-label="Projects">
@@ -40,7 +42,20 @@ export function ProjectsSection({
         </button>
       </div>
       {open &&
-        (projects?.length === 0 ? (
+        (list.isError ? (
+          <button
+            type="button"
+            onClick={() => void list.refetch()}
+            className="px-2 py-1 text-left text-[12px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Couldn't load projects. Try again
+          </button>
+        ) : !projects ? (
+          <div role="status" aria-label="Loading projects" className="flex flex-col gap-1 px-2">
+            <Skeleton className="h-5" />
+            <Skeleton className="h-5" />
+          </div>
+        ) : projects.length === 0 ? (
           <p className="px-2 py-1 text-[12px] text-muted-foreground">No projects yet.</p>
         ) : (
           <ul className="flex flex-col gap-px">

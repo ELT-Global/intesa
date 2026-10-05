@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
-import { useState } from "react"
+import { type RefObject, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -29,14 +29,17 @@ export function CustomFieldsDialog({
   projectId,
   open,
   onOpenChange,
+  returnFocusRef,
 }: {
   projectId: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        returnFocusRef={returnFocusRef}
         title="Custom fields"
         description="Fields appear on every task in this project."
         className="max-h-[85vh] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto"

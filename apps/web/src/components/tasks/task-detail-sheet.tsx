@@ -2,8 +2,11 @@ import * as D from "@radix-ui/react-dialog"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Trash2, X } from "lucide-react"
 import { type ReactNode, useEffect, useRef, useState } from "react"
+import { ErrorState } from "@/components/page"
+import { Skeleton } from "@/components/skeleton"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { ApiError } from "@/lib/api"
 import {
   relativeTime,
   type TaskDetail,
@@ -55,9 +58,10 @@ export function TaskDetailSheet({
             />
           ) : (
             <SheetPlaceholder
-              notFound={query.isError}
+              error={query.isError ? query.error : null}
               loading={query.isPending}
               onClose={closeTask}
+              onRetry={() => void query.refetch()}
             />
           )}
         </D.Content>
@@ -77,31 +81,38 @@ function CloseButton() {
 }
 
 function SheetPlaceholder({
-  notFound,
+  error,
   loading,
   onClose,
+  onRetry,
 }: {
-  notFound: boolean
+  error: unknown
   loading: boolean
   onClose: () => void
+  onRetry: () => void
 }) {
+  const notFound = error instanceof ApiError && error.status === 404
   return (
     <>
       <header className="flex min-h-12 items-center border-b border-border px-4">
         <span className="flex-1" />
         <CloseButton />
       </header>
-      <div className="p-6 text-sm text-muted-foreground">
-        {loading && "Loading task."}
-        {notFound && (
-          <div className="flex flex-col items-start gap-3">
-            <p>This task doesn't exist or was deleted.</p>
-            <Button size="sm" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        )}
-      </div>
+      {loading && (
+        <div role="status" aria-label="Loading task" className="flex flex-col gap-4 p-6">
+          <Skeleton className="h-8 w-3/4" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      )}
+      {notFound && (
+        <div className="flex flex-col items-start gap-3 p-6 text-sm text-muted-foreground">
+          <p>This task doesn't exist or was deleted.</p>
+          <Button size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      )}
+      {!!error && !notFound && <ErrorState error={error} onRetry={onRetry} />}
     </>
   )
 }

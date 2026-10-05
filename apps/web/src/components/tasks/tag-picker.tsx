@@ -37,8 +37,9 @@ export function TagPicker({
   }
 
   function toggle(tag: Tag) {
-    const kept = task.tags.filter((t) => t.id !== tag.id)
-    setTags(appliedIds.has(tag.id) ? kept : [...kept, tag])
+    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.tags ?? task.tags
+    const kept = current.filter((t) => t.id !== tag.id)
+    setTags(current.some((t) => t.id === tag.id) ? kept : [...kept, tag])
   }
 
   async function create() {
@@ -126,7 +127,7 @@ export function TagChips({ task }: { task: TaskDetail | TaskSummary }) {
                 view: { tags: task.tags.filter((x) => x.id !== t.id) },
               })
             }
-            className="-ml-1 flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="touch-target -ml-1 flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X aria-hidden className="size-3" />
           </button>

@@ -1,17 +1,19 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router"
 import { Columns3, Ellipsis, Plus, Table2 } from "lucide-react"
-import { useState } from "react"
-import { Message, PageTitle } from "@/components/page"
+import { useEffect, useRef, useState } from "react"
+import { ErrorState, Message, PageTitle } from "@/components/page"
 import { CustomFieldsDialog } from "@/components/projects/custom-fields-dialog"
 import { ProjectSettingsDialog } from "@/components/projects/project-settings-dialog"
 import { TopBarActions } from "@/components/shell/app-shell"
+import { PageSkeleton } from "@/components/skeleton"
 import { AssigneePicker } from "@/components/tasks/assignee-picker"
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog"
 import { CustomFieldValues } from "@/components/tasks/custom-field-values"
 import { TagChips, TagPicker } from "@/components/tasks/tag-picker"
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet"
 import { TaskStructureSections } from "@/components/tasks/task-relations"
+import { Kbd } from "@/components/ui/badge"
 import { Button, buttonClass } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -20,16 +22,40 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SegmentedControl } from "@/components/ui/segmented-control"
+import { ApiError } from "@/lib/api"
 import { projectQuery, workspacesQuery } from "@/lib/queries"
+import { projectTasksQuery } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/projects/$projectId")({
   validateSearch: (search: Record<string, unknown>): { task?: string } => ({
     task: typeof search.task === "string" && search.task ? search.task : undefined,
   }),
+  loader: ({ context, params }) => {
+    // Start both requests now instead of after the layout and board render.
+    void context.queryClient.prefetchQuery(projectQuery(params.projectId))
+    void context.queryClient.prefetchQuery(projectTasksQuery(params.projectId))
+  },
   component: ProjectLayout,
 })
 
 type View = "board" | "table"
+
+/** Pressing "c" outside inputs and dialogs opens the new-task dialog. */
+function useNewTaskShortcut(open: () => void) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "c" || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest("input, textarea, select, [contenteditable], [role=menu], [role=listbox]"))
+        return
+      if (document.querySelector("[role=dialog]")) return
+      e.preventDefault()
+      open()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open])
+}
 
 function ProjectLayout() {
   const { slug, projectId } = Route.useParams()
@@ -43,7 +69,12 @@ function ProjectLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [fieldsOpen, setFieldsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const optionsRef = useRef<HTMLButtonElement>(null)
+  useNewTaskShortcut(() => setCreateOpen(true))
 
+  if (project.isError && !(project.error instanceof ApiError && project.error.status < 500)) {
+    return <ErrorState error={project.error} onRetry={() => void project.refetch()} />
+  }
   if (
     project.isError ||
     !workspace ||
@@ -60,7 +91,7 @@ function ProjectLayout() {
       </Message>
     )
   }
-  if (!project.data) return null
+  if (!project.data) return <PageSkeleton rows={3} />
 
   const viewSwitcher = (
     <SegmentedControl<View>
@@ -84,7 +115,7 @@ function ProjectLayout() {
   const optionsMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" icon aria-label="Project options">
+        <Button ref={optionsRef} variant="ghost" size="sm" icon aria-label="Project options">
           <Ellipsis />
         </Button>
       </DropdownMenuTrigger>
@@ -130,8 +161,14 @@ function ProjectLayout() {
           </>
         )}
       />
-      <CustomFieldsDialog projectId={projectId} open={fieldsOpen} onOpenChange={setFieldsOpen} />
+      <CustomFieldsDialog
+        returnFocusRef={optionsRef}
+        projectId={projectId}
+        open={fieldsOpen}
+        onOpenChange={setFieldsOpen}
+      />
       <ProjectSettingsDialog
+        returnFocusRef={optionsRef}
         workspace={workspace}
         project={project.data}
         open={settingsOpen}

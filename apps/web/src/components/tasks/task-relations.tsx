@@ -122,7 +122,7 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
                       patch: { status: complete ? "todo" : "complete" },
                     })
                   }
-                  className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="touch-target cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <StatusIcon status={s.status} />
                 </button>
@@ -293,7 +293,7 @@ function AddRelationship({
               aria-pressed={type === g.type}
               onClick={() => setType(g.type)}
               className={cn(
-                "h-6 flex-1 cursor-pointer rounded-md px-1.5 text-xs font-medium text-muted-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring",
+                "touch-target h-6 flex-1 cursor-pointer rounded-md px-1.5 text-xs font-medium text-muted-foreground outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring",
                 type === g.type && "bg-accent text-foreground",
               )}
             >

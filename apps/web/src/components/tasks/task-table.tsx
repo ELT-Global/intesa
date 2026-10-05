@@ -58,7 +58,8 @@ function compareBy(sort: Sort): (a: TableTask, b: TableTask) => number {
   }
 }
 
-const cell = "h-10 border-b border-border/70 px-4 align-middle group-last/row:border-b-0"
+const cell =
+  "h-10 pointer-coarse:h-11 border-b border-border/70 px-4 align-middle group-last/row:border-b-0"
 
 function SortHeader({
   column,
@@ -268,7 +269,8 @@ export function TaskTable({
     )
 
   return (
-    <div className="overflow-x-auto">
+    // relative: sr-only text in cells is absolutely positioned and would otherwise escape this scroller and widen the page
+    <div className="relative overflow-x-auto">
       <table aria-label={label} className="w-full border-collapse text-[13px]">
         <thead>
           <tr>

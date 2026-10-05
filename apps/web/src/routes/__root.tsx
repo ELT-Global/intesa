@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { MutationErrorNotice } from "@/components/mutation-error-notice"
-import { Message } from "@/components/page"
+import { Message, RouteError } from "@/components/page"
 import { buttonClass } from "@/components/ui/button"
 import { themeInitScript } from "@/lib/theme"
 import appCss from "../styles.css?url"
@@ -31,16 +31,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       </Link>
     </Message>
   ),
-  errorComponent: ({ error }) => (
-    <Message
-      title="Something went wrong."
-      body={error instanceof Error ? error.message : undefined}
-    >
-      <a href="/" className={buttonClass("outline")}>
-        Reload
-      </a>
-    </Message>
-  ),
+  errorComponent: RouteError,
 })
 
 function RootComponent() {

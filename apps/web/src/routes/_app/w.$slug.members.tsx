@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { Ellipsis, Users } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { AddMemberDialog } from "@/components/members/add-member-dialog"
 import { ConfirmDialog } from "@/components/members/confirm-dialog"
-import { PageTitle } from "@/components/page"
+import { ErrorState, PageTitle } from "@/components/page"
+import { RowsSkeleton } from "@/components/skeleton"
 import { Avatar } from "@/components/ui/avatar"
 import { Chip, CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,11 +39,14 @@ function MembersPage() {
   const { data: me } = useSuspenseQuery(meQuery)
   const workspace = workspaces.find((w) => w.slug === slug)
   const workspaceId = workspace?.id ?? ""
-  const { data: members } = useQuery({ ...membersQuery(workspaceId), enabled: !!workspace })
+  const membersResult = useQuery({ ...membersQuery(workspaceId), enabled: !!workspace })
+  const members = membersResult.data
 
   const [adding, setAdding] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [removing, setRemoving] = useState<Member | null>(null)
+  const rowTriggers = useRef(new Map<string, HTMLElement>())
+  const removeFocusRef = useRef<HTMLElement | null>(null)
 
   const refresh = () => qc.invalidateQueries({ queryKey: keys.members(workspaceId) })
   // Assignees appear in task lists, home and my tasks; membership changes can unassign people.
@@ -77,30 +81,31 @@ function MembersPage() {
 
   return (
     <>
-      <div className="flex items-start gap-3">
-        <div className="flex-1">
-          <PageTitle title="Members." description="The people in this workspace." />
-        </div>
-        <div className="flex items-center gap-2">
-          {mine && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                leave.reset()
-                setLeaving(true)
-              }}
-            >
-              Leave workspace
-            </Button>
-          )}
-          {isOwner && (
-            <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
-              Add member
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageTitle
+        title="Members."
+        description="The people in this workspace."
+        actions={
+          <>
+            {mine && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  leave.reset()
+                  setLeaving(true)
+                }}
+              >
+                Leave workspace
+              </Button>
+            )}
+            {isOwner && (
+              <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+                Add member
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Panel>
         <PanelHeader
@@ -108,7 +113,15 @@ function MembersPage() {
           title="Members"
           note={members ? <CountBadge>{members.length}</CountBadge> : undefined}
         />
-        <div className="overflow-x-auto">
+        {membersResult.isError && (
+          <ErrorState error={membersResult.error} onRetry={() => void membersResult.refetch()} />
+        )}
+        {!members && !membersResult.isError && (
+          <div className="p-4">
+            <RowsSkeleton rows={3} />
+          </div>
+        )}
+        <div className="relative overflow-x-auto" hidden={!members}>
           <table aria-label="Workspace members" className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="text-left text-[12px] font-medium text-muted-foreground">
@@ -148,6 +161,10 @@ function MembersPage() {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
+                            ref={(el) => {
+                              if (el) rowTriggers.current.set(m.id, el)
+                              else rowTriggers.current.delete(m.id)
+                            }}
                             variant="ghost"
                             size="sm"
                             icon
@@ -166,6 +183,7 @@ function MembersPage() {
                             className="text-destructive-foreground"
                             onSelect={() => {
                               remove.reset()
+                              removeFocusRef.current = rowTriggers.current.get(m.id) ?? null
                               setRemoving(m)
                             }}
                           >
@@ -194,6 +212,7 @@ function MembersPage() {
         <AddMemberDialog workspaceId={workspaceId} open={adding} onOpenChange={setAdding} />
       )}
       <ConfirmDialog
+        returnFocusRef={removeFocusRef}
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
         title="Remove member."

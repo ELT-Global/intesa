@@ -4,11 +4,13 @@ import { api, keys } from "./api"
 export const meQuery = queryOptions({
   queryKey: keys.me,
   queryFn: async () => (await api.me()).user,
+  staleTime: 60_000,
 })
 
 export const workspacesQuery = queryOptions({
   queryKey: keys.workspaces,
   queryFn: async () => (await api.workspaces()).workspaces,
+  staleTime: 60_000,
 })
 
 export const authConfigQuery = queryOptions({
@@ -33,6 +35,7 @@ export const membersQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: keys.members(workspaceId),
     queryFn: async () => (await api.members(workspaceId)).members,
+    staleTime: 60_000,
   })
 
 /** The client's local calendar day, so "due soon" matches what the user sees. */

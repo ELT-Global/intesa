@@ -71,6 +71,15 @@ export function AppShell({
   const fullBleed = useMatches({ select: (ms) => ms.some((m) => m.staticData.fullBleed) })
   return (
     <div className="flex h-dvh overflow-hidden">
+      <button
+        type="button"
+        onClick={() => {
+          document.getElementById("main")?.focus()
+        }}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:border focus:border-border focus:bg-popover focus:px-3 focus:py-1.5 focus:text-[13px] focus:shadow-lg focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Skip to content
+      </button>
       <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block lg:max-xl:w-60">
         <SidebarContent workspace={workspace} workspaces={workspaces} />
       </aside>
@@ -96,8 +105,10 @@ export function AppShell({
               }
             />
             <main
+              id="main"
+              tabIndex={-1}
               className={cn(
-                "min-h-0 flex-1 px-4 py-6 sm:px-8",
+                "min-h-0 flex-1 px-4 py-6 outline-none sm:px-8",
                 fullBleed ? "flex flex-col overflow-hidden" : "overflow-y-auto",
               )}
             >

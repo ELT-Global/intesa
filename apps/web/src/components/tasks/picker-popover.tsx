@@ -62,6 +62,8 @@ export function PickerPopover({
             role="combobox"
             aria-label={`Filter ${label.toLowerCase()}`}
             aria-expanded={options.length > 0}
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
             aria-controls={`${baseId}-list`}
             aria-activedescendant={activeDomId}
             value={filter}
@@ -83,6 +85,7 @@ export function PickerPopover({
                 setActive(e.key === "Home" ? 0 : options.length - 1)
               } else if (e.key === "Enter") {
                 e.preventDefault()
+                if (e.nativeEvent.isComposing) return
                 options[current]?.onSelect()
               }
             }}
@@ -120,7 +123,9 @@ export function PickerPopover({
             ))}
           </div>
           {options.length === 0 && (
-            <p className="px-2 py-1.5 text-[13px] text-muted-foreground">{empty}</p>
+            <p role="status" className="px-2 py-1.5 text-[13px] text-muted-foreground">
+              {empty}
+            </p>
           )}
         </P.Content>
       </P.Portal>

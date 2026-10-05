@@ -2,7 +2,8 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { FolderKanban, ListTodo } from "lucide-react"
 import { type ReactNode, useCallback, useMemo, useState } from "react"
-import { EmptyState, PageTitle } from "@/components/page"
+import { EmptyState, ErrorState, PageTitle } from "@/components/page"
+import { RowsSkeleton } from "@/components/skeleton"
 import { STATUS_LABELS, StatusIcon } from "@/components/tasks/properties"
 import { type TableColumn, type TableTask, TaskTable } from "@/components/tasks/task-table"
 import { CountBadge } from "@/components/ui/badge"
@@ -57,7 +58,8 @@ function MyTasksPage() {
   const navigate = useNavigate()
   const { data: workspaces } = useSuspenseQuery(workspacesQuery)
   const workspaceId = workspaces.find((w) => w.slug === slug)?.id ?? ""
-  const { data: tasks } = useQuery({ ...myTasksQuery(workspaceId), enabled: !!workspaceId })
+  const query = useQuery({ ...myTasksQuery(workspaceId), enabled: !!workspaceId })
+  const tasks = query.data
   const [showCompleted, setShowCompleted] = useState(false)
 
   const onOpen = useCallback(
@@ -105,6 +107,8 @@ function MyTasksPage() {
           Show completed
         </Button>
       </div>
+      {query.isError && <ErrorState error={query.error} onRetry={() => void query.refetch()} />}
+      {!tasks && !query.isError && <RowsSkeleton />}
       {tasks &&
         (sections.length === 0 ? (
           <EmptyState

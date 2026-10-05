@@ -27,6 +27,7 @@ export const customFieldsQuery = (projectId: string) =>
   queryOptions({
     queryKey: fieldKeys.list(projectId),
     queryFn: async () => (await unwrap(projectFields.$get({ param: { projectId } }))).fields,
+    staleTime: 60_000,
   })
 
 /** Definitions change what task details contain (removed options clear values), so details refetch too. */

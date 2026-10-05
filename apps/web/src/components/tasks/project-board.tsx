@@ -10,7 +10,8 @@ import {
   useRef,
   useState,
 } from "react"
-import { Message } from "@/components/page"
+import { ErrorState } from "@/components/page"
+import { Skeleton } from "@/components/skeleton"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -74,9 +75,8 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const addTo = useCallback((status: TaskStatus) => setCreateStatus(status), [])
 
   if (tasks.isError) {
-    return <Message title="Couldn't load tasks." body={tasks.error.message} />
+    return <ErrorState error={tasks.error} onRetry={() => void tasks.refetch()} />
   }
-  if (!all) return null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -86,17 +86,21 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       </p>
       <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-linear-to-b from-muted/20 to-background [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] md:snap-none">
         <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
-          {TASK_STATUSES.map((status) => (
-            <Column
-              key={status}
-              status={status}
-              tasks={byStatus.get(status) ?? []}
-              onOpen={openTask}
-              onMove={move}
-              onMoveBy={moveBy}
-              onAdd={addTo}
-            />
-          ))}
+          {TASK_STATUSES.map((status) =>
+            all ? (
+              <Column
+                key={status}
+                status={status}
+                tasks={byStatus.get(status) ?? []}
+                onOpen={openTask}
+                onMove={move}
+                onMoveBy={moveBy}
+                onAdd={addTo}
+              />
+            ) : (
+              <ColumnShell key={status} status={status} />
+            ),
+          )}
         </div>
       </div>
       <CreateTaskDialog
@@ -106,6 +110,27 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         defaultStatus={createStatus ?? undefined}
       />
     </div>
+  )
+}
+
+/** Column placeholder shown while tasks load. */
+function ColumnShell({ status }: { status: TaskStatus }) {
+  const label = STATUS_LABELS[status]
+  return (
+    <section
+      aria-label={label}
+      aria-busy
+      className="flex w-[85vw] shrink-0 snap-center flex-col rounded-xl border border-border/70 bg-muted/40 shadow-xs/5 md:w-auto md:min-w-68 md:max-w-80 md:flex-1 md:snap-align-none dark:bg-card/90"
+    >
+      <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+        <StatusIcon status={status} />
+        <h2 className="text-sm font-medium">{label}</h2>
+      </header>
+      <div className="flex flex-1 flex-col gap-2 p-2">
+        <Skeleton className="h-20 w-full bg-background" />
+        <Skeleton className="h-16 w-full bg-background" />
+      </div>
+    </section>
   )
 }
 

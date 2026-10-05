@@ -107,3 +107,20 @@ test("shows an empty state when nothing is assigned", async ({ page }) => {
   await page.goto(`/w/${slug}/my-tasks`)
   await expect(page.getByText("Nothing assigned to you.")).toBeVisible()
 })
+
+test("a failed load shows an error and Try again recovers", async ({ page, browser }) => {
+  const { slug } = await setup(page, browser)
+  let fail = true
+  await page.route("**/api/workspaces/*/my-tasks", (route) =>
+    fail
+      ? route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } })
+      : route.continue(),
+  )
+  await page.goto(`/w/${slug}/my-tasks`)
+  await expect(page.getByRole("alert")).toContainText("Something went wrong")
+
+  fail = false
+  await page.getByRole("button", { name: "Try again" }).click()
+  await expect(page.getByRole("button", { name: /Mine in alpha/ })).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+})

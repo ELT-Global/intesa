@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { type RefObject, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Field, FormError } from "@/components/ui/field"
@@ -12,15 +12,21 @@ export function ProjectSettingsDialog({
   project,
   open,
   onOpenChange,
+  returnFocusRef,
 }: {
   workspace: Workspace
   project: Project
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Project settings." description={`Key ${project.key} can't be changed.`}>
+      <DialogContent
+        returnFocusRef={returnFocusRef}
+        title="Project settings."
+        description={`Key ${project.key} can't be changed.`}
+      >
         <SettingsForm workspace={workspace} project={project} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>

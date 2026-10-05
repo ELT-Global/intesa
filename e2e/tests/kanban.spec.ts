@@ -2,12 +2,17 @@ import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { createProject, createTaskViaApi, workspaceIdBySlug } from "../support/projects"
 
-async function setup(page: Page, tasks: { title: string; status?: string }[]) {
+async function setup(
+  page: Page,
+  tasks: { title: string; status?: string }[],
+  beforeGoto?: () => Promise<void>,
+) {
   await signIn(page, { email: uniqueEmail() })
   const slug = await createWorkspace(page, uniqueName())
   const workspaceId = await workspaceIdBySlug(page, slug)
   const project = await createProject(page, workspaceId, uniqueName("Project"))
   for (const t of tasks) await createTaskViaApi(page, project.id, t)
+  await beforeGoto?.()
   await page.goto(`/w/${slug}/projects/${project.id}/board`)
 }
 
@@ -77,7 +82,7 @@ test("a failed move rolls back and shows the error", async ({ page }) => {
     .getByRole("button", { name: /Write spec/ })
     .dragTo(column(page, "In Progress"))
 
-  await expect(page.getByRole("alert")).toContainText("boom")
+  await expect(page.getByRole("alert")).toContainText("Could not save the task.")
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
   await expect(column(page, "In Progress").getByRole("button", { name: /Write spec/ })).toHaveCount(
     0,
@@ -104,4 +109,49 @@ test("Alt+Arrow keys move a focused card one column and keep focus", async ({ pa
   await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeFocused()
   await page.keyboard.press("Alt+ArrowLeft")
   await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeVisible()
+})
+
+const isTaskList = (url: URL, method: string) =>
+  method === "GET" && /\/api\/projects\/[^/]+\/tasks$/.test(url.pathname)
+
+test("column shells show while tasks load", async ({ page }) => {
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await setup(page, [{ title: "Write spec" }], async () => {
+    await page.route(
+      (url) => isTaskList(url, "GET"),
+      async (route) => {
+        await gate
+        await route.continue()
+      },
+    )
+  })
+
+  for (const name of ["Backlog", "Todo", "In Progress", "Review", "Complete"]) {
+    await expect(column(page, name)).toBeVisible()
+  }
+  await expect(page.getByRole("button", { name: /Write spec/ })).toHaveCount(0)
+
+  release()
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
+})
+
+test("a failed task load shows an error and Try again recovers", async ({ page }) => {
+  let failing = true
+  await setup(page, [{ title: "Write spec" }], async () => {
+    await page.route(
+      (url) => isTaskList(url, "GET"),
+      (route) =>
+        failing
+          ? route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } })
+          : route.continue(),
+    )
+  })
+
+  await expect(page.getByRole("alert")).toContainText("Something went wrong")
+  failing = false
+  await page.getByRole("button", { name: "Try again" }).click()
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
 })

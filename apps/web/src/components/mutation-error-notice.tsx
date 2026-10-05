@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { ApiError } from "@/lib/api"
 
 /**
  * Shows the latest failure of any mutation that declares `meta: { errorNotice: "..." }`.
@@ -20,7 +21,8 @@ export function MutationErrorNotice() {
         const err = event.action.error
         setError({
           id: Date.now(),
-          message: err instanceof Error && err.message ? err.message : fallback,
+          // Client errors explain themselves; server failures get the action-specific fallback.
+          message: err instanceof ApiError && err.status < 500 ? err.message : fallback,
         })
       }),
     [cache],

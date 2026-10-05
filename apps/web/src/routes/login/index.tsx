@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { CardPage } from "@/components/page"
+import { Skeleton } from "@/components/skeleton"
 import { Button, buttonClass } from "@/components/ui/button"
 import { Field, FormError } from "@/components/ui/field"
 import { api } from "@/lib/api"
@@ -26,6 +27,8 @@ function LoginPage() {
       <FormError
         message={error ? (ERROR_MESSAGES[error] ?? `Sign-in failed (${error}).`) : undefined}
       />
+      {config.isPending && <Skeleton className="h-10" />}
+      {config.isError && <FormError message="Couldn't reach the server. Reload to try again." />}
       {config.data?.google && (
         <a href="/api/auth/google/start" className={buttonClass("primary", "lg")}>
           Continue with Google

@@ -2,7 +2,8 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { CalendarClock, FolderKanban, UserRound } from "lucide-react"
 import type { ReactNode } from "react"
-import { PageTitle } from "@/components/page"
+import { ErrorState, PageTitle } from "@/components/page"
+import { Skeleton } from "@/components/skeleton"
 import { DueDateChip, PriorityIcon, StatusIcon } from "@/components/tasks/properties"
 import { Panel, PanelHeader } from "@/components/ui/panel"
 import type { HomeData } from "@/lib/api"
@@ -67,11 +68,20 @@ function HomePage() {
   const { slug } = Route.useParams()
   const { data: workspaces } = useSuspenseQuery(workspacesQuery)
   const workspaceId = workspaces.find((w) => w.slug === slug)?.id ?? ""
-  const { data } = useQuery({ ...homeQuery(workspaceId), enabled: !!workspaceId })
+  const home = useQuery({ ...homeQuery(workspaceId), enabled: !!workspaceId })
+  const data = home.data
 
   return (
     <>
       <PageTitle title="Home." description="Your starting point in this workspace." />
+      {home.isError && <ErrorState error={home.error} onRetry={() => void home.refetch()} />}
+      {!data && !home.isError && (
+        <div role="status" aria-label="Loading" className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-40 lg:col-span-2" />
+          <Skeleton className="h-40" />
+          <Skeleton className="h-40" />
+        </div>
+      )}
       {data && (
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="lg:col-span-2">

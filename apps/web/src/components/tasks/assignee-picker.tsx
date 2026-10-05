@@ -1,11 +1,11 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { UserPlus } from "lucide-react"
 import { useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import type { Member } from "@/lib/api"
 import { membersQuery, meQuery } from "@/lib/queries"
-import { type TaskDetail, type TaskSummary, type UserRef, useUpdateTask } from "@/lib/tasks"
+import { type TaskDetail, type TaskSummary, taskKeys, type UserRef, useUpdateTask } from "@/lib/tasks"
 import { PickerPopover } from "./picker-popover"
 
 export function AssigneePicker({
@@ -18,6 +18,7 @@ export function AssigneePicker({
   const update = useUpdateTask()
   const members = useQuery(membersQuery(workspaceId)).data ?? []
   const me = useQuery(meQuery).data
+  const qc = useQueryClient()
   const [filter, setFilter] = useState("")
 
   const assignedIds = new Set(task.assignees.map((a) => a.id))
@@ -44,8 +45,10 @@ export function AssigneePicker({
 
   function toggle(member: Member) {
     // Built from the task's own assignees so a still-loading members list can't drop anyone.
-    const kept = task.assignees.filter((a) => a.id !== member.userId)
-    if (assignedIds.has(member.userId)) setAssignees(kept)
+    // Read at click time so two quick toggles build on each other instead of the render's snapshot.
+    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.assignees ?? task.assignees
+    const kept = current.filter((a) => a.id !== member.userId)
+    if (current.some((a) => a.id === member.userId)) setAssignees(kept)
     else
       setAssignees([...kept, { id: member.userId, name: member.name, avatarUrl: member.avatarUrl }])
   }

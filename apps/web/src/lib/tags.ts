@@ -13,6 +13,7 @@ export const tagsQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: tagKeys.list(workspaceId),
     queryFn: async () => (await unwrap(workspaceTags.$get({ param: { workspaceId } }))).tags,
+    staleTime: 60_000,
   })
 
 export function useCreateTag(workspaceId: string) {

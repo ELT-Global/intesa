@@ -1,3 +1,4 @@
+import type { RefObject } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { FormError } from "@/components/ui/field"
@@ -12,6 +13,7 @@ export function ConfirmDialog({
   pending,
   error,
   onConfirm,
+  returnFocusRef,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -21,10 +23,11 @@ export function ConfirmDialog({
   pending: boolean
   error?: string | null
   onConfirm: () => void
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title={title} description={description}>
+      <DialogContent returnFocusRef={returnFocusRef} title={title} description={description}>
         <div className="flex flex-col gap-3">
           <FormError message={error} />
           <div className="flex justify-end gap-2">

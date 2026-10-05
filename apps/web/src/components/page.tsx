@@ -1,4 +1,7 @@
+import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
+import { Button } from "@/components/ui/button"
+import { ApiError } from "@/lib/api"
 
 /** Full-screen centred message, used for 404 and error states. */
 export function Message({
@@ -19,11 +22,23 @@ export function Message({
   )
 }
 
-export function PageTitle({ title, description }: { title: string; description?: string }) {
+export function PageTitle({
+  title,
+  description,
+  actions,
+}: {
+  title: string
+  description?: string
+  /** Stacked under the title on phones, beside it from `sm`. */
+  actions?: ReactNode
+}) {
   return (
-    <div className="mb-6">
-      <h1 className="text-2xl font-medium tracking-[-0.025em]">{title}</h1>
-      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-2xl font-medium tracking-[-0.025em]">{title}</h1>
+        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }
@@ -55,5 +70,41 @@ export function CardPage({
         <div className="mt-5 flex flex-col gap-4">{children}</div>
       </div>
     </main>
+  )
+}
+
+/** Server-provided messages are safe to show; anything else gets a plain sentence. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status < 500) return error.message
+  return "Something went wrong on our side. Try again in a moment."
+}
+
+/** Inline failure state with a retry action; never shows stacks. */
+export function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="mx-auto flex max-w-sm flex-col items-center gap-3 py-16 text-center"
+    >
+      <p className="text-sm font-medium">Couldn't load this.</p>
+      <p className="text-xs text-muted-foreground">{errorMessage(error)}</p>
+      <Button size="sm" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  )
+}
+
+/** Router-level error component: reloads loaders and clears the error boundary. */
+export function RouteError({ error, reset }: { error: unknown; reset: () => void }) {
+  const router = useRouter()
+  return (
+    <ErrorState
+      error={error}
+      onRetry={() => {
+        reset()
+        void router.invalidate()
+      }}
+    />
   )
 }

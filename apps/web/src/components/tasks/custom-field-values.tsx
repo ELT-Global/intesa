@@ -1,63 +1,75 @@
 import { useQuery } from "@tanstack/react-query"
 import { X } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input, Select } from "@/components/ui/input"
 import { type CustomField, customFieldsQuery } from "@/lib/custom-fields"
 import { type TaskDetail, useUpdateTask } from "@/lib/tasks"
 
+type Value = string | number | boolean | null
+
 /** Two-column property list of the project's custom fields for one task. Renders nothing without fields. */
 export function CustomFieldValues({ task }: { task: TaskDetail }) {
   const fields = useQuery(customFieldsQuery(task.projectId)).data ?? []
-  const update = useUpdateTask()
   if (fields.length === 0) return null
 
   const values = task.customFields as Record<string, unknown>
-
-  function save(field: CustomField, value: string | number | boolean | null, onError: () => void) {
-    const next = { ...values }
-    if (value === null) delete next[field.id]
-    else next[field.id] = value
-    update.mutate(
-      {
-        taskId: task.id,
-        projectId: task.projectId,
-        patch: { customFields: { [field.id]: value } },
-        view: { customFields: next },
-      },
-      { onError },
-    )
-  }
-
   return (
     <section aria-label="Fields" className="flex flex-col gap-2">
       <h3 className="text-xs font-medium text-muted-foreground">Fields</h3>
       <div className="grid grid-cols-[minmax(0,10rem)_1fr] items-start gap-x-4 gap-y-2">
         {fields.map((f) => (
-          <FieldValueRow key={f.id} field={f} value={values[f.id] ?? null} save={save} />
+          <FieldValueRow key={f.id} task={task} field={f} value={values[f.id] ?? null} />
         ))}
       </div>
     </section>
   )
 }
 
-type Value = string | number | boolean | null
-
 function FieldValueRow({
+  task,
   field,
   value,
-  save,
 }: {
+  task: TaskDetail
   field: CustomField
   value: unknown
-  save: (field: CustomField, value: Value, onError: () => void) => void
 }) {
+  // One mutation observer per row, so one field's failure or result can't replace another's.
+  const update = useUpdateTask()
   const [rejected, setRejected] = useState(false)
-  const empty = value === null || value === ""
-  const commit = (v: Value) => {
+  // Shown synchronously on edit: a controlled input reverts to its prop right after the event
+  // if the cache hasn't changed yet, and the cache write happens after an awaited cancel.
+  const [local, setLocal] = useState<{ value: Value } | null>(null)
+  const inflight = useRef(0)
+  const lastCall = useRef(0)
+
+  const shown = local ? local.value : value
+  const empty = shown === null || shown === ""
+
+  function commit(next: Value) {
+    const id = ++lastCall.current
+    inflight.current += 1
     setRejected(false)
-    save(field, v, () => setRejected(true))
+    setLocal({ value: next })
+    const merged = { ...(task.customFields as Record<string, unknown>) }
+    if (next === null) delete merged[field.id]
+    else merged[field.id] = next
+    update
+      .mutateAsync({
+        taskId: task.id,
+        projectId: task.projectId,
+        patch: { customFields: { [field.id]: next } },
+        view: { customFields: merged },
+      })
+      .catch(() => {
+        if (id === lastCall.current) setRejected(true)
+      })
+      .finally(() => {
+        inflight.current -= 1
+        if (inflight.current === 0) setLocal(null)
+      })
   }
 
   return (
@@ -66,13 +78,7 @@ function FieldValueRow({
         {field.name}
       </span>
       <div className="flex flex-col gap-1">
-        {/* Remounting on a server-side change drops stale drafts. */}
-        <ValueControl
-          key={`${String(value)}:${rejected}`}
-          field={field}
-          value={value}
-          commit={commit}
-        />
+        <ValueControl field={field} value={shown} rejected={rejected} commit={commit} />
         {field.required && empty && field.type !== "boolean" && (
           <span
             role={rejected ? "alert" : undefined}
@@ -93,21 +99,32 @@ function FieldValueRow({
   )
 }
 
+/** Text-like inputs keep a draft while focused and adopt the stored value otherwise. */
+function useDraft(stored: string, rejected: boolean) {
+  const [draft, setDraft] = useState(stored)
+  const focused = useRef(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a failed save must reset the draft too
+  useEffect(() => {
+    if (!focused.current) setDraft(stored)
+  }, [stored, rejected])
+  return { draft, setDraft, focused }
+}
+
 function ValueControl({
   field,
   value,
+  rejected,
   commit,
 }: {
   field: CustomField
   value: unknown
+  rejected: boolean
   commit: (value: Value) => void
 }) {
   const label = field.name
-  const stored = value === null ? "" : String(value)
-  const [draft, setDraft] = useState(stored)
+  const stored = value === null || value === undefined ? "" : String(value)
+  const { draft, setDraft, focused } = useDraft(stored, rejected)
   const [invalid, setInvalid] = useState(false)
-  // Shown at once; the cache update lags a tick behind the click. A rollback remounts this control.
-  const [checked, setChecked] = useState(value === true)
 
   switch (field.type) {
     case "boolean":
@@ -115,11 +132,8 @@ function ValueControl({
         <div className="flex h-8 items-center">
           <Checkbox
             aria-label={label}
-            checked={checked}
-            onChange={(e) => {
-              setChecked(e.target.checked)
-              commit(e.target.checked)
-            }}
+            checked={value === true}
+            onChange={(e) => commit(e.target.checked)}
           />
         </div>
       )
@@ -134,14 +148,25 @@ function ValueControl({
           ))}
         </Select>
       )
-    case "date":
+    case "date": {
+      const save = () => {
+        if (draft !== stored && draft) commit(draft)
+      }
       return (
         <div className="flex items-center gap-1">
           <Input
             type="date"
             aria-label={label}
-            value={stored}
-            onChange={(e) => e.target.value && commit(e.target.value)}
+            value={draft}
+            onFocus={() => {
+              focused.current = true
+            }}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            onBlur={() => {
+              focused.current = false
+              save()
+            }}
           />
           {stored && (
             <Button
@@ -156,6 +181,7 @@ function ValueControl({
           )}
         </div>
       )
+    }
     default: {
       const isNumber = field.type === "number"
       return (
@@ -166,12 +192,16 @@ function ValueControl({
             inputMode={isNumber ? "decimal" : undefined}
             maxLength={isNumber ? 32 : 2000}
             value={draft}
+            onFocus={() => {
+              focused.current = true
+            }}
             onChange={(e) => {
               setDraft(e.target.value)
               setInvalid(false)
             }}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             onBlur={() => {
+              focused.current = false
               const next = draft.trim()
               if (next === stored) return
               if (!next) return commit(null)
