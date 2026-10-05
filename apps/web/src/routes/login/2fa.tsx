@@ -40,7 +40,7 @@ function TwoFactorPage() {
           pattern="[0-9]{6}"
           required
           autoFocus
-          className="font-mono"
+          inputClassName="font-mono"
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
         />

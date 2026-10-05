@@ -185,7 +185,7 @@ export function SidebarContent({
         ))}
       </nav>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <ProjectsSection />
+        <ProjectsSection workspace={workspace} onNavigate={onNavigate} />
       </div>
       <ProfileCard onNavigate={onNavigate} />
     </div>

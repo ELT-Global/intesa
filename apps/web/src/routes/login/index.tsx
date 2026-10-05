@@ -76,7 +76,7 @@ function DevLoginForm() {
         onChange={(e) => setName(e.target.value)}
       />
       <FormError message={login.error?.message} />
-      <Button type="submit" variant="outline" pending={login.isPending}>
+      <Button type="submit" variant="primary" pending={login.isPending}>
         Sign in
       </Button>
     </form>

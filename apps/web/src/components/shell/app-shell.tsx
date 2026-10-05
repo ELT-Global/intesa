@@ -1,9 +1,12 @@
 import * as Dialog from "@radix-ui/react-dialog"
+import { useQuery } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { Menu, X } from "lucide-react"
-import { type ReactNode, useState } from "react"
+import { createContext, type ReactNode, useContext, useState } from "react"
+import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import type { Workspace } from "@/lib/api"
+import { projectQuery } from "@/lib/queries"
 import { SidebarContent, Wordmark } from "./sidebar"
 
 const PAGE_TITLES: Record<string, string> = {
@@ -12,9 +15,27 @@ const PAGE_TITLES: Record<string, string> = {
   members: "Members",
 }
 
-function TopBar({ workspace, trigger }: { workspace: Workspace; trigger: ReactNode }) {
-  const segment = useLocation({ select: (l) => l.pathname.split("/")[3] ?? "" })
-  const page = PAGE_TITLES[segment] ?? "Home"
+const TopBarSlot = createContext<HTMLElement | null>(null)
+
+/** Renders children into the top bar's action area (view switcher, primary action). */
+export function TopBarActions({ children }: { children: ReactNode }) {
+  const slot = useContext(TopBarSlot)
+  return slot ? createPortal(children, slot) : null
+}
+
+function TopBar({
+  workspace,
+  trigger,
+  setSlot,
+}: {
+  workspace: Workspace
+  trigger: ReactNode
+  setSlot: (el: HTMLElement | null) => void
+}) {
+  const [, , section, projectId] = useLocation({ select: (l) => l.pathname.split("/").slice(1) })
+  const inProject = section === "projects" && !!projectId
+  const { data: project } = useQuery({ ...projectQuery(projectId ?? ""), enabled: inProject })
+  const page = inProject ? (project?.name ?? "Project") : (PAGE_TITLES[section ?? ""] ?? "Home")
   return (
     <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur-md">
       {trigger}
@@ -23,10 +44,11 @@ function TopBar({ workspace, trigger }: { workspace: Workspace; trigger: ReactNo
         <span className="hidden text-muted-foreground sm:inline" aria-hidden>
           /
         </span>
-        <span className="font-medium" aria-current="page">
+        <span className="truncate font-medium" aria-current="page">
           {page}
         </span>
       </nav>
+      <div ref={setSlot} className="ml-2 flex min-w-0 flex-1 items-center gap-2" />
     </header>
   )
 }
@@ -41,60 +63,64 @@ export function AppShell({
   children: ReactNode
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
   return (
     <div className="flex h-dvh overflow-hidden">
       <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block lg:max-xl:w-60">
         <SidebarContent workspace={workspace} workspaces={workspaces} />
       </aside>
 
-      <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar
-            workspace={workspace}
-            trigger={
-              <Dialog.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon
-                  className="md:hidden"
-                  aria-label="Open navigation"
-                >
-                  <Menu />
-                </Button>
-              </Dialog.Trigger>
-            }
-          />
-          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-            <div className="mx-auto max-w-4xl">{children}</div>
-          </main>
-        </div>
-
-        <Dialog.Portal>
-          <Dialog.Overlay className="drawer-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" />
-          <Dialog.Content
-            aria-describedby={undefined}
-            className="drawer-panel fixed inset-y-0 left-0 z-50 w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl outline-none md:hidden"
-          >
-            <Dialog.Title className="sr-only">Navigation</Dialog.Title>
-            <SidebarContent
+      <TopBarSlot.Provider value={slot}>
+        <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar
               workspace={workspace}
-              workspaces={workspaces}
-              onNavigate={() => setDrawerOpen(false)}
-              header={
-                <div className="flex items-center justify-between">
-                  <Wordmark />
-                  <Dialog.Close asChild>
-                    <Button variant="ghost" size="sm" icon aria-label="Close navigation">
-                      <X />
-                    </Button>
-                  </Dialog.Close>
-                </div>
+              setSlot={setSlot}
+              trigger={
+                <Dialog.Trigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
+                    className="md:hidden"
+                    aria-label="Open navigation"
+                  >
+                    <Menu />
+                  </Button>
+                </Dialog.Trigger>
               }
             />
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
+              <div className="mx-auto max-w-4xl">{children}</div>
+            </main>
+          </div>
+
+          <Dialog.Portal>
+            <Dialog.Overlay className="drawer-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" />
+            <Dialog.Content
+              aria-describedby={undefined}
+              className="drawer-panel fixed inset-y-0 left-0 z-50 w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl outline-none md:hidden"
+            >
+              <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+              <SidebarContent
+                workspace={workspace}
+                workspaces={workspaces}
+                onNavigate={() => setDrawerOpen(false)}
+                header={
+                  <div className="flex items-center justify-between">
+                    <Wordmark />
+                    <Dialog.Close asChild>
+                      <Button variant="ghost" size="sm" icon aria-label="Close navigation">
+                        <X />
+                      </Button>
+                    </Dialog.Close>
+                  </div>
+                }
+              />
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      </TopBarSlot.Provider>
     </div>
   )
 }

@@ -163,7 +163,7 @@ function EnableTwoFactor() {
         autoComplete="one-time-code"
         maxLength={6}
         required
-        className="font-mono"
+        inputClassName="font-mono"
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
       />
@@ -200,7 +200,7 @@ function DisableTwoFactor() {
         autoComplete="one-time-code"
         maxLength={6}
         required
-        className="font-mono"
+        inputClassName="font-mono"
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
       />

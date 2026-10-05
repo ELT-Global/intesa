@@ -7,13 +7,14 @@ export function Field({
   label,
   hint,
   className,
+  inputClassName,
   ...props
-}: { label: string; hint?: ReactNode } & ComponentProps<typeof Input>) {
+}: { label: string; hint?: ReactNode; inputClassName?: string } & ComponentProps<typeof Input>) {
   const id = useId()
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} {...props} />
+      <Input id={id} className={inputClassName} {...props} />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   )

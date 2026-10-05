@@ -1,4 +1,5 @@
 import * as Menu from "@radix-ui/react-dropdown-menu"
+import { Check } from "lucide-react"
 import type { ComponentProps } from "react"
 import { cn } from "@/lib/utils"
 
@@ -42,5 +43,28 @@ export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof 
       )}
       {...props}
     />
+  )
+}
+
+export const DropdownMenuRadioGroup = Menu.RadioGroup
+
+export function DropdownMenuRadioItem({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof Menu.RadioItem>) {
+  return (
+    <Menu.RadioItem
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-accent data-[state=checked]:font-medium [&_svg]:size-4",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <Menu.ItemIndicator className="ml-auto text-foreground">
+        <Check className="size-3.5" aria-hidden />
+      </Menu.ItemIndicator>
+    </Menu.RadioItem>
   )
 }

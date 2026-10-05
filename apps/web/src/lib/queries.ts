@@ -16,3 +16,15 @@ export const authConfigQuery = queryOptions({
   queryFn: api.authConfig,
   staleTime: Infinity,
 })
+
+export const projectsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: keys.projects(workspaceId),
+    queryFn: async () => (await api.projects(workspaceId)).projects,
+  })
+
+export const projectQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: keys.project(projectId),
+    queryFn: async () => (await api.project(projectId)).project,
+  })

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, LabelHTMLAttributes, Ref } from "react"
+import type { InputHTMLAttributes, LabelHTMLAttributes, Ref, TextareaHTMLAttributes } from "react"
 import { cn } from "@/lib/utils"
 
 export function Input({
@@ -24,4 +24,17 @@ export function Input({
 export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
   // biome-ignore lint/a11y/noLabelWithoutControl: association is supplied by callers via htmlFor
   return <label className={cn("text-xs font-medium text-foreground", className)} {...props} />
+}
+
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        "min-h-20 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs/5 outline-none placeholder:text-muted-foreground",
+        "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
+        className,
+      )}
+      {...props}
+    />
+  )
 }
