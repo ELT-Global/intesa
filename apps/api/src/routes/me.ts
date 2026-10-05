@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import type { Updateable } from "kysely"
 import { z } from "zod"
+import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "../auth/attempts"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { generateSecret, otpauthUrl, verifyTotp } from "../auth/totp"
 import { toUserJson } from "../auth/users"
@@ -14,6 +15,18 @@ import { codeBody } from "./auth"
 const patchBody = z.object({ name: z.string().trim().min(1).max(100) })
 
 export function meRoutes({ db }: Deps) {
+  const attempts = createAttemptLimiter(MAX_CODE_ATTEMPTS, LOCKOUT_MS)
+  // Wrong codes count against the user; too many in a row locks code entry for a while.
+  const checkCode = async (user: { id: string; totpSecret: string | null }, code: string) => {
+    if (attempts.isLocked(user.id)) {
+      throw new ApiError("RATE_LIMITED", "Too many attempts, try again later")
+    }
+    if (!user.totpSecret || !(await verifyTotp(user.totpSecret, code))) {
+      attempts.fail(user.id)
+      throw new ApiError("VALIDATION_ERROR", "Invalid code")
+    }
+    attempts.reset(user.id)
+  }
   const updateUser = (id: string, set: Updateable<UserTable>) =>
     db
       .updateTable("users")
@@ -44,9 +57,7 @@ export function meRoutes({ db }: Deps) {
       if (!user.totpSecret) {
         throw new ApiError("VALIDATION_ERROR", "Start two-factor setup first")
       }
-      if (!(await verifyTotp(user.totpSecret, code))) {
-        throw new ApiError("VALIDATION_ERROR", "Invalid code")
-      }
+      await checkCode(user, code)
       return c.json({ user: toUserJson(await updateUser(user.id, { totpEnabled: 1 })) })
     })
     .post("/2fa/disable", validate("json", codeBody), async (c) => {
@@ -55,9 +66,7 @@ export function meRoutes({ db }: Deps) {
       if (user.totpEnabled !== 1 || !user.totpSecret) {
         throw new ApiError("VALIDATION_ERROR", "Two-factor authentication is not enabled")
       }
-      if (!(await verifyTotp(user.totpSecret, code))) {
-        throw new ApiError("VALIDATION_ERROR", "Invalid code")
-      }
+      await checkCode(user, code)
       return c.json({
         user: toUserJson(await updateUser(user.id, { totpEnabled: 0, totpSecret: null })),
       })

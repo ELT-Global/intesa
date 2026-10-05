@@ -8,15 +8,17 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "CONFLICT"
   | "TWO_FACTOR_REQUIRED"
+  | "RATE_LIMITED"
   | "INTERNAL"
 
-const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 500> = {
+const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 429 | 500> = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   VALIDATION_ERROR: 400,
   CONFLICT: 409,
   TWO_FACTOR_REQUIRED: 401,
+  RATE_LIMITED: 429,
   INTERNAL: 500,
 }
 

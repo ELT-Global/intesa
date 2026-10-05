@@ -21,7 +21,11 @@ export async function hashToken(token: string): Promise<string> {
   return Buffer.from(digest).toString("hex")
 }
 
-export async function createSession(db: Db, userId: string, pendingTwoFactor: boolean): Promise<string> {
+export async function createSession(
+  db: Db,
+  userId: string,
+  pendingTwoFactor: boolean,
+): Promise<string> {
   const token = randomToken()
   await db
     .insertInto("sessions")

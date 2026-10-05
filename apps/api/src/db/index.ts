@@ -36,5 +36,16 @@ export async function migrate(db: Db) {
   if (error) throw error
 }
 
-export const now = () => new Date().toISOString()
+// Strictly increasing within the process so rows written in quick succession keep a
+// stable order when sorted by timestamp (e.g. status history).
+let lastMs = 0
+export const now = () => {
+  lastMs = Math.max(Date.now(), lastMs + 1)
+  return new Date(lastMs).toISOString()
+}
 export const newId = () => crypto.randomUUID()
+
+// Runs fn inside a transaction, joining the caller's transaction when there is one.
+export function inTransaction<T>(db: Db, fn: (trx: Db) => Promise<T>): Promise<T> {
+  return db.isTransaction ? fn(db) : db.transaction().execute(fn)
+}

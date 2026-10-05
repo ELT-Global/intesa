@@ -63,3 +63,57 @@ export async function signIn(app: TestApp["app"], email: string, name?: string) 
   if (res.status !== 200) throw new Error(`dev-login failed: ${res.status}`)
   return clientWithCookie(app, sessionCookieFrom(res))
 }
+
+// Adds an existing user (by email) to a workspace without going through the API.
+export async function addMember(
+  t: TestApp,
+  workspaceId: string,
+  email: string,
+  role: "owner" | "member" = "member",
+) {
+  const user = await t.db
+    .selectFrom("users")
+    .select("id")
+    .where("email", "=", email)
+    .executeTakeFirstOrThrow()
+  await t.db
+    .insertInto("workspaceMembers")
+    .values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      userId: user.id,
+      role,
+      createdAt: new Date().toISOString(),
+    })
+    .execute()
+  return user.id
+}
+
+export async function userId(t: TestApp, email: string) {
+  return (
+    await t.db.selectFrom("users").select("id").where("email", "=", email).executeTakeFirstOrThrow()
+  ).id
+}
+
+export async function addTag(t: TestApp, workspaceId: string, name: string) {
+  const id = crypto.randomUUID()
+  await t.db
+    .insertInto("tags")
+    .values({ id, workspaceId, name, color: "blue", createdAt: new Date().toISOString() })
+    .execute()
+  return id
+}
+
+// A workspace owner with one project, ready for task tests.
+export async function setupProject(t: TestApp, email: string, projectName = "Website") {
+  const owner = await signIn(t.app, email)
+  const ws = await owner.call("POST", "/api/workspaces", {
+    name: `WS ${email}`,
+    slug: `ws-${crypto.randomUUID().slice(0, 8)}`,
+  })
+  const workspaceId = ws.body.workspace.id as string
+  const proj = await owner.call("POST", `/api/workspaces/${workspaceId}/projects`, {
+    name: projectName,
+  })
+  return { owner, workspaceId, project: proj.body.project as { id: string; key: string } }
+}

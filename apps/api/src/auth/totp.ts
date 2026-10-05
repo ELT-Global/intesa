@@ -18,7 +18,7 @@ export function base32Encode(bytes: Uint8Array): string {
   return out
 }
 
-export function base32Decode(input: string): Uint8Array {
+export function base32Decode(input: string): Uint8Array<ArrayBuffer> {
   const clean = input.replace(/=+$/, "").replace(/\s+/g, "").toUpperCase()
   let bits = 0
   let value = 0
@@ -40,7 +40,7 @@ export function generateSecret(): string {
   return base32Encode(crypto.getRandomValues(new Uint8Array(20)))
 }
 
-async function hotp(key: Uint8Array, counter: number): Promise<string> {
+async function hotp(key: Uint8Array<ArrayBuffer>, counter: number): Promise<string> {
   const msg = new ArrayBuffer(8)
   const view = new DataView(msg)
   view.setUint32(0, Math.floor(counter / 2 ** 32))

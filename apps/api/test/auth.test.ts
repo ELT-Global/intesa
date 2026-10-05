@@ -222,6 +222,70 @@ describe("two-factor authentication", () => {
   })
 })
 
+describe("two-factor guess limiting", () => {
+  const wrongCode = async (secret: string) => {
+    const good = await totpCode(secret)
+    return good === "000000" ? "000001" : "000000"
+  }
+
+  async function userWith2fa(app: Awaited<ReturnType<typeof createTestApp>>["app"], email: string) {
+    const me = await signIn(app, email)
+    const { body } = await me.call("POST", "/api/me/2fa/setup")
+    await me.call("POST", "/api/me/2fa/enable", { code: await totpCode(body.secret) })
+    return { me, secret: body.secret as string }
+  }
+
+  test("five wrong codes destroy a pending session, even if the right code follows", async () => {
+    const { app } = await createTestApp()
+    const { secret } = await userWith2fa(app, "guess@example.com")
+    const login = await app.request("/api/auth/dev-login", json({ email: "guess@example.com" }))
+    const pending = clientWithCookie(app, sessionCookieFrom(login))
+    const wrong = await wrongCode(secret)
+
+    for (let i = 0; i < 4; i++) {
+      expect((await pending.call("POST", "/api/auth/2fa", { code: wrong })).status).toBe(400)
+    }
+    const fifth = await pending.call("POST", "/api/auth/2fa", { code: wrong })
+    expect(fifth.status).toBe(401)
+    expect(fifth.body.code).toBe("UNAUTHORIZED")
+
+    const late = await pending.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })
+    expect(late.status).toBe(401)
+    // A fresh sign-in starts over.
+    const again = await app.request("/api/auth/dev-login", json({ email: "guess@example.com" }))
+    const fresh = clientWithCookie(app, sessionCookieFrom(again))
+    expect(
+      (await fresh.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })).status,
+    ).toBe(200)
+  })
+
+  test("a correct code resets the failure count", async () => {
+    const { app } = await createTestApp()
+    const { secret } = await userWith2fa(app, "reset@example.com")
+    const wrong = await wrongCode(secret)
+    for (let round = 0; round < 2; round++) {
+      const login = await app.request("/api/auth/dev-login", json({ email: "reset@example.com" }))
+      const pending = clientWithCookie(app, sessionCookieFrom(login))
+      for (let i = 0; i < 4; i++) await pending.call("POST", "/api/auth/2fa", { code: wrong })
+      const ok = await pending.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })
+      expect(ok.status).toBe(200)
+    }
+  })
+
+  test("repeated wrong codes on disable lock the user out, even for the right code", async () => {
+    const { app } = await createTestApp()
+    const { me, secret } = await userWith2fa(app, "lock@example.com")
+    const wrong = await wrongCode(secret)
+    for (let i = 0; i < 5; i++) {
+      expect((await me.call("POST", "/api/me/2fa/disable", { code: wrong })).status).toBe(400)
+    }
+    const locked = await me.call("POST", "/api/me/2fa/disable", { code: await totpCode(secret) })
+    expect(locked.status).toBe(429)
+    expect(locked.body.code).toBe("RATE_LIMITED")
+    expect((await me.call("GET", "/api/me")).body.user.totpEnabled).toBe(true)
+  })
+})
+
 describe("google sign-in", () => {
   test("start redirects to Google with state and PKCE and sets a short-lived cookie", async () => {
     const { app } = await createTestApp({ googleClientId: "cid", googleClientSecret: "sec" })
