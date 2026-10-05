@@ -1,6 +1,7 @@
+import { sql } from "kysely"
 import { createApp } from "../src/app"
 import type { Config } from "../src/config"
-import { createDb, migrate } from "../src/db"
+import { createDb, type Db, migrate } from "../src/db"
 
 const baseConfig: Config = {
   nodeEnv: "test",
@@ -9,9 +10,47 @@ const baseConfig: Config = {
   secureCookies: false,
 }
 
+// With TEST_DATABASE_URL set to a postgres URL, all test apps share one connection pool on a
+// dedicated schema that is emptied before every app (tests run one at a time). Without it each
+// app gets a fresh in-memory SQLite database.
+const pgUrl = process.env.TEST_DATABASE_URL
+const usePg = Boolean(pgUrl && /^postgres(ql)?:\/\//.test(pgUrl))
+const PG_SCHEMA = "intesa_test"
+let pgDb: Promise<Db> | undefined
+
+function sharedPgDb(url: string): Promise<Db> {
+  pgDb ??= (async () => {
+    const admin = await createDb(url)
+    await sql`drop schema if exists ${sql.id(PG_SCHEMA)} cascade`.execute(admin)
+    await sql`create schema ${sql.id(PG_SCHEMA)}`.execute(admin)
+    await admin.destroy()
+
+    const scoped = new URL(url)
+    scoped.searchParams.set("options", `-c search_path=${PG_SCHEMA}`)
+    const db = await createDb(scoped.toString())
+    await migrate(db, PG_SCHEMA)
+    return db
+  })()
+  return pgDb
+}
+
+async function openDb(): Promise<Db> {
+  if (!usePg || !pgUrl) {
+    const db = await createDb(":memory:")
+    await migrate(db)
+    return db
+  }
+  const db = await sharedPgDb(pgUrl)
+  const { rows } = await sql<{ tablename: string }>`
+    select tablename from pg_tables
+    where schemaname = ${PG_SCHEMA} and tablename not like 'kysely_%'`.execute(db)
+  const tables = rows.map((r) => sql.id(r.tablename))
+  await sql`truncate table ${sql.join(tables)} cascade`.execute(db)
+  return db
+}
+
 export async function createTestApp(overrides: Partial<Config> = {}) {
-  const db = await createDb(":memory:")
-  await migrate(db)
+  const db = await openDb()
   const config = { ...baseConfig, ...overrides }
   return { app: createApp({ db, config }), db, config }
 }

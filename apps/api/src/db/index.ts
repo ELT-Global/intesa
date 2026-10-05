@@ -27,10 +27,13 @@ export async function createDb(url: string): Promise<Db> {
   })
 }
 
-export async function migrate(db: Db) {
+// `schema` pins the migration bookkeeping tables to one Postgres schema; without it Kysely
+// may mistake tables of the same name in another schema for its own.
+export async function migrate(db: Db, schema?: string) {
   const migrator = new Migrator({
     db,
     provider: { getMigrations: async () => migrations },
+    migrationTableSchema: schema,
   })
   const { error } = await migrator.migrateToLatest()
   if (error) throw error
