@@ -34,7 +34,7 @@ function LoginPage() {
           Continue with Google
         </a>
       )}
-      {config.data?.devLogin && <DevLoginForm />}
+      {config.data?.devLogin && <DevLoginForm primary={!config.data.google} />}
       {config.data && !config.data.google && !config.data.devLogin && (
         <p className="text-sm text-muted-foreground">No sign-in method is configured.</p>
       )}
@@ -42,7 +42,7 @@ function LoginPage() {
   )
 }
 
-function DevLoginForm() {
+function DevLoginForm({ primary }: { primary: boolean }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [email, setEmail] = useState("")
@@ -66,6 +66,7 @@ function DevLoginForm() {
       <p className="text-xs text-muted-foreground">Development sign-in</p>
       <Field
         label="Email"
+        error={login.error?.message}
         type="email"
         required
         autoComplete="email"
@@ -78,8 +79,7 @@ function DevLoginForm() {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      <FormError message={login.error?.message} />
-      <Button type="submit" variant="primary" pending={login.isPending}>
+      <Button type="submit" variant={primary ? "primary" : "outline"} pending={login.isPending}>
         Sign in
       </Button>
     </form>

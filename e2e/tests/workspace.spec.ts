@@ -9,7 +9,7 @@ test("create a workspace, see the shell, survive a reload", async ({ page }) => 
   await expect(page).toHaveURL(new RegExp(`/w/${slug}/home$`))
   await expect(page.getByRole("button", { name: "Switch workspace" })).toContainText(name)
   const nav = page.getByRole("navigation", { name: "Primary" })
-  for (const label of ["Home", "My Tasks", "Members"]) {
+  for (const label of ["Home", "My tasks", "Members"]) {
     await expect(nav.getByRole("link", { name: label })).toBeVisible()
   }
 

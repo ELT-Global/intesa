@@ -25,12 +25,12 @@ test("tasks appear in the column for their status", async ({ page }) => {
     { title: "Build it", status: "in_progress" },
     { title: "Ship it", status: "complete" },
   ])
-  for (const name of ["Backlog", "Todo", "In Progress", "Review", "Complete"]) {
+  for (const name of ["Backlog", "Todo", "In progress", "Review", "Complete"]) {
     await expect(column(page, name)).toBeVisible()
   }
   await expect(column(page, "Backlog").getByRole("button", { name: /Sketch ideas/ })).toBeVisible()
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
-  await expect(column(page, "In Progress").getByRole("button", { name: /Build it/ })).toBeVisible()
+  await expect(column(page, "In progress").getByRole("button", { name: /Build it/ })).toBeVisible()
   await expect(column(page, "Complete").getByRole("button", { name: /Ship it/ })).toBeVisible()
   await expect(column(page, "Review").getByRole("listitem")).toHaveCount(0)
 })
@@ -39,25 +39,25 @@ test("dragging a card to another column changes its status and persists", async 
   await setup(page, [{ title: "Write spec" }])
   const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
   const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
-  await card.dragTo(column(page, "In Progress"))
+  await card.dragTo(column(page, "In progress"))
 
   await expect(
-    column(page, "In Progress").getByRole("button", { name: /Write spec/ }),
+    column(page, "In progress").getByRole("button", { name: /Write spec/ }),
   ).toBeVisible()
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toHaveCount(0)
 
   await saved
   await page.reload()
   await expect(
-    column(page, "In Progress").getByRole("button", { name: /Write spec/ }),
+    column(page, "In progress").getByRole("button", { name: /Write spec/ }),
   ).toBeVisible()
 
-  await column(page, "In Progress")
+  await column(page, "In progress")
     .getByRole("button", { name: /Write spec/ })
     .click()
   const sheet = page.getByRole("dialog", { name: /-1$/ })
   await sheet.getByRole("button", { name: "History" }).click()
-  await expect(sheet.getByRole("list", { name: "History" })).toContainText("Todo → In Progress")
+  await expect(sheet.getByRole("list", { name: "History" })).toContainText("Todo → In progress")
 })
 
 test("a column's add button creates a task in that column", async ({ page }) => {
@@ -80,11 +80,11 @@ test("a failed move rolls back and shows the error", async ({ page }) => {
   )
   await column(page, "Todo")
     .getByRole("button", { name: /Write spec/ })
-    .dragTo(column(page, "In Progress"))
+    .dragTo(column(page, "In progress"))
 
   await expect(page.getByRole("alert")).toContainText("Could not save the task.")
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
-  await expect(column(page, "In Progress").getByRole("button", { name: /Write spec/ })).toHaveCount(
+  await expect(column(page, "In progress").getByRole("button", { name: /Write spec/ })).toHaveCount(
     0,
   )
 })
@@ -100,7 +100,7 @@ test("Alt+Arrow keys move a focused card one column and keep focus", async ({ pa
 
   const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
   await page.keyboard.press("Alt+ArrowRight")
-  const moved = column(page, "In Progress").getByRole("button", { name: /Write spec/ })
+  const moved = column(page, "In progress").getByRole("button", { name: /Write spec/ })
   await expect(moved).toBeVisible()
   await expect(moved).toBeFocused()
   await saved
@@ -141,7 +141,7 @@ test("column shells show while tasks load", async ({ page }) => {
     )
   })
 
-  for (const name of ["Backlog", "Todo", "In Progress", "Review", "Complete"]) {
+  for (const name of ["Backlog", "Todo", "In progress", "Review", "Complete"]) {
     await expect(column(page, name)).toBeVisible()
   }
   await expect(page.getByRole("button", { name: /Write spec/ })).toHaveCount(0)

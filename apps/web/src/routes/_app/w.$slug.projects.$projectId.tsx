@@ -13,7 +13,6 @@ import { CustomFieldValues } from "@/components/tasks/custom-field-values"
 import { TagChips, TagPicker } from "@/components/tasks/tag-picker"
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet"
 import { TaskStructureSections } from "@/components/tasks/task-relations"
-import { Kbd } from "@/components/ui/badge"
 import { Button, buttonClass } from "@/components/ui/button"
 import {
   DropdownMenu,

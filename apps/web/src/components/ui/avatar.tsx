@@ -10,7 +10,11 @@ export function initials(name: string): string {
   return letters.toUpperCase()
 }
 
-const sizes = { sm: "size-4 text-[8px]", md: "size-5 text-[10px]", lg: "size-8 text-xs" } as const
+const sizes = {
+  sm: "size-4 text-[10px] leading-none",
+  md: "size-5 text-[10px]",
+  lg: "size-8 text-xs",
+} as const
 
 export function Avatar({
   name,

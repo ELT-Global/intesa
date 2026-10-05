@@ -163,7 +163,7 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
           maxLength={200}
           autoComplete="off"
           onChange={(e) => setTitle(e.target.value)}
-          className="h-8 w-full rounded-lg border border-transparent bg-transparent px-2 text-[13px] outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus-visible:border-input focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/24"
+          className="h-8 w-full rounded-lg border border-transparent bg-transparent px-2 text-[13px] outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48"
         />
       </form>
     </section>

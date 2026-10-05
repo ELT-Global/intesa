@@ -6,7 +6,6 @@ import { EmptyState, ErrorState, PageTitle } from "@/components/page"
 import { RowsSkeleton } from "@/components/skeleton"
 import { STATUS_LABELS, StatusIcon } from "@/components/tasks/properties"
 import { type TableColumn, type TableTask, TaskTable } from "@/components/tasks/task-table"
-import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Panel, PanelHeader } from "@/components/ui/panel"
 import { SegmentedControl } from "@/components/ui/segmented-control"
@@ -16,11 +15,11 @@ import { type MyTask, myTasksQuery, TASK_STATUSES } from "@/lib/tasks"
 type Group = "status" | "project"
 
 export const Route = createFileRoute("/_app/w/$slug/my-tasks")({
-  staticData: { title: "My Tasks" },
+  staticData: { title: "My tasks" },
   validateSearch: (search: Record<string, unknown>): { group?: Group } => ({
     group: search.group === "project" ? "project" : undefined,
   }),
-  head: () => ({ meta: [{ title: "My Tasks · Intesa" }] }),
+  head: () => ({ meta: [{ title: "My tasks · Intesa" }] }),
   component: MyTasksPage,
 })
 
@@ -79,7 +78,7 @@ function MyTasksPage() {
 
   return (
     <>
-      <PageTitle title="My Tasks." description="Everything assigned to you." />
+      <PageTitle title="My tasks." description="Everything assigned to you." />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-xs text-muted-foreground">Group by</span>
         <SegmentedControl<Group>
@@ -119,11 +118,7 @@ function MyTasksPage() {
           <div className="flex flex-col gap-4">
             {sections.map((s) => (
               <Panel key={s.id} aria-label={s.name}>
-                <PanelHeader
-                  icon={s.icon}
-                  title={s.name}
-                  note={<CountBadge>{s.tasks.length}</CountBadge>}
-                />
+                <PanelHeader icon={s.icon} title={s.name} count={s.tasks.length} />
                 <TaskTable
                   tasks={s.tasks}
                   label={s.name}

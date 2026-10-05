@@ -13,14 +13,15 @@ export function Checkbox({
         type="checkbox"
         className={cn(
           "peer size-4 cursor-pointer appearance-none rounded-[4px] border border-input bg-background outline-none transition-colors",
-          "checked:border-primary checked:bg-primary focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
+          "checked:border-primary checked:bg-primary focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/48",
+          "aria-invalid:border-destructive/36 aria-invalid:ring-2 aria-invalid:ring-destructive/16 dark:aria-invalid:ring-destructive/24",
           "disabled:cursor-default disabled:opacity-64",
         )}
         {...props}
       />
       <Check
         aria-hidden
-        strokeWidth={3}
+        strokeWidth={2}
         className="pointer-events-none absolute inset-0.5 hidden size-3 text-primary-foreground peer-checked:block"
       />
     </span>

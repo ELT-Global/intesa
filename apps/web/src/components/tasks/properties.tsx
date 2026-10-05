@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   backlog: "Backlog",
   todo: "Todo",
-  in_progress: "In Progress",
+  in_progress: "In progress",
   review: "Review",
   complete: "Complete",
 }

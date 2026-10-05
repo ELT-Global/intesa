@@ -24,7 +24,7 @@ export function ProjectSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         returnFocusRef={returnFocusRef}
-        title="Project settings."
+        title="Project settings"
         description={`Key ${project.key} can't be changed.`}
       >
         <SettingsForm workspace={workspace} project={project} onDone={() => onOpenChange(false)} />
@@ -79,6 +79,7 @@ function SettingsForm({
       >
         <Field
           label="Project name"
+          error={save.error?.message}
           required
           maxLength={80}
           value={name}
@@ -93,7 +94,6 @@ function SettingsForm({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <FormError message={save.error?.message} />
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="sm" pending={save.isPending}>
             Save
@@ -116,7 +116,7 @@ function SettingsForm({
                   pending={remove.isPending}
                   onClick={() => remove.mutate()}
                 >
-                  Confirm delete
+                  Delete
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
                   Cancel

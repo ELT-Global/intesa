@@ -60,7 +60,7 @@ function WorkspaceSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Switch workspace"
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-border bg-background/40 p-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-border bg-background/40 p-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
         <Avatar name={workspace.name} size="lg" />
         <span className="min-w-0 flex-1">
@@ -106,7 +106,7 @@ function ProfileCard({ onNavigate }: { onNavigate?: () => void }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Account menu"
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-border bg-background/40 p-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-border bg-background/40 p-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
         <Avatar name={user.name} size="lg" />
         <span className="min-w-0 flex-1">
@@ -162,7 +162,7 @@ export function SidebarContent({
   const params = { slug: workspace.slug }
   const items = [
     { to: "/w/$slug/home", label: "Home", icon: House },
-    { to: "/w/$slug/my-tasks", label: "My Tasks", icon: CircleCheck },
+    { to: "/w/$slug/my-tasks", label: "My tasks", icon: CircleCheck },
     { to: "/w/$slug/members", label: "Members", icon: Users },
   ] as const
   return (

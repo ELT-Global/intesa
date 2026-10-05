@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { Field, FormError } from "@/components/ui/field"
+import { Field } from "@/components/ui/field"
 import { Label, Textarea } from "@/components/ui/input"
 import { api, keys, type Workspace } from "@/lib/api"
 
@@ -26,7 +26,7 @@ export function CreateProjectDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Create project." description="Projects group tasks under one key.">
+      <DialogContent title="Create project" description="Projects group tasks under one key.">
         <CreateForm workspace={workspace} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
@@ -57,6 +57,8 @@ function CreateForm({ workspace, onDone }: { workspace: Workspace; onDone: () =>
       })
     },
   })
+  const err = create.error?.message
+  const keyError = err && /key/i.test(err) ? err : null
 
   return (
     <form
@@ -68,6 +70,7 @@ function CreateForm({ workspace, onDone }: { workspace: Workspace; onDone: () =>
     >
       <Field
         label="Project name"
+        error={err && !keyError ? err : null}
         required
         maxLength={80}
         autoFocus
@@ -76,6 +79,7 @@ function CreateForm({ workspace, onDone }: { workspace: Workspace; onDone: () =>
       />
       <Field
         label="Key (optional)"
+        error={keyError}
         maxLength={5}
         placeholder={previewKey(name) || "WEB"}
         inputClassName="font-mono uppercase"
@@ -95,9 +99,8 @@ function CreateForm({ workspace, onDone }: { workspace: Workspace; onDone: () =>
           onChange={(e) => setDescription(e.target.value)}
         />
       </div>
-      <FormError message={create.error?.message} />
       <div className="flex justify-end">
-        <Button type="submit" variant="primary" pending={create.isPending}>
+        <Button type="submit" variant="primary" size="sm" pending={create.isPending}>
           Create project
         </Button>
       </div>

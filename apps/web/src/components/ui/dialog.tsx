@@ -27,7 +27,7 @@ export function DialogContent({
       <D.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]" />
       <D.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-1/2 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl outline-none",
+          "fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-1/2 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl ring-1 ring-black/5 outline-none",
           className,
         )}
         onCloseAutoFocus={(e) => {

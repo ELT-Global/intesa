@@ -60,7 +60,7 @@ test("a dialog opened from a menu returns focus to the menu button on close", as
 
   await page.getByRole("button", { name: "Project options" }).click()
   await page.getByRole("menuitem", { name: "Project settings" }).click()
-  await expect(page.getByRole("dialog", { name: "Project settings." })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Project settings" })).toBeVisible()
 
   await page.keyboard.press("Escape")
   await expect(page.getByRole("dialog")).toBeHidden()

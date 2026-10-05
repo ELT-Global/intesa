@@ -28,7 +28,7 @@ export function SegmentedControl<T extends string>({
           aria-pressed={s.value === value}
           onClick={() => onChange(s.value)}
           className={cn(
-            "inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3",
+            "touch-target inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3",
             s.value === value
               ? "bg-accent text-foreground"
               : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",

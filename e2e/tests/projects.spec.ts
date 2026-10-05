@@ -99,7 +99,7 @@ test("owner deletes a project after confirming: it disappears and they land home
   await page.getByRole("menuitem", { name: "Project settings" }).click()
   const dialog = page.getByRole("dialog")
   await dialog.getByRole("button", { name: "Delete project" }).click()
-  await dialog.getByRole("button", { name: "Confirm delete" }).click()
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click()
 
   await expect(page).toHaveURL(new RegExp(`/w/${slug}/home$`))
   await expect(projectsNav(page).getByRole("link", { name })).toHaveCount(0)

@@ -30,13 +30,18 @@ export function ProjectsSection({
           className="flex flex-1 cursor-pointer items-center gap-1 rounded-md text-left text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           Projects
-          <ChevronDown className={cn("size-3 transition-transform", !open && "-rotate-90")} />
+          <ChevronDown
+            className={cn(
+              "size-3 transition-transform motion-reduce:transition-none",
+              !open && "-rotate-90",
+            )}
+          />
         </button>
         <button
           type="button"
           aria-label="Add project"
           onClick={() => setCreating(true)}
-          className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="touch-target inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           <Plus className="size-3.5" />
         </button>

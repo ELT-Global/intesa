@@ -15,7 +15,7 @@ export function Message({
 }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-2 px-4 text-center">
-      <h1 className="text-2xl font-medium tracking-[-0.025em]">{title}</h1>
+      <h1 className="text-2xl font-medium leading-[1.25] tracking-[-0.025em]">{title}</h1>
       {body && <p className="max-w-sm text-sm text-muted-foreground">{body}</p>}
       {children && <div className="mt-3">{children}</div>}
     </main>
@@ -35,7 +35,7 @@ export function PageTitle({
   return (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
       <div className="min-w-0 flex-1">
-        <h1 className="text-2xl font-medium tracking-[-0.025em]">{title}</h1>
+        <h1 className="text-2xl font-medium leading-[1.25] tracking-[-0.025em]">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -65,7 +65,7 @@ export function CardPage({
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xs/5">
-        <h1 className="text-xl font-medium tracking-[-0.02em]">{title}</h1>
+        <h1 className="text-2xl font-medium leading-[1.25] tracking-[-0.025em]">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
         <div className="mt-5 flex flex-col gap-4">{children}</div>
       </div>

@@ -153,7 +153,7 @@ test("deleting a field removes it from the sheet; dropping an option clears its 
   await fieldsDialog(page).getByRole("button", { name: "Remove options" }).click()
   await expect(fieldsDialog(page).getByLabel("Options of Stage")).toHaveValue("Alpha")
   await fieldsDialog(page).getByRole("button", { name: "Delete field Scratch" }).click()
-  await fieldsDialog(page).getByRole("button", { name: "Confirm delete" }).click()
+  await fieldsDialog(page).getByRole("button", { name: "Delete", exact: true }).click()
   await expect(fieldsDialog(page).getByLabel("Name of Scratch")).toHaveCount(0)
   await page.keyboard.press("Escape")
 
@@ -208,7 +208,9 @@ test("a failed field save rolls the value back and says so", async ({ page }) =>
   )
   await notes.fill("Lost")
   await notes.blur()
-  await expect(page.getByRole("alert").filter({ hasText: "Could not save the task." })).toBeVisible()
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not save the task." }),
+  ).toBeVisible()
   await expect(sheet(page).getByText("Could not save Notes.")).toBeVisible()
   await expect(notes).toHaveValue("Keep me")
 })

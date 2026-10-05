@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { CardPage } from "@/components/page"
-import { Button } from "@/components/ui/button"
-import { Field, FormError } from "@/components/ui/field"
+import { Button, buttonClass } from "@/components/ui/button"
+import { Field } from "@/components/ui/field"
 import { api, keys } from "@/lib/api"
 
 export const Route = createFileRoute("/_app/new-workspace")({ component: NewWorkspacePage })
@@ -21,6 +21,7 @@ function NewWorkspacePage() {
   const qc = useQueryClient()
   const [name, setName] = useState("")
   const [slug, setSlug] = useState("")
+  const err = () => create.error?.message
   const create = useMutation({
     mutationFn: () => api.createWorkspace({ name: name.trim(), slug: slug.trim() || undefined }),
     onSuccess: async ({ workspace }) => {
@@ -43,6 +44,7 @@ function NewWorkspacePage() {
       >
         <Field
           label="Workspace name"
+          error={create.error && !/slug/i.test(err() ?? "") ? err() : null}
           required
           maxLength={80}
           autoFocus
@@ -51,17 +53,17 @@ function NewWorkspacePage() {
         />
         <Field
           label="Slug (optional)"
+          error={create.error && /slug/i.test(err() ?? "") ? err() : null}
           placeholder={slugify(name) || "my-team"}
           hint={`Address: /w/${slug.trim() || slugify(name) || "my-team"}`}
           value={slug}
           onChange={(e) => setSlug(e.target.value.toLowerCase())}
         />
-        <FormError message={create.error?.message} />
         <Button type="submit" variant="primary" pending={create.isPending}>
           Create workspace
         </Button>
       </form>
-      <Link to="/" className="text-xs text-muted-foreground hover:text-foreground">
+      <Link to="/" className={buttonClass("link", "xs")}>
         Cancel
       </Link>
     </CardPage>

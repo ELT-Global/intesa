@@ -95,7 +95,7 @@ function SortHeader({
         type="button"
         onClick={() => onSort(column as SortKey)}
         className={cn(
-          "group/sort -mx-1 inline-flex cursor-pointer items-center gap-1 rounded px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+          "touch-target group/sort -mx-1 inline-flex cursor-pointer items-center gap-1 rounded px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
           active && "text-foreground",
         )}
       >

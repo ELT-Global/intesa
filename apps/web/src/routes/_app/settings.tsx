@@ -28,7 +28,7 @@ function SettingsPage() {
   })
   return (
     <div className="min-h-dvh">
-      <header className="flex h-11 items-center gap-2 border-b border-border px-3">
+      <header className="sticky top-0 z-20 flex h-11 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur-md">
         <Link
           to="/"
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -74,9 +74,14 @@ function ProfilePanel() {
             save.mutate()
           }}
         >
-          <Field label="Name" required value={name} onChange={(e) => setName(e.target.value)} />
+          <Field
+            label="Name"
+            error={save.error?.message}
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <p className="text-xs text-muted-foreground">{user.email}</p>
-          <FormError message={save.error?.message} />
           <div className="flex items-center gap-3">
             <Button
               type="submit"
@@ -143,7 +148,8 @@ function EnableTwoFactor() {
       <div
         role="img"
         aria-label="Authenticator QR code"
-        className="size-40 self-start rounded-lg bg-white p-2 [&>svg]:size-full"
+        // The white quiet zone is required for scanners to read the code, in dark mode too.
+        className="size-40 self-start rounded-lg border border-border bg-white p-2 [&>svg]:size-full"
         // Generated locally from the otpauth URL; contains no user-controlled markup.
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline SVG from uqr
         dangerouslySetInnerHTML={{ __html: renderSVG(setup.data.otpauthUrl, { border: 0 }) }}
@@ -159,6 +165,7 @@ function EnableTwoFactor() {
       </output>
       <Field
         label="Verification code"
+        error={enable.error?.message}
         inputMode="numeric"
         autoComplete="one-time-code"
         maxLength={6}
@@ -167,7 +174,6 @@ function EnableTwoFactor() {
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
       />
-      <FormError message={enable.error?.message} />
       <Button
         type="submit"
         size="sm"
@@ -196,6 +202,7 @@ function DisableTwoFactor() {
       <p className="text-xs text-muted-foreground">Enter a current code to turn it off.</p>
       <Field
         label="Verification code"
+        error={disable.error?.message}
         inputMode="numeric"
         autoComplete="one-time-code"
         maxLength={6}
@@ -204,7 +211,6 @@ function DisableTwoFactor() {
         value={code}
         onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
       />
-      <FormError message={disable.error?.message} />
       <Button type="submit" size="sm" className="self-start" pending={disable.isPending}>
         Disable two-factor
       </Button>

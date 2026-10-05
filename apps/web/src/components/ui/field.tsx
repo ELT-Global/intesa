@@ -8,23 +8,36 @@ export function Field({
   hint,
   className,
   inputClassName,
+  error,
   ...props
-}: { label: string; hint?: ReactNode; inputClassName?: string } & ComponentProps<typeof Input>) {
+}: {
+  label: string
+  hint?: ReactNode
+  inputClassName?: string
+  error?: string | null
+} & ComponentProps<typeof Input>) {
   const id = useId()
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} className={inputClassName} {...props} />
+      <Input
+        id={id}
+        className={inputClassName}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        {...props}
+      />
+      <FormError id={`${id}-error`} message={error} />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   )
 }
 
 /** Inline mutation error. */
-export function FormError({ message }: { message?: string | null }) {
+export function FormError({ message, id }: { message?: string | null; id?: string }) {
   if (!message) return null
   return (
-    <p role="alert" className="text-xs text-destructive-foreground">
+    <p id={id} role="alert" className="text-xs text-destructive-foreground">
       {message}
     </p>
   )

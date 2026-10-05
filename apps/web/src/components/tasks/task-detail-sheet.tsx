@@ -39,12 +39,12 @@ export function TaskDetailSheet({
   return (
     <D.Root open={taskId !== null} onOpenChange={(open) => !open && closeTask()}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
+        <D.Overlay className="sheet-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
         <D.Content
           aria-describedby={undefined}
           className={cn(
-            "fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground outline-none",
-            "md:left-auto md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl",
+            "sheet-panel fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground outline-none",
+            "md:left-auto md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl md:ring-1 md:ring-black/5",
           )}
         >
           <D.Title className="sr-only">{task?.key ?? "Task"}</D.Title>
@@ -293,7 +293,7 @@ function EditableText({
       }}
       className={cn(
         "-mx-2 w-[calc(100%+1rem)] resize-none rounded-lg border border-transparent bg-transparent px-2 py-1 outline-none transition-colors",
-        "placeholder:text-muted-foreground hover:bg-muted/40 focus-visible:border-input focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/24",
+        "placeholder:text-muted-foreground hover:bg-muted/40 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
         !multiline && "overflow-hidden",
         className,
       )}

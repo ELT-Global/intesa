@@ -13,7 +13,7 @@ test("sidebar becomes a drawer on small screens", async ({ page }) => {
 
   const drawer = page.getByRole("dialog")
   await expect(drawer).toBeVisible()
-  await expect(drawer.getByRole("link", { name: "My Tasks" })).toBeVisible()
+  await expect(drawer.getByRole("link", { name: "My tasks" })).toBeVisible()
 
   await page.keyboard.press("Escape")
   await expect(drawer).toBeHidden()

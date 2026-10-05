@@ -25,7 +25,7 @@ test("the table lists every task with its status, priority and due date", async 
     { title: "Write docs" },
   ])
   const plan = row(page, "Plan launch")
-  await expect(plan).toContainText("In Progress")
+  await expect(plan).toContainText("In progress")
   await expect(plan).toContainText("High")
   await expect(plan).toContainText("Mar 9, 2031")
   const docs = row(page, "Write docs")

@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/members/confirm-dialog"
 import { ErrorState, PageTitle } from "@/components/page"
 import { RowsSkeleton } from "@/components/skeleton"
 import { Avatar } from "@/components/ui/avatar"
-import { Chip, CountBadge } from "@/components/ui/badge"
+import { Chip } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -108,11 +108,7 @@ function MembersPage() {
       />
 
       <Panel>
-        <PanelHeader
-          icon={<Users />}
-          title="Members"
-          note={members ? <CountBadge>{members.length}</CountBadge> : undefined}
-        />
+        <PanelHeader icon={<Users />} title="Members" count={members?.length} />
         {membersResult.isError && (
           <ErrorState error={membersResult.error} onRetry={() => void membersResult.refetch()} />
         )}
@@ -156,7 +152,7 @@ function MembersPage() {
                   <td className="whitespace-nowrap px-4 text-muted-foreground">
                     {joined(m.createdAt)}
                   </td>
-                  <td className="border-b border-border/70 px-4 text-right">
+                  <td className="px-4 text-right">
                     {isOwner && m.userId !== me.id && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -215,9 +211,9 @@ function MembersPage() {
         returnFocusRef={removeFocusRef}
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
-        title="Remove member."
+        title="Remove member"
         description={`${removing?.name ?? "This member"} will lose access to ${workspace.name} and be unassigned from its tasks.`}
-        confirmLabel="Confirm remove"
+        confirmLabel="Remove"
         pending={remove.isPending}
         error={remove.error?.message}
         onConfirm={() => removing && remove.mutate(removing)}
@@ -225,9 +221,9 @@ function MembersPage() {
       <ConfirmDialog
         open={leaving}
         onOpenChange={setLeaving}
-        title="Leave workspace."
+        title="Leave workspace"
         description={`You'll lose access to ${workspace.name} and be unassigned from its tasks.`}
-        confirmLabel="Confirm leave"
+        confirmLabel="Leave"
         pending={leave.isPending}
         error={leave.error?.message}
         onConfirm={() => mine && leave.mutate(mine)}

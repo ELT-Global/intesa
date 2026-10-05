@@ -87,7 +87,7 @@ test("a new workspace shows the full sidebar: wordmark, workspace card, nav, pro
   await expect(workspaceCard).toContainText("Dunder Mifflin")
   await expect(workspaceCard).toContainText("Owner")
   const nav = sidebar.getByRole("navigation", { name: "Primary" })
-  await expect(nav.getByRole("link")).toHaveText(["Home", "My Tasks", "Members"])
+  await expect(nav.getByRole("link")).toHaveText(["Home", "My tasks", "Members"])
   await expect(sidebar.getByRole("region", { name: "Projects" })).toBeVisible()
   const profile = sidebar.getByRole("button", { name: "Account menu" })
   await expect(profile).toContainText("Dwight Schrute")
@@ -126,7 +126,7 @@ for (const viewport of [
     const { slug, project } = await seededProject(page)
     await page.goto(`/w/${slug}/projects/${project.id}/board`)
 
-    const statuses = ["Backlog", "Todo", "In Progress", "Review", "Complete"]
+    const statuses = ["Backlog", "Todo", "In progress", "Review", "Complete"]
     for (const name of statuses) await expect(column(page, name)).toBeVisible()
 
     const main = page.locator("main")
@@ -190,7 +190,7 @@ test("card due chips: overdue is destructive, soon is warning, far is neutral, n
   await expect(card(page, "Urgent item")).toContainText("Urgent")
 })
 
-test("only the In Progress status icon uses the info colour", async ({ page }) => {
+test("only the In progress status icon uses the info colour", async ({ page }) => {
   const { slug, project } = await seededProject(page)
   await page.goto(`/w/${slug}/projects/${project.id}/board`)
 
@@ -206,7 +206,7 @@ test("only the In Progress status icon uses the info colour", async ({ page }) =
   const iconColor = (name: string) =>
     style(column(page, name).locator("header svg").first(), "color")
 
-  expect(await iconColor("In Progress")).toBe(info)
+  expect(await iconColor("In progress")).toBe(info)
   for (const name of ["Backlog", "Todo", "Review", "Complete"]) {
     const color = await iconColor(name)
     expect(color, `${name} icon`).toBe(neutral)
@@ -233,7 +233,7 @@ test("opening a card shows the task sheet docked right with the full property st
   await expect(sheet.locator("header").first()).toContainText(`${project.key}-`)
   await expect(sheet.locator("header").first()).toContainText("Contract board")
 
-  await expect(sheet.getByRole("button", { name: "Change status" })).toContainText("In Progress")
+  await expect(sheet.getByRole("button", { name: "Change status" })).toContainText("In progress")
   await expect(sheet.getByRole("button", { name: "Change priority" })).toContainText("Medium")
   await expect(sheet.getByLabel("Due date", { exact: true })).toHaveValue(localDay(FAR))
   await expect(sheet.getByRole("button", { name: "Change assignees" })).toBeVisible()
@@ -270,7 +270,7 @@ test("table view lists the seeded tasks with status, priority and due labels", a
   await expect(row("Overdue item")).toContainText(dayLabel(OVERDUE))
   await expect(row("Soon item")).toContainText("Todo")
   await expect(row("Soon item")).toContainText("High")
-  await expect(row("Far item")).toContainText("In Progress")
+  await expect(row("Far item")).toContainText("In progress")
   await expect(row("Far item")).toContainText(dayLabel(FAR))
   await expect(row("Urgent item")).toContainText("Review")
   await expect(row("Done item")).toContainText("Complete")
@@ -389,7 +389,7 @@ test.describe("phone", () => {
     expect(await style(column(page, "Backlog"), "scroll-snap-align")).toContain("center")
 
     const boxes = await Promise.all(
-      ["Backlog", "Todo", "In Progress", "Review", "Complete"].map((n) =>
+      ["Backlog", "Todo", "In progress", "Review", "Complete"].map((n) =>
         column(page, n).boundingBox(),
       ),
     )

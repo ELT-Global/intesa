@@ -89,7 +89,7 @@ test("removing a member revokes their access", async ({ page, browser }) => {
   await page.goto(`/w/${slug}/members`)
   await actions(page, email).click()
   await page.getByRole("menuitem", { name: "Remove" }).click()
-  await page.getByRole("dialog").getByRole("button", { name: "Confirm remove" }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Remove", exact: true }).click()
   await expect(row(page, email)).toHaveCount(0)
 
   await memberPage.reload()
@@ -101,7 +101,7 @@ test("the last owner cannot leave", async ({ page }) => {
   await page.goto(`/w/${slug}/members`)
   await page.getByRole("button", { name: "Leave workspace" }).click()
   const dialog = page.getByRole("dialog")
-  await dialog.getByRole("button", { name: "Confirm leave" }).click()
+  await dialog.getByRole("button", { name: "Leave", exact: true }).click()
   await expect(dialog.getByRole("alert")).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`/w/${slug}/members$`))
 })
@@ -114,7 +114,7 @@ test("a member can leave the workspace", async ({ page, browser }) => {
   const memberPage = await pageAs(browser, email)
   await memberPage.goto(`/w/${slug}/members`)
   await memberPage.getByRole("button", { name: "Leave workspace" }).click()
-  await memberPage.getByRole("dialog").getByRole("button", { name: "Confirm leave" }).click()
+  await memberPage.getByRole("dialog").getByRole("button", { name: "Leave", exact: true }).click()
   await expect(memberPage).toHaveURL(/\/new-workspace$/)
 })
 

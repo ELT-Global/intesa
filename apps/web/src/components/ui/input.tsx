@@ -36,8 +36,10 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return (
     <textarea
       className={cn(
-        "min-h-20 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs/5 outline-none placeholder:text-muted-foreground",
+        "min-h-20 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs/5 outline-none transition-shadow placeholder:text-muted-foreground",
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
+        "disabled:pointer-events-none disabled:opacity-64",
+        "aria-invalid:border-destructive/36 aria-invalid:ring-2 aria-invalid:ring-destructive/16 dark:aria-invalid:ring-destructive/24",
         className,
       )}
       {...props}
@@ -50,8 +52,10 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return (
     <select
       className={cn(
-        "h-8 w-full rounded-lg border border-input bg-background px-2 text-sm shadow-xs/5 outline-none",
+        "h-8 w-full rounded-lg border border-input bg-background px-2 text-sm shadow-xs/5 outline-none transition-shadow",
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
+        "disabled:pointer-events-none disabled:opacity-64",
+        "aria-invalid:border-destructive/36 aria-invalid:ring-2 aria-invalid:ring-destructive/16 dark:aria-invalid:ring-destructive/24",
         className,
       )}
       {...props}

@@ -104,8 +104,10 @@ test.describe("phone sheet", () => {
     await page.getByRole("button", { name: "Another task" }).click()
     const sheet = page.getByRole("dialog", { name: /-\d+$/ })
     await expect(sheet).toBeVisible()
-    const box = await sheet.boundingBox()
-    expect(box).toMatchObject({ x: 0, y: 0, width: 375, height: 812 })
+    // The sheet slides in, so wait for it to settle before measuring.
+    await expect
+      .poll(() => sheet.boundingBox())
+      .toMatchObject({ x: 0, y: 0, width: 375, height: 812 })
     await sheet.getByRole("button", { name: "Close" }).click()
     await expect(sheet).toBeHidden()
   })

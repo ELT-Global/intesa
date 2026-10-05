@@ -182,7 +182,7 @@ function FieldRow({
         <div className="flex items-center gap-2 text-sm">
           <span className="flex-1">Delete {field.name} and its values on every task?</span>
           <Button variant="destructive" size="sm" autoFocus onClick={onDelete}>
-            Confirm delete
+            Delete
           </Button>
           <Button
             variant="ghost"

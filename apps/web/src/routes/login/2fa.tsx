@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import { CardPage } from "@/components/page"
-import { Button } from "@/components/ui/button"
-import { Field, FormError } from "@/components/ui/field"
+import { Button, buttonClass } from "@/components/ui/button"
+import { Field } from "@/components/ui/field"
 import { api } from "@/lib/api"
 
 export const Route = createFileRoute("/login/2fa")({ component: TwoFactorPage })
@@ -34,6 +34,7 @@ function TwoFactorPage() {
       >
         <Field
           label="Authentication code"
+          error={verify.error?.message}
           inputMode="numeric"
           autoComplete="one-time-code"
           maxLength={6}
@@ -44,12 +45,11 @@ function TwoFactorPage() {
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
         />
-        <FormError message={verify.error?.message} />
         <Button type="submit" variant="primary" pending={verify.isPending}>
           Verify
         </Button>
       </form>
-      <Link to="/login" className="text-xs text-muted-foreground hover:text-foreground">
+      <Link to="/login" className={buttonClass("link", "xs")}>
         Back to sign in
       </Link>
     </CardPage>

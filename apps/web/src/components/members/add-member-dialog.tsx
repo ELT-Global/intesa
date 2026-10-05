@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { Field, FormError } from "@/components/ui/field"
+import { Field } from "@/components/ui/field"
 import { Label, Select } from "@/components/ui/input"
 import { api, keys, type MemberRole } from "@/lib/api"
 
@@ -18,7 +18,7 @@ export function AddMemberDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="Add member."
+        title="Add member"
         description="They'll see this workspace the next time they sign in."
       >
         <AddForm workspaceId={workspaceId} onDone={() => onOpenChange(false)} />
@@ -48,6 +48,7 @@ function AddForm({ workspaceId, onDone }: { workspaceId: string; onDone: () => v
     >
       <Field
         label="Email"
+        error={add.error?.message}
         type="email"
         required
         autoFocus
@@ -65,9 +66,8 @@ function AddForm({ workspaceId, onDone }: { workspaceId: string; onDone: () => v
           <option value="owner">Owner</option>
         </Select>
       </div>
-      <FormError message={add.error?.message} />
       <div className="flex justify-end">
-        <Button type="submit" variant="primary" pending={add.isPending}>
+        <Button type="submit" variant="primary" size="sm" pending={add.isPending}>
           Add member
         </Button>
       </div>

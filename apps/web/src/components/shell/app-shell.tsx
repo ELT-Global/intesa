@@ -126,7 +126,7 @@ export function AppShell({
             <Dialog.Overlay className="drawer-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" />
             <Dialog.Content
               aria-describedby={undefined}
-              className="drawer-panel fixed inset-y-0 left-0 z-50 w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl outline-none md:hidden"
+              className="drawer-panel fixed inset-y-0 left-0 z-50 w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl ring-1 ring-black/5 outline-none md:hidden"
             >
               <Dialog.Title className="sr-only">Navigation</Dialog.Title>
               <SidebarContent

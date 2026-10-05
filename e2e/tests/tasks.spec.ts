@@ -64,7 +64,7 @@ test("title, body, status, priority and due date persist after reload", async ({
 
   await saved(async () => {
     await sheet.getByRole("button", { name: "Change status" }).click()
-    await page.getByRole("menuitemradio", { name: "In Progress" }).click()
+    await page.getByRole("menuitemradio", { name: "In progress" }).click()
   })
 
   await saved(async () => {
@@ -87,7 +87,7 @@ test("title, body, status, priority and due date persist after reload", async ({
   await expect(reloaded.getByRole("textbox", { name: "Description" })).toHaveValue(
     "Cover pricing, the migration guide and known limits.",
   )
-  await expect(reloaded.getByRole("button", { name: "Change status" })).toContainText("In Progress")
+  await expect(reloaded.getByRole("button", { name: "Change status" })).toContainText("In progress")
   await expect(reloaded.getByRole("button", { name: "Change priority" })).toContainText("High")
   await expect(reloaded.getByLabel("Due date", { exact: true })).toHaveValue("2031-03-14")
 })
@@ -99,14 +99,14 @@ test("history records creation and each status change", async ({ page }) => {
   const sheet = page.getByRole("dialog", { name: /-1$/ })
 
   await sheet.getByRole("button", { name: "Change status" }).click()
-  await page.getByRole("menuitemradio", { name: "In Progress" }).click()
-  await expect(sheet.getByRole("button", { name: "Change status" })).toContainText("In Progress")
+  await page.getByRole("menuitemradio", { name: "In progress" }).click()
+  await expect(sheet.getByRole("button", { name: "Change status" })).toContainText("In progress")
 
   await sheet.getByRole("button", { name: "History" }).click()
   const history = sheet.getByRole("list", { name: "History" })
   await expect(history.getByRole("listitem")).toHaveCount(2)
   await expect(history.getByRole("listitem").first()).toContainText("Created as Todo")
-  await expect(history.getByRole("listitem").last()).toContainText("Todo → In Progress")
+  await expect(history.getByRole("listitem").last()).toContainText("Todo → In progress")
 })
 
 test("deleting a task removes it from the project", async ({ page }) => {

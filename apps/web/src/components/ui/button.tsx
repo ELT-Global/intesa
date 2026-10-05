@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 
 const variants = {
   primary:
-    "bg-primary text-primary-foreground border-primary shadow-xs shadow-[inset_0_1px_0_color-mix(in_oklab,#fff_16%,transparent)] hover:bg-primary/90 hover:border-primary/90 active:bg-primary/85 active:shadow-none active:scale-[0.98] data-[pressed]:bg-primary/85",
+    "bg-primary text-primary-foreground border-primary shadow-xs shadow-[inset_0_1px_0_color-mix(in_oklab,#fff_16%,transparent)] hover:bg-primary/90 hover:border-primary/90 active:bg-primary/85 active:shadow-none active:scale-[0.98] motion-reduce:active:scale-100 data-[pressed]:bg-primary/85",
   outline:
     "bg-background border-border shadow-xs/5 hover:bg-accent/50 active:bg-accent data-[pressed]:bg-accent dark:bg-white/[0.025] dark:border-white/[0.08] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] dark:before:shadow-[0_-1px_color-mix(in_oklab,#fff_6%,transparent)] active:before:shadow-none",
   secondary:
@@ -46,7 +46,7 @@ export function buttonClass(
   icon = false,
 ) {
   return cn(
-    "relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-medium outline-none transition-shadow [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0",
+    "relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-medium outline-none transition-[color,background-color,border-color,box-shadow,transform] duration-150 [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0",
     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
     "disabled:pointer-events-none disabled:opacity-64 pointer-coarse:after:absolute pointer-coarse:after:left-1/2 pointer-coarse:after:top-1/2 pointer-coarse:after:size-11 pointer-coarse:after:-translate-1/2 pointer-coarse:after:content-['']",
     variants[variant],

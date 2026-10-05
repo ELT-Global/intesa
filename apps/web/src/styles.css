@@ -237,8 +237,33 @@
 .drawer-scrim[data-state="closed"] {
   animation: scrim-out 150ms ease-out;
 }
+@keyframes sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+.sheet-panel[data-state="open"] {
+  animation: sheet-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sheet-panel[data-state="closed"] {
+  animation: sheet-out 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sheet-scrim[data-state="open"] {
+  animation: scrim-in 150ms ease-out;
+}
+.sheet-scrim[data-state="closed"] {
+  animation: scrim-out 150ms ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
-  .drawer-panel[data-state] {
+  .drawer-panel[data-state],
+  .sheet-panel[data-state],
+  .sheet-scrim[data-state],
+  .drawer-scrim[data-state] {
     animation: none;
   }
 }

@@ -203,7 +203,7 @@ const Column = memo(function Column({
           variant="ghost"
           size="xs"
           onClick={() => onAdd(status)}
-          className="w-full justify-start opacity-100 transition-opacity duration-150 md:opacity-0 md:focus-visible:opacity-100 md:group-hover/column:opacity-100"
+          className="w-full justify-start transition-opacity duration-150 opacity-100 md:pointer-fine:opacity-0 md:pointer-fine:group-hover/column:opacity-100 md:pointer-fine:focus-visible:opacity-100"
         >
           <Plus />
           Add task
