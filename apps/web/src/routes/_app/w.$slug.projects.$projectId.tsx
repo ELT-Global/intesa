@@ -3,12 +3,15 @@ import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tansta
 import { Columns3, Ellipsis, Plus, Table2 } from "lucide-react"
 import { useState } from "react"
 import { Message, PageTitle } from "@/components/page"
+import { CustomFieldsDialog } from "@/components/projects/custom-fields-dialog"
 import { ProjectSettingsDialog } from "@/components/projects/project-settings-dialog"
 import { TopBarActions } from "@/components/shell/app-shell"
 import { AssigneePicker } from "@/components/tasks/assignee-picker"
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog"
+import { CustomFieldValues } from "@/components/tasks/custom-field-values"
 import { TagChips, TagPicker } from "@/components/tasks/tag-picker"
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet"
+import { TaskStructureSections } from "@/components/tasks/task-relations"
 import { Button, buttonClass } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -38,6 +41,7 @@ function ProjectLayout() {
     select: (l) => (l.pathname.endsWith("/table") ? "table" : "board"),
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [fieldsOpen, setFieldsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
 
   if (
@@ -89,6 +93,9 @@ function ProjectLayout() {
               <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
                 Project settings
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFieldsOpen(true)}>
+                Custom fields…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
@@ -102,6 +109,12 @@ function ProjectLayout() {
       <Outlet />
       <CreateTaskDialog projectId={projectId} open={createOpen} onOpenChange={setCreateOpen} />
       <TaskDetailSheet
+        sections={(task) => (
+          <>
+            <TaskStructureSections task={task} workspaceId={workspace.id} />
+            <CustomFieldValues task={task} />
+          </>
+        )}
         propertySlots={(task) => (
           <>
             <AssigneePicker task={task} workspaceId={workspace.id} />
@@ -110,6 +123,7 @@ function ProjectLayout() {
           </>
         )}
       />
+      <CustomFieldsDialog projectId={projectId} open={fieldsOpen} onOpenChange={setFieldsOpen} />
       <ProjectSettingsDialog
         workspace={workspace}
         project={project.data}
