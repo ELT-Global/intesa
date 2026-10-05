@@ -45,6 +45,11 @@ export async function findOrCreateUser(
         .updateTable("users")
         .set({
           googleSub: input.googleSub,
+          // A placeholder still carries the name derived from its email; prefer the real one.
+          name:
+            byEmail.name === email.split("@")[0]
+              ? input.name?.trim() || byEmail.name
+              : byEmail.name,
           avatarUrl: byEmail.avatarUrl ?? input.avatarUrl ?? null,
           updatedAt: now(),
         })

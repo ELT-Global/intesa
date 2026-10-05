@@ -3,8 +3,11 @@ import type { Config } from "./config"
 import type { Db } from "./db"
 import { ApiError, onError } from "./lib/errors"
 import { authRoutes } from "./routes/auth"
+import { homeRoutes } from "./routes/home"
 import { meRoutes } from "./routes/me"
+import { memberRoutes } from "./routes/members"
 import { projectRoutes, workspaceProjectRoutes } from "./routes/projects"
+import { tagRoutes, workspaceTagRoutes } from "./routes/tags"
 import { taskRoutes } from "./routes/tasks"
 import { workspaceRoutes } from "./routes/workspaces"
 import { serveSpa } from "./static"
@@ -24,7 +27,11 @@ export function createApp({ db, config, webDist }: AppDeps) {
     .route("/me", meRoutes(deps))
     .route("/workspaces", workspaceRoutes(deps))
     .route("/workspaces", workspaceProjectRoutes(deps))
+    .route("/workspaces", memberRoutes(deps))
+    .route("/workspaces", homeRoutes(deps))
+    .route("/workspaces", workspaceTagRoutes(deps))
     .route("/projects", projectRoutes(deps))
+    .route("/tags", tagRoutes(deps))
     .route("/tasks", taskRoutes(deps))
 
   // Unknown API paths must not fall through to the SPA shell.

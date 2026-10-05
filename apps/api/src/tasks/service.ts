@@ -417,3 +417,60 @@ export async function listHistory(db: Db, taskId: string): Promise<HistoryEntry[
     updatedBy: { id: r.userId, name: r.name, avatarUrl: r.avatarUrl },
   }))
 }
+
+export type TaskWithProject = TaskSummary & { project: { id: string; name: string; key: string } }
+
+// Adds the project ref to summaries with a single extra query.
+export async function withProjects(db: Db, tasks: TaskSummary[]): Promise<TaskWithProject[]> {
+  if (tasks.length === 0) return []
+  const projects = await db
+    .selectFrom("projects")
+    .select(["id", "name", "key"])
+    .where("id", "in", [...new Set(tasks.map((t) => t.projectId))])
+    .execute()
+  const byId = new Map(projects.map((p) => [p.id, p]))
+  return tasks.flatMap((t) => {
+    const project = byId.get(t.projectId)
+    return project ? [{ ...t, project }] : []
+  })
+}
+
+// Tasks (subtasks included) assigned to the user in a workspace, soonest due first.
+export async function listAssignedTaskIds(
+  db: Db,
+  workspaceId: string,
+  userId: string,
+  opts: { excludeComplete?: boolean; limit?: number } = {},
+): Promise<string[]> {
+  let q = db
+    .selectFrom("tasks")
+    .innerJoin("taskAssignees", "taskAssignees.taskId", "tasks.id")
+    .select("tasks.id")
+    .where("tasks.workspaceId", "=", workspaceId)
+    .where("taskAssignees.userId", "=", userId)
+  if (opts.excludeComplete) q = q.where("tasks.status", "!=", "complete")
+  q = q.orderBy("tasks.updatedAt", "desc")
+  if (opts.limit) q = q.limit(opts.limit)
+  return (await q.execute()).map((r) => r.id)
+}
+
+// Incomplete tasks in the workspace that are overdue or due on or before `through`.
+export async function listDueTaskIds(
+  db: Db,
+  workspaceId: string,
+  through: string,
+  limit: number,
+): Promise<string[]> {
+  const rows = await db
+    .selectFrom("tasks")
+    .select("id")
+    .where("workspaceId", "=", workspaceId)
+    .where("status", "!=", "complete")
+    .where("dueAt", "is not", null)
+    .where("dueAt", "<=", through)
+    .orderBy("dueAt")
+    .orderBy("createdAt")
+    .limit(limit)
+    .execute()
+  return rows.map((r) => r.id)
+}
