@@ -6,6 +6,6 @@
     "typecheck": { "dependsOn": ["^typecheck"] },
     "lint": {},
     "test": { "cache": false },
-    "test:e2e": { "dependsOn": ["build"], "cache": false }
+    "test:e2e": { "dependsOn": ["@intesa/web#build"], "cache": false }
   }
 }

@@ -1,5 +1,7 @@
 import { resolve } from "node:path"
 import { createApp } from "./app"
+import { configFromEnv } from "./config"
+import { createDb, migrate } from "./db"
 
 const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: "info", time: new Date().toISOString(), msg, ...extra }))
@@ -7,17 +9,22 @@ const log = (msg: string, extra: Record<string, unknown> = {}) =>
 const port = Number(process.env.PORT ?? 3000)
 const webDist = process.env.WEB_DIST ?? resolve(import.meta.dir, "../../web/dist/client")
 
+const config = configFromEnv(process.env)
+const db = await createDb(process.env.DATABASE_URL ?? "./data/intesa.db")
+await migrate(db)
+
 // In dev the Vite server serves the web app, so static hosting is production-only.
-const serveWeb = process.env.NODE_ENV !== "development"
-const app = createApp({ webDist: serveWeb ? webDist : undefined })
+const serveWeb = config.nodeEnv !== "development"
+const app = createApp({ db, config, webDist: serveWeb ? webDist : undefined })
 
 const server = Bun.serve({ port, fetch: app.fetch })
-log("server started", { port: server.port, env: process.env.NODE_ENV ?? "production" })
+log("server started", { port: server.port, env: config.nodeEnv })
 
-const shutdown = (signal: string) => {
+const shutdown = async (signal: string) => {
   log("server stopping", { signal })
   server.stop()
+  await db.destroy()
   process.exit(0)
 }
-process.on("SIGINT", () => shutdown("SIGINT"))
-process.on("SIGTERM", () => shutdown("SIGTERM"))
+process.on("SIGINT", () => void shutdown("SIGINT"))
+process.on("SIGTERM", () => void shutdown("SIGTERM"))

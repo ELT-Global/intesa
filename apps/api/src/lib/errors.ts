@@ -7,6 +7,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "VALIDATION_ERROR"
   | "CONFLICT"
+  | "TWO_FACTOR_REQUIRED"
   | "INTERNAL"
 
 const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 500> = {
@@ -15,6 +16,7 @@ const STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 500> = {
   NOT_FOUND: 404,
   VALIDATION_ERROR: 400,
   CONFLICT: 409,
+  TWO_FACTOR_REQUIRED: 401,
   INTERNAL: 500,
 }
 
