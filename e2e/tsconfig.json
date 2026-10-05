@@ -1,5 +1,6 @@
 {
   "extends": "../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"] },
-  "include": ["*.ts", "tests"]
+  // DOM types let page/locator callbacks be written as real functions.
+  "compilerOptions": { "types": ["node"], "lib": ["ESNext", "DOM"] },
+  "include": ["*.ts", "tests", "support"]
 }

@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { addMember, pageAs } from "../support/members"
 import { workspaceIdBySlug } from "../support/projects"
+import { style, tokenValue } from "../support/styles"
 
 async function ownerWorkspace(page: Page) {
   await signIn(page, { email: uniqueEmail("owner"), name: "Olive Owner" })
@@ -115,4 +116,25 @@ test("a member can leave the workspace", async ({ page, browser }) => {
   await memberPage.getByRole("button", { name: "Leave workspace" }).click()
   await memberPage.getByRole("dialog").getByRole("button", { name: "Confirm leave" }).click()
   await expect(memberPage).toHaveURL(/\/new-workspace$/)
+})
+
+test("members table: Owner chip only on owners, primary Add member, placeholder listed by email name", async ({
+  page,
+}) => {
+  const { slug, id } = await ownerWorkspace(page)
+  const local = `ada.lovelace-${uniqueEmail("x").slice(2, 10)}`
+  const email = `${local}@example.test`
+  await addMember(page, id, email)
+
+  await page.goto(`/w/${slug}/members`)
+  const table = page.getByRole("table")
+  await expect(row(page, email)).toContainText(local) // name derived from the email
+  await expect(row(page, email)).not.toContainText("Owner")
+  await expect(row(page, "owner-")).toContainText("Owner")
+  await expect(table.getByText("Owner", { exact: true })).toHaveCount(1)
+
+  const bg = (name: string) => style(page.getByRole("button", { name }), "background-color")
+  const primary = await tokenValue(page, "--primary", "backgroundColor")
+  expect(await bg("Add member")).toBe(primary)
+  expect(await bg("Leave workspace")).not.toBe(primary)
 })
