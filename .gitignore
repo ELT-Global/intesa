@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+*.db
+*.db-*
+.env
+.env.local
+test-results/
+playwright-report/
+docs/
+.e2e/
+apps/web/src/routeTree.gen.ts
