@@ -1,11 +1,34 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
-    "dev": { "persistent": true, "cache": false },
-    "typecheck": { "dependsOn": ["^typecheck"] },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "persistent": true,
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
     "lint": {},
-    "test": { "cache": false },
-    "test:e2e": { "dependsOn": ["@intesa/web#build"], "cache": false }
-  }
+    "test": {
+      "cache": false
+    },
+    "test:e2e": {
+      "dependsOn": ["@intesa/web#build"],
+      "cache": false
+    }
+  },
+  "globalPassThroughEnv": [
+    "DEV_LOGIN",
+    "PORT",
+    "DATABASE_URL",
+    "PUBLIC_URL",
+    "WEB_DIST",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "TEST_DATABASE_URL"
+  ]
 }

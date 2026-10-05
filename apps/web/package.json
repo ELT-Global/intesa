@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 5173",
-    "build": "vite build",
+    "build": "vite build && bun ../api/scripts/precompress.ts dist/client",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

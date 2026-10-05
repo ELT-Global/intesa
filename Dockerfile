@@ -1,0 +1,40 @@
+# The API is bundled into one file (~0.4 MB, dependencies included), so the runtime image
+# needs only the Bun runtime, that bundle and the built web client. `bun build --compile`
+# was measured too: the binary is ~86 MB because it embeds the whole runtime, which is the
+# same cost the base image already pays, so it saves nothing.
+
+FROM oven/bun:1.4.2-alpine AS build
+WORKDIR /app
+
+# Manifests first so the dependency layer is cached until they change.
+COPY package.json bun.lock turbo.json tsconfig.base.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY e2e/package.json e2e/
+RUN bun install --frozen-lockfile --filter @intesa/api --filter @intesa/web
+
+COPY apps ./apps
+RUN bun run --cwd apps/web build \
+ && bun build --target=bun --minify apps/api/src/index.ts --outfile /out/server.js
+
+
+FROM oven/bun:1.4.2-alpine
+ENV NODE_ENV=production \
+    PORT=3000 \
+    DATABASE_URL=/data/intesa.db \
+    WEB_DIST=/app/web
+WORKDIR /app
+
+COPY --from=build /out/server.js ./server.js
+COPY --from=build /app/apps/web/dist/client ./web
+
+# The base image's unprivileged user owns the data directory.
+RUN mkdir /data && chown bun:bun /data
+USER bun
+VOLUME /data
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD bun -e "fetch('http://localhost:' + (process.env.PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+
+CMD ["bun", "server.js"]
