@@ -13,13 +13,16 @@ const priority = z.enum(PRIORITIES)
 const ids = z.array(z.string().min(1)).max(100)
 
 // YYYY-MM-DD that is a real calendar date (rejects 2026-02-31).
+export function isRealDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s)
+}
+
 const dueAt = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
-  .refine((s) => {
-    const d = new Date(`${s}T00:00:00Z`)
-    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s)
-  }, "Not a valid date")
+  .refine(isRealDate, "Not a valid date")
 
 export const createTaskBody = z.object({
   title,
@@ -40,6 +43,7 @@ export const patchTaskBody = z.object({
   dueAt: dueAt.nullable().optional(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type CreateTaskInput = z.infer<typeof createTaskBody>

@@ -1,12 +1,15 @@
 import { Hono } from "hono"
+import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "./auth/attempts"
 import type { Config } from "./config"
 import type { Db } from "./db"
 import { ApiError, onError } from "./lib/errors"
 import { authRoutes } from "./routes/auth"
+import { fieldRoutes, projectFieldRoutes } from "./routes/custom-fields"
 import { homeRoutes } from "./routes/home"
 import { meRoutes } from "./routes/me"
 import { memberRoutes } from "./routes/members"
 import { projectRoutes, workspaceProjectRoutes } from "./routes/projects"
+import { searchRoutes } from "./routes/search"
 import { tagRoutes, workspaceTagRoutes } from "./routes/tags"
 import { taskRoutes } from "./routes/tasks"
 import { workspaceRoutes } from "./routes/workspaces"
@@ -20,7 +23,7 @@ export type AppDeps = {
 }
 
 export function createApp({ db, config, webDist }: AppDeps) {
-  const deps = { db, config }
+  const deps = { db, config, attempts: createAttemptLimiter(MAX_CODE_ATTEMPTS, LOCKOUT_MS) }
   const api = new Hono()
     .get("/health", (c) => c.json({ ok: true as const }))
     .route("/auth", authRoutes(deps))
@@ -30,7 +33,10 @@ export function createApp({ db, config, webDist }: AppDeps) {
     .route("/workspaces", memberRoutes(deps))
     .route("/workspaces", homeRoutes(deps))
     .route("/workspaces", workspaceTagRoutes(deps))
+    .route("/workspaces", searchRoutes(deps))
     .route("/projects", projectRoutes(deps))
+    .route("/projects", projectFieldRoutes(deps))
+    .route("/custom-fields", fieldRoutes(deps))
     .route("/tags", tagRoutes(deps))
     .route("/tasks", taskRoutes(deps))
 

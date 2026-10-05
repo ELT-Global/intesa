@@ -1,9 +1,11 @@
-import { type Selectable, sql } from "kysely"
+import { type Selectable, sql, type Updateable } from "kysely"
 import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import type { ProjectRow } from "../projects/service"
-import { type Role, requireMembership } from "../workspaces/membership"
+import type { Role } from "../workspaces/membership"
+import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
+import { loadRelationships } from "./relationships"
 import type { CreateTaskInput, PatchTaskInput, Priority, Status } from "./schemas"
 
 export type TaskRow = Selectable<TaskTable>
@@ -60,10 +62,22 @@ const groupBy = <T, K>(items: T[], key: (item: T) => K): Map<K, T[]> => {
   return map
 }
 
-// Builds summaries for many tasks with a fixed number of queries (one per kind of related
-// data), preserving the order of `ids`. Later features add data here, not new round trips.
-export async function loadTaskSummaries(db: Db, ids: string[]): Promise<TaskSummary[]> {
-  if (ids.length === 0) return []
+// Which tasks to summarise. Related data is fetched with a subquery on the same filter, so
+// the number of bound parameters stays constant however many tasks match.
+export type TaskScope = { ids: string[] } | { projectId: string; topLevel?: boolean }
+
+const scopedIds = (db: Db, scope: TaskScope) => {
+  const q = db.selectFrom("tasks").select("tasks.id")
+  if ("ids" in scope) return q.where("tasks.id", "in", scope.ids)
+  const inProject = q.where("tasks.projectId", "=", scope.projectId)
+  return scope.topLevel ? inProject.where("tasks.parentTaskId", "is", null) : inProject
+}
+
+// Builds summaries with a fixed number of queries (tasks, assignees, tags, subtask counts).
+// By ids the result keeps the order of the ids; by project it is newest first (highest number).
+// Later features add data here, not new round trips.
+async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
+  if ("ids" in scope && scope.ids.length === 0) return []
 
   const [tasks, assignees, tags, subtasks] = await Promise.all([
     db
@@ -82,20 +96,21 @@ export async function loadTaskSummaries(db: Db, ids: string[]): Promise<TaskSumm
         "tasks.updatedAt",
         "projects.key as projectKey",
       ])
-      .where("tasks.id", "in", ids)
+      .where("tasks.id", "in", scopedIds(db, scope))
+      .orderBy("tasks.number", "desc")
       .execute(),
     db
       .selectFrom("taskAssignees")
       .innerJoin("users", "users.id", "taskAssignees.userId")
       .select(["taskAssignees.taskId", "users.id", "users.name", "users.avatarUrl"])
-      .where("taskAssignees.taskId", "in", ids)
+      .where("taskAssignees.taskId", "in", scopedIds(db, scope))
       .orderBy("users.name")
       .execute(),
     db
       .selectFrom("taskTags")
       .innerJoin("tags", "tags.id", "taskTags.tagId")
       .select(["taskTags.taskId", "tags.id", "tags.name", "tags.color"])
-      .where("taskTags.taskId", "in", ids)
+      .where("taskTags.taskId", "in", scopedIds(db, scope))
       .orderBy("tags.name")
       .execute(),
     db
@@ -105,7 +120,7 @@ export async function loadTaskSummaries(db: Db, ids: string[]): Promise<TaskSumm
         sql<number | string>`count(*)`.as("total"),
         sql<number | string>`sum(case when status = 'complete' then 1 else 0 end)`.as("done"),
       ])
-      .where("parentTaskId", "in", ids)
+      .where("parentTaskId", "in", scopedIds(db, scope))
       .groupBy("parentTaskId")
       .execute(),
   ])
@@ -113,43 +128,47 @@ export async function loadTaskSummaries(db: Db, ids: string[]): Promise<TaskSumm
   const assigneesByTask = groupBy(assignees, (a) => a.taskId)
   const tagsByTask = groupBy(tags, (t) => t.taskId)
   const countsByTask = new Map(subtasks.map((s) => [s.parentTaskId, s]))
-  const byId = new Map(tasks.map((t) => [t.id, t]))
 
-  return ids.flatMap((id) => {
-    const t = byId.get(id)
-    if (!t) return []
-    const counts = countsByTask.get(id)
-    return [
-      {
-        id: t.id,
-        projectId: t.projectId,
-        number: t.number,
-        key: `${t.projectKey}-${t.number}`,
-        title: t.title,
-        status: t.status as Status,
-        priority: t.priority as Priority | null,
-        dueAt: t.dueAt,
-        parentTaskId: t.parentTaskId,
-        assignees: (assigneesByTask.get(id) ?? []).map((a) => ({
-          id: a.id,
-          name: a.name,
-          avatarUrl: a.avatarUrl,
-        })),
-        tags: (tagsByTask.get(id) ?? []).map((g) => ({ id: g.id, name: g.name, color: g.color })),
-        subtaskCount: Number(counts?.total ?? 0),
-        subtaskDoneCount: Number(counts?.done ?? 0),
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-      },
-    ]
+  const summaries = tasks.map((t): TaskSummary => {
+    const counts = countsByTask.get(t.id)
+    return {
+      id: t.id,
+      projectId: t.projectId,
+      number: t.number,
+      key: `${t.projectKey}-${t.number}`,
+      title: t.title,
+      status: t.status as Status,
+      priority: t.priority as Priority | null,
+      dueAt: t.dueAt,
+      parentTaskId: t.parentTaskId,
+      assignees: (assigneesByTask.get(t.id) ?? []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        avatarUrl: a.avatarUrl,
+      })),
+      tags: (tagsByTask.get(t.id) ?? []).map((g) => ({ id: g.id, name: g.name, color: g.color })),
+      subtaskCount: Number(counts?.total ?? 0),
+      subtaskDoneCount: Number(counts?.done ?? 0),
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }
   })
+
+  if (!("ids" in scope)) return summaries
+  const byId = new Map(summaries.map((t) => [t.id, t]))
+  return scope.ids.flatMap((id) => byId.get(id) ?? [])
 }
+
+export const loadTaskSummaries = (db: Db, ids: string[]) => summarise(db, { ids })
+
+export const listProjectTaskSummaries = (db: Db, projectId: string, topLevelOnly = true) =>
+  summarise(db, { projectId, topLevel: topLevelOnly })
 
 export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail> {
   const [summary] = await loadTaskSummaries(db, [taskId])
   if (!summary) throw new ApiError("NOT_FOUND", "Task not found")
 
-  const [task, project, parent, children] = await Promise.all([
+  const [task, project, parent, children, relationships, customFields] = await Promise.all([
     db.selectFrom("tasks").select("body").where("id", "=", taskId).executeTakeFirstOrThrow(),
     db
       .selectFrom("projects")
@@ -170,6 +189,8 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
       .where("parentTaskId", "=", taskId)
       .orderBy("createdAt")
       .execute(),
+    loadRelationships(db, taskId),
+    loadCustomFieldValues(db, taskId),
   ])
 
   return {
@@ -188,10 +209,8 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
       db,
       children.map((c) => c.id),
     ),
-    blockedBy: [],
-    blocks: [],
-    related: [],
-    customFields: {},
+    ...relationships,
+    customFields,
   }
 }
 
@@ -201,11 +220,19 @@ export async function requireTask(
   userId: string,
   taskId: string,
 ): Promise<{ task: TaskRow; role: Role }> {
-  const task = await db.selectFrom("tasks").selectAll().where("id", "=", taskId).executeTakeFirst()
-  if (!task) throw new ApiError("NOT_FOUND", "Task not found")
-  const role = await requireMembership(db, userId, task.workspaceId).catch(() => {
-    throw new ApiError("NOT_FOUND", "Task not found")
-  })
+  const row = await db
+    .selectFrom("tasks")
+    .leftJoin("workspaceMembers", (join) =>
+      join
+        .onRef("workspaceMembers.workspaceId", "=", "tasks.workspaceId")
+        .on("workspaceMembers.userId", "=", userId),
+    )
+    .selectAll("tasks")
+    .select("workspaceMembers.role")
+    .where("tasks.id", "=", taskId)
+    .executeTakeFirst()
+  if (!row?.role) throw new ApiError("NOT_FOUND", "Task not found")
+  const { role, ...task } = row
   return { task, role }
 }
 
@@ -328,8 +355,28 @@ export async function createTask(
   })
 }
 
-// Writes the new status and its history row together, or neither. Joins an enclosing
-// transaction when called from updateTask.
+const insertHistory = (
+  trx: Db,
+  taskId: string,
+  from: string | null,
+  to: Status,
+  userId: string,
+  ts: string,
+) =>
+  trx
+    .insertInto("taskStatusHistory")
+    .values({
+      id: newId(),
+      taskId,
+      fromStatus: from,
+      toStatus: to,
+      updatedAt: ts,
+      updatedBy: userId,
+    })
+    .execute()
+
+// Writes the new status and its history row together, or neither. Returns false when the
+// status was already the requested one.
 export async function changeTaskStatus(
   db: Db,
   taskId: string,
@@ -346,21 +393,13 @@ export async function changeTaskStatus(
 
     const ts = now()
     await trx.updateTable("tasks").set({ status, updatedAt: ts }).where("id", "=", taskId).execute()
-    await trx
-      .insertInto("taskStatusHistory")
-      .values({
-        id: newId(),
-        taskId,
-        fromStatus: current.status,
-        toStatus: status,
-        updatedAt: ts,
-        updatedBy: userId,
-      })
-      .execute()
+    await insertHistory(trx, taskId, current.status, status, userId, ts)
     return true
   })
 }
 
+// Applies every field of the patch in one transaction, writing the task row (and its
+// updatedAt) once at the end; a rejected value rolls everything back.
 export async function updateTask(
   db: Db,
   userId: string,
@@ -371,24 +410,41 @@ export async function updateTask(
     if (patch.assigneeIds) await assertAssignees(trx, task.workspaceId, unique(patch.assigneeIds))
     if (patch.tagIds) await assertTags(trx, task.workspaceId, unique(patch.tagIds))
 
-    const scalars = {
+    const ts = now()
+    const set: Updateable<TaskTable> = {
       ...(patch.title !== undefined && { title: patch.title }),
       ...(patch.body !== undefined && { body: patch.body }),
       ...(patch.priority !== undefined && { priority: patch.priority }),
       ...(patch.dueAt !== undefined && { dueAt: patch.dueAt }),
     }
-    if (Object.keys(scalars).length > 0) {
-      await trx
-        .updateTable("tasks")
-        .set({ ...scalars, updatedAt: now() })
+    let changed =
+      Object.keys(set).length > 0 ||
+      patch.assigneeIds !== undefined ||
+      patch.tagIds !== undefined ||
+      patch.customFields !== undefined
+
+    if (patch.status !== undefined) {
+      const current = await trx
+        .selectFrom("tasks")
+        .select("status")
         .where("id", "=", task.id)
-        .execute()
+        .executeTakeFirstOrThrow()
+      if (current.status !== patch.status) {
+        set.status = patch.status
+        await insertHistory(trx, task.id, current.status, patch.status, userId, ts)
+        changed = true
+      }
     }
-    if (patch.status !== undefined) await changeTaskStatus(trx, task.id, patch.status, userId)
+
     if (patch.assigneeIds) await replaceAssignees(trx, task.id, unique(patch.assigneeIds))
     if (patch.tagIds) await replaceTags(trx, task.id, unique(patch.tagIds))
-    if (patch.assigneeIds || patch.tagIds) {
-      await trx.updateTable("tasks").set({ updatedAt: now() }).where("id", "=", task.id).execute()
+    if (patch.customFields) await applyCustomFields(trx, task, patch.customFields)
+    if (changed) {
+      await trx
+        .updateTable("tasks")
+        .set({ ...set, updatedAt: ts })
+        .where("id", "=", task.id)
+        .execute()
     }
   })
 }
