@@ -1,4 +1,3 @@
-import { gzipSync } from "node:zlib"
 import { createMiddleware } from "hono/factory"
 
 const MIN_BYTES = 1024
@@ -14,12 +13,23 @@ export const compressJson = createMiddleware(async (c, next) => {
   const body = new Uint8Array(await res.arrayBuffer())
   const accepts = /\bgzip\b/i.test(c.req.header("accept-encoding") ?? "")
   const headers = new Headers(res.headers)
-  headers.append("Vary", "Accept-Encoding")
+  // The length of the old body is wrong for the new one; the runtime sets the right value.
+  headers.delete("content-length")
+  if (!/\baccept-encoding\b/i.test(headers.get("vary") ?? "")) {
+    headers.append("Vary", "Accept-Encoding")
+  }
+
+  const replace = (next: Response) => {
+    // Assigning over an existing response makes Hono copy the old headers back onto the new
+    // one, which would restore the stale Content-Length. Clearing first avoids the merge.
+    c.res = undefined as unknown as Response
+    c.res = next
+  }
 
   if (!accepts || body.length < MIN_BYTES) {
-    c.res = new Response(body, { status: res.status, headers })
+    replace(new Response(body, { status: res.status, headers }))
     return
   }
   headers.set("Content-Encoding", "gzip")
-  c.res = new Response(gzipSync(body), { status: res.status, headers })
+  replace(new Response(Bun.gzipSync(body), { status: res.status, headers }))
 })

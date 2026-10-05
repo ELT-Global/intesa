@@ -15,7 +15,7 @@ bun install
 DEV_LOGIN=true bun run dev
 ```
 
-The web client is on <http://localhost:5173> and proxies `/api` to the API on port 3000. With `DEV_LOGIN=true` (and `NODE_ENV` not `production`) the login page offers an email-only sign-in that creates the account on the fly, so you do not need Google credentials to try it. The SQLite file is created at `./data/intesa.db`.
+The web client is on <http://localhost:5173> and proxies `/api` to the API on port 3000. With `DEV_LOGIN=true` (and `NODE_ENV` not `production`) the login page offers an email-only sign-in that creates the account on the fly, so you do not need Google credentials to try it. The SQLite file is created at `data/intesa.db` in the repository root (git-ignored), whichever directory you start from.
 
 To run the production build on one port:
 
@@ -32,7 +32,7 @@ All settings come from environment variables (see `.env.example`).
 |---|---|---|
 | `PORT` | `3000` | HTTP port for the API and the built client. |
 | `NODE_ENV` | `production` when unset | `development`, `production` or `test`. Anything other than `production` allows the dev login. In `development` the API does not serve the client (Vite does). |
-| `DATABASE_URL` | `./data/intesa.db` | SQLite file path (the directory is created), `:memory:`, or a `postgres://` URL. |
+| `DATABASE_URL` | `<repo root>/data/intesa.db` | SQLite file path (the directory is created; a relative path is relative to the directory you start the process in), `:memory:`, or a `postgres://` URL. |
 | `WEB_DIST` | `apps/web/dist/client` | Directory with the built web client. |
 | `PUBLIC_URL` | `http://localhost:$PORT` | Public origin, used for the Google redirect URI. Session cookies get the `Secure` flag when `NODE_ENV=production` and this starts with `https://`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Both are required to enable Google sign-in. |
@@ -74,7 +74,7 @@ bun run lint
 
 ```sh
 docker build -t intesa .
-docker run -d --name intesa -p 3000:3000 -v intesa-data:/data \
+docker run -d --name intesa --init -p 3000:3000 -v intesa-data:/data \
   -e PUBLIC_URL=https://pm.example.com \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
   intesa
@@ -82,9 +82,18 @@ docker run -d --name intesa -p 3000:3000 -v intesa-data:/data \
 
 The image runs as an unprivileged user, keeps the SQLite database in the `/data` volume (`DATABASE_URL=/data/intesa.db`) and has a health check on `/api/health`, which also checks the database connection. The API is bundled into a single file, so the image holds only the Bun runtime, that file and the built client. Terminate TLS in front of it (a reverse proxy); the app itself speaks plain HTTP.
 
+Things to know when running the container:
+
+- It runs in production mode, where the dev login is disabled, so Google sign-in must be configured (`PUBLIC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) or nobody can sign in. The first person to sign in has no workspace yet and creates one.
+- Use `--init` so signals reach the server and it can shut down cleanly: it closes the database and exits within about 8 seconds, inside Docker's default 10-second stop timeout.
+- With a bind mount instead of a named volume (`-v /srv/intesa:/data`), the directory must be writable by the image's `bun` user (uid 1000): `chown 1000:1000 /srv/intesa`, or run with `--user` set to the directory's owner.
+
+## Logging
+
+The server logs startup and shutdown, and requests only when they fail: a response with status 500 or above produces one JSON error line with method, path (no query string), status and duration. There are no access logs, and request bodies, headers and cookies are never logged.
+
 ## Layout
 
 - `apps/api`: Hono API, Kysely migrations, auth, tests (`apps/api/test`).
 - `apps/web`: the single-page client.
 - `e2e`: Playwright tests.
-- `docs`: plan, design rules and architecture decision records.

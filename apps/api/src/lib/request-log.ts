@@ -2,6 +2,8 @@ import { createMiddleware } from "hono/factory"
 
 // Logs server failures only. Method, path (no query string, which can carry OAuth codes),
 // status and duration; never bodies, headers or cookies.
+// Every request is timed, which costs two clock reads; the duration is only worth having
+// when something failed, so it is only reported then.
 export const requestLog = createMiddleware(async (c, next) => {
   const start = performance.now()
   await next()

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { gunzipSync } from "node:zlib"
+import { SelectQueryNode, TableNode } from "kysely"
 import { createApp } from "../src/app"
 import { createDb, migrate } from "../src/db"
 import { signIn } from "./helpers"
@@ -14,28 +15,32 @@ const config = {
 async function appWithQueryCounter() {
   const base = await createDb(":memory:")
   await migrate(base)
-  const selects: string[] = []
+  const tableReads: string[] = []
   const db = base.withPlugin({
     transformQuery: (args) => {
-      if (args.node.kind === "SelectQueryNode") selects.push(JSON.stringify(args.node))
+      // Record which table each SELECT reads from.
+      if (SelectQueryNode.is(args.node)) {
+        for (const from of args.node.from?.froms ?? []) {
+          if (TableNode.is(from)) tableReads.push(from.table.identifier.name)
+        }
+      }
       return args.node
     },
     transformResult: async (args) => args.result,
   })
-  return { app: createApp({ db, config }), selects }
+  return { app: createApp({ db, config }), tableReads }
 }
 
 describe("per-request work", () => {
   test("the session is looked up once even when several routers guard the same prefix", async () => {
-    const { app, selects } = await appWithQueryCounter()
+    const { app, tableReads } = await appWithQueryCounter()
     const me = await signIn(app, "once@example.com")
     const ws = await me.call("POST", "/api/workspaces", { name: "Acme" })
 
-    selects.length = 0
+    tableReads.length = 0
     const res = await me.call("GET", `/api/workspaces/${ws.body.workspace.id}/projects`)
     expect(res.status).toBe(200)
-    const sessionLookups = selects.filter((q) => q.includes('"sessions"'))
-    expect(sessionLookups).toHaveLength(1)
+    expect(tableReads.filter((table) => table === "sessions")).toHaveLength(1)
   })
 })
 

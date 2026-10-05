@@ -20,6 +20,14 @@ function acceptedEncodings(header: string | undefined): Set<string> {
   return accepted
 }
 
+// If-None-Match is a list of entity tags or "*"; weak comparison ignores the W/ prefix.
+function matchesIfNoneMatch(header: string | undefined, etag: string): boolean {
+  if (!header) return false
+  const strip = (tag: string) => tag.trim().replace(/^W\//, "")
+  const ours = strip(etag)
+  return header.split(",").some((tag) => tag.trim() === "*" || strip(tag) === ours)
+}
+
 async function sendFile(c: Context, path: string, cacheControl: string) {
   const original = Bun.file(path)
   const accepted = acceptedEncodings(c.req.header("accept-encoding"))
@@ -37,7 +45,7 @@ async function sendFile(c: Context, path: string, cacheControl: string) {
   }
 
   // Weak validators: cheap, and enough for no-cache files to revalidate with a 304.
-  const etag = `W/"${file.size}-${file.lastModified}${encoding ?? ""}"`
+  const etag = `W/"${file.size}-${file.lastModified}-${encoding ?? "identity"}"`
   const headers = new Headers({
     "Content-Type": original.type,
     "Cache-Control": cacheControl,
@@ -46,8 +54,20 @@ async function sendFile(c: Context, path: string, cacheControl: string) {
   })
   if (encoding) headers.set("Content-Encoding", encoding)
 
-  if (c.req.header("if-none-match") === etag) return new Response(null, { status: 304, headers })
+  if (matchesIfNoneMatch(c.req.header("if-none-match"), etag)) {
+    return new Response(null, { status: 304, headers })
+  }
   return new Response(file, { headers })
+}
+
+// Malformed percent-encoding and NUL bytes are client errors, not crashes.
+function decodePath(raw: string): string | null {
+  try {
+    const path = decodeURIComponent(raw)
+    return path.indexOf(String.fromCharCode(0)) >= 0 ? null : path
+  } catch {
+    return null
+  }
 }
 
 // Serves the built SPA. Real files are returned as-is; any other GET that is not an
@@ -56,7 +76,8 @@ export function serveSpa(app: Hono, webDist: string) {
   const root = resolve(webDist)
 
   app.get("*", async (c) => {
-    const path = decodeURIComponent(new URL(c.req.url).pathname)
+    const path = decodePath(new URL(c.req.url).pathname)
+    if (path === null) return c.json({ code: "VALIDATION_ERROR", message: "Bad request path" }, 400)
     const file = resolve(root, `.${path}`)
 
     const isVariant = VARIANTS.some((v) => path.endsWith(v.suffix))

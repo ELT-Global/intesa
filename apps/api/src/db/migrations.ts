@@ -214,10 +214,33 @@ const initial: Migration = {
   },
 }
 
+// Renames rows whose name collides (ignoring case) with an earlier row in the same scope, so a
+// unique index on (scope, lower(name)) can be created over existing data. "Earlier" means
+// older by (created_at, id), so the outcome is deterministic: later rows become "Name (2)",
+// "Name (3)", ... skipping names already taken.
+async function dedupeNames(
+  db: Kysely<any>,
+  table: "tags" | "custom_field_definitions",
+  scope: "workspaceId" | "projectId",
+) {
+  const rows = await db.selectFrom(table).selectAll().orderBy("created_at").orderBy("id").execute()
+  const taken = new Map<string, Set<string>>()
+  for (const row of rows) {
+    const names = taken.get(row[scope]) ?? new Set<string>()
+    taken.set(row[scope], names)
+    let name: string = row.name
+    for (let n = 2; names.has(name.toLowerCase()); n++) name = `${row.name} (${n})`
+    names.add(name.toLowerCase())
+    if (name !== row.name)
+      await db.updateTable(table).set({ name }).where("id", "=", row.id).execute()
+  }
+}
+
 // Tag names are unique per workspace ignoring case; the constraint, not a prior lookup,
 // decides concurrent creates.
 const tagNameIndex: Migration = {
-  async up(db: Kysely<unknown>) {
+  async up(db: Kysely<any>) {
+    await dedupeNames(db, "tags", "workspaceId")
     await sql`create unique index tags_workspace_lower_name on tags (workspace_id, lower(name))`.execute(
       db,
     )
@@ -227,6 +250,7 @@ const tagNameIndex: Migration = {
 const customFieldNamesAndRelated: Migration = {
   async up(db: Kysely<any>) {
     // Field names are unique per project ignoring case; the index decides concurrent creates.
+    await dedupeNames(db, "custom_field_definitions", "projectId")
     await sql`create unique index custom_fields_project_lower_name on custom_field_definitions (project_id, lower(name))`.execute(
       db,
     )

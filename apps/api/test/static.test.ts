@@ -101,10 +101,91 @@ describe("static assets", () => {
 
     expect((await get("/assets/missing.js")).status).toBe(404)
     expect((await get("/assets/app-abc123.js.br")).status).toBe(404)
-    expect((await get("/../etc/passwd")).status).toBe(200)
+  })
+
+  test("raw precompressed files are 404 whatever the client accepts", async () => {
+    expect((await get("/assets/app-abc123.js.br", "identity")).status).toBe(404)
+    expect((await get("/assets/app-abc123.js.gz", "gzip, br")).status).toBe(404)
+  })
+
+  test("an identity-only client gets the plain file", async () => {
+    const res = await get("/assets/app-abc123.js", "identity")
+    expect(res.headers.get("content-encoding")).toBeNull()
+    expect(await res.text()).toBe(JS)
   })
 
   test("the API is not shadowed by the shell", async () => {
     expect((await get("/api/nope")).status).toBe(404)
+  })
+})
+
+describe("static edge cases", () => {
+  test("malformed percent-encoding and NUL bytes are 400, not a crash", async () => {
+    for (const path of ["/%E0%A4%A", "/assets/%", "/%00", "/assets/app%00.js"]) {
+      const res = await get(path)
+      expect([path, res.status]).toEqual([path, 400])
+      expect(((await res.json()) as { code: string }).code).toBe("VALIDATION_ERROR")
+    }
+  })
+
+  test("encoded dot segments cannot escape the web root", async () => {
+    // A file that exists outside the root is never served; asset-looking paths are 404 and
+    // route-looking ones get the shell.
+    const outside = join(dir, "..", "intesa-outside.txt")
+    writeFileSync(outside, "secret")
+    try {
+      const asset = await get("/%2e%2e/intesa-outside.txt")
+      expect(asset.status).toBe(404)
+      expect(await asset.text()).not.toContain("secret")
+      const route = await get("/%2e%2e/%2e%2e/etc/passwd")
+      expect(await route.text()).toContain("shell")
+      expect((await get("/assets/%2e%2e/%2e%2e/intesa-outside.txt")).status).toBe(404)
+    } finally {
+      rmSync(outside, { force: true })
+    }
+  })
+
+  test("HEAD returns the headers without a body", async () => {
+    const res = await app.request("/assets/app-abc123.js", {
+      method: "HEAD",
+      headers: { "accept-encoding": "br" },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-encoding")).toBe("br")
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(await res.text()).toBe("")
+  })
+
+  test("If-None-Match accepts lists, strong forms and *", async () => {
+    const etag = (await get("/robots.txt")).headers.get("etag") ?? ""
+    const strong = etag.replace(/^W\//, "")
+    const headers = [`"nope", ${etag}`, strong, "*", `W/"a" , ${etag} ,W/"b"`]
+    for (const header of headers) {
+      const res = await get("/robots.txt", undefined, { "if-none-match": header })
+      expect([header, res.status]).toEqual([header, 304])
+    }
+    const miss = await get("/robots.txt", undefined, { "if-none-match": 'W/"other", "x"' })
+    expect(miss.status).toBe(200)
+  })
+
+  test("a 304 still carries the caching and Vary headers", async () => {
+    const first = await get("/assets/app-abc123.js", "br")
+    const res = await get("/assets/app-abc123.js", "br", {
+      "if-none-match": first.headers.get("etag") ?? "",
+    })
+    expect(res.status).toBe(304)
+    expect(res.headers.get("vary")).toBe("Accept-Encoding")
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable")
+    expect(res.headers.get("content-encoding")).toBe("br")
+  })
+
+  test("the encoding is part of the validator, separated from the size and time", async () => {
+    const br = (await get("/assets/app-abc123.js", "br")).headers.get("etag") ?? ""
+    const gz = (await get("/assets/app-abc123.js", "gzip")).headers.get("etag") ?? ""
+    const plain = (await get("/assets/app-abc123.js")).headers.get("etag") ?? ""
+    expect(br).toMatch(/-br"$/)
+    expect(gz).toMatch(/-gzip"$/)
+    expect(plain).toMatch(/-identity"$/)
+    expect(new Set([br, gz, plain]).size).toBe(3)
   })
 })

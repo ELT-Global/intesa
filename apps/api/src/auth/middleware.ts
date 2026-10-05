@@ -9,7 +9,8 @@ export type AppEnv = { Variables: { user: User; session: SessionInfo } }
 export const requireUser = (db: Db) =>
   createMiddleware<AppEnv>(async (c, next) => {
     // Several routers share a mount point and each installs this; resolve the session once.
-    if (c.var.user) return next()
+    // A session another guard stored as pending 2FA never counts as a full sign-in.
+    if (c.var.user && c.var.session?.pendingTwoFactor === false) return next()
     const found = await loadSession(db, c)
     if (!found) throw new ApiError("UNAUTHORIZED", "Sign in required")
     if (found.session.pendingTwoFactor) {
@@ -24,7 +25,7 @@ export const requireUser = (db: Db) =>
 export const requirePending2fa = (db: Db) =>
   createMiddleware<AppEnv>(async (c, next) => {
     // Several routers share a mount point and each installs this; resolve the session once.
-    if (c.var.user) return next()
+    if (c.var.user && c.var.session?.pendingTwoFactor === true) return next()
     const found = await loadSession(db, c)
     if (!found) throw new ApiError("UNAUTHORIZED", "Sign in required")
     if (!found.session.pendingTwoFactor) {

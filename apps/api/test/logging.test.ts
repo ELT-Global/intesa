@@ -45,11 +45,16 @@ describe("request logging", () => {
       status: 500,
     })
     expect(typeof entry.durationMs).toBe("number")
-    // Nothing from the request leaks into the log line.
+    // Nothing from the request leaks into the log line: not the query string, not the
+    // cookie name, and not the session token that was actually sent.
+    const token = me.cookie.split("=")[1] ?? ""
+    expect(token.length).toBeGreaterThan(20)
     const raw = logged().find((l) => l.includes("request failed")) ?? ""
+    expect(raw).not.toBe("")
     expect(raw).not.toContain("secret=abc")
     expect(raw).not.toContain("intesa_session")
-    expect(raw).not.toContain(me.cookie.split("=")[1] ?? "x-none")
+    expect(raw).not.toContain(token)
+    expect(logged().join(" ")).not.toContain(token)
   })
 
   test("client errors are not logged", async () => {
