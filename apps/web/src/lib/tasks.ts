@@ -8,6 +8,10 @@ const projectTasks = client.api.projects[":projectId"].tasks
 export type TaskSummary = InferResponseType<typeof projectTasks.$get>["tasks"][number]
 export type TaskDetail = InferResponseType<(typeof taskById)["$get"]>["task"]
 export type HistoryEntry = InferResponseType<(typeof taskById.history)["$get"]>["history"][number]
+export type TaskRef = TaskDetail["blocks"][number]
+export type RelationType = InferRequestType<
+  (typeof taskById.relationships)["$post"]
+>["json"]["type"]
 export type UserRef = TaskSummary["assignees"][number]
 export type TagRef = TaskSummary["tags"][number]
 
@@ -26,7 +30,11 @@ export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"
 export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]
 
 /** Resolved people/tags matching a patch's id sets, so the cache can update before the server answers. */
-export type TaskPatchView = { assignees?: UserRef[]; tags?: TagRef[] }
+export type TaskPatchView = {
+  assignees?: UserRef[]
+  tags?: TagRef[]
+  customFields?: Record<string, unknown>
+}
 
 const taskApi = {
   list: (projectId: string) => unwrap(projectTasks.$get({ param: { projectId } })),
@@ -36,6 +44,22 @@ const taskApi = {
     unwrap(projectTasks.$post({ param: { projectId }, json })),
   update: (taskId: string, json: TaskPatch) => unwrap(taskById.$patch({ param: { taskId }, json })),
   remove: (taskId: string) => unwrap(taskById.$delete({ param: { taskId } })),
+  search: (workspaceId: string, q: string) =>
+    unwrap(
+      client.api.workspaces[":workspaceId"].tasks.search.$get({
+        param: { workspaceId },
+        query: { q },
+      }),
+    ),
+  addRelation: (taskId: string, type: RelationType, otherId: string) =>
+    unwrap(taskById.relationships.$post({ param: { taskId }, json: { type, taskId: otherId } })),
+  removeRelation: (taskId: string, type: RelationType, otherTaskId: string) =>
+    unwrap(
+      taskById.relationships[":otherTaskId"].$delete({
+        param: { taskId, otherTaskId },
+        query: { type },
+      }),
+    ),
 }
 
 export const taskKeys = {
@@ -55,6 +79,13 @@ export const taskQuery = (taskId: string) =>
     queryKey: taskKeys.detail(taskId),
     queryFn: async () => (await taskApi.get(taskId)).task,
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
+  })
+
+export const taskSearchQuery = (workspaceId: string, q: string) =>
+  queryOptions({
+    queryKey: ["task-search", workspaceId, q] as const,
+    queryFn: async () => (await taskApi.search(workspaceId, q)).tasks,
+    staleTime: 5_000,
   })
 
 export const taskHistoryQuery = (taskId: string) =>
@@ -83,7 +114,7 @@ export function useUpdateTask() {
       view?: TaskPatchView
     }) => taskApi.update(taskId, patch).then((r) => r.task),
     onMutate: async ({ taskId, projectId, patch: fullPatch, view }) => {
-      const { assigneeIds: _a, tagIds: _t, ...plain } = fullPatch
+      const { assigneeIds: _a, tagIds: _t, customFields: _c, ...plain } = fullPatch
       const optimistic: Record<string, unknown> = { ...plain, ...view }
       const fields = Object.keys(optimistic)
       await Promise.all([
@@ -126,7 +157,14 @@ export function useUpdateTask() {
       if (qc.isMutating({ mutationKey: UPDATE_KEY }) > 1) return
       void qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
       void qc.invalidateQueries({ queryKey: taskKeys.detail(taskId), exact: true })
-      if (patch.status) void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
+      if (patch.status) {
+        void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
+        // A subtask's status feeds its parent's progress, which lives in the parent's detail.
+        void qc.invalidateQueries({
+          queryKey: ["tasks"],
+          predicate: (q) => q.queryKey.length === 2,
+        })
+      }
     },
   })
 }
@@ -164,6 +202,42 @@ export function useDeleteTask() {
     },
     onSettled: (_d, _e, { projectId }) =>
       qc.invalidateQueries({ queryKey: taskKeys.list(projectId) }),
+  })
+}
+
+export function useCreateSubtask(parent: { id: string; projectId: string }) {
+  const qc = useQueryClient()
+  return useMutation({
+    meta: notifyMeta("Could not add the subtask."),
+    mutationFn: (title: string) =>
+      taskApi.create(parent.projectId, { title, parentTaskId: parent.id }).then((r) => r.task),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: taskKeys.detail(parent.id), exact: true })
+      void qc.invalidateQueries({ queryKey: taskKeys.list(parent.projectId) })
+    },
+  })
+}
+
+/** Adds or removes a relationship; both tasks' details are refreshed since each shows the link. */
+export function useChangeRelationship(taskId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    meta: notifyMeta("Could not change the relationship."),
+    mutationFn: ({
+      action,
+      type,
+      otherId,
+    }: {
+      action: "add" | "remove"
+      type: RelationType
+      otherId: string
+    }) =>
+      action === "add"
+        ? taskApi.addRelation(taskId, type, otherId)
+        : taskApi.removeRelation(taskId, type, otherId),
+    onSuccess: (data) => qc.setQueryData(taskKeys.detail(taskId), data.task),
+    onSettled: (_d, _e, { otherId }) =>
+      qc.invalidateQueries({ queryKey: taskKeys.detail(otherId), exact: true }),
   })
 }
 

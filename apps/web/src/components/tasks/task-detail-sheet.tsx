@@ -116,6 +116,7 @@ function SheetBody({
   propertySlots?: (task: TaskDetail) => ReactNode
   sections?: (task: TaskDetail) => ReactNode
 }) {
+  const { openTask } = useTaskParam()
   const update = useUpdateTask()
   const patch = (p: Parameters<typeof update.mutate>[0]["patch"], onError?: () => void) =>
     update.mutate({ taskId: task.id, projectId: task.projectId, patch: p }, { onError })
@@ -140,6 +141,15 @@ function SheetBody({
           {propertySlots?.(task)}
         </div>
         <div className="flex flex-col gap-7 p-6">
+          {task.parent && (
+            <button
+              type="button"
+              onClick={() => task.parent && openTask(task.parent.id)}
+              className="-mb-4 flex cursor-pointer items-center gap-1.5 self-start rounded text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Parent: <span className="font-mono">{task.parent.key}</span> {task.parent.title}
+            </button>
+          )}
           <EditableText
             label="Task title"
             value={task.title}
