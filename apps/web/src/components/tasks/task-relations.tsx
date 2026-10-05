@@ -1,7 +1,14 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { Link2, X } from "lucide-react"
-import { type FormEvent, type ReactNode, useDeferredValue, useState } from "react"
+import {
+  type FormEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -83,9 +90,8 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
   function add(e: FormEvent) {
     e.preventDefault()
     const trimmed = title.trim()
-    if (!trimmed) return
-    setTitle("")
-    create.mutate(trimmed)
+    if (!trimmed || create.isPending) return
+    create.mutate(trimmed, { onSuccess: () => setTitle("") })
   }
 
   return (
@@ -164,21 +170,27 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
   )
 }
 
-/** Opens a task from a relationship; tasks in another project switch to that project's board. */
+/** Opens a task from a relationship; a task in another project switches to that project. */
 function useOpenTaskRef(currentProjectId: string) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { slug } = useParams({ strict: false })
   const { openTask } = useTaskParam()
-  return async (ref: TaskRef) => {
-    const other = await qc.fetchQuery({ ...taskQuery(ref.id), staleTime: 30_000 }).catch(() => null)
-    if (!other || other.projectId === currentProjectId || !slug) return openTask(ref.id)
-    void navigate({
-      to: "/w/$slug/projects/$projectId/board",
-      params: { slug, projectId: other.projectId },
-      search: { task: ref.id },
-    })
-  }
+  // A mutation, so a failed lookup is reported by the shared error notice.
+  const open = useMutation({
+    meta: { errorNotice: "Could not open that task." },
+    mutationFn: (ref: TaskRef) => qc.fetchQuery({ ...taskQuery(ref.id), staleTime: 30_000 }),
+    onSuccess: (other, ref) => {
+      if (other.projectId === currentProjectId || !slug) return openTask(ref.id)
+      // The project index route sends you to the view you used last there, keeping ?task.
+      void navigate({
+        to: "/w/$slug/projects/$projectId",
+        params: { slug, projectId: other.projectId },
+        search: { task: ref.id },
+      })
+    },
+  })
+  return (ref: TaskRef) => open.mutate(ref)
 }
 
 const GROUPS: { type: RelationType; label: string; field: "blockedBy" | "blocks" | "related" }[] = [
@@ -191,9 +203,28 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
   const change = useChangeRelationship(task.id)
   const openRef = useOpenTaskRef(task.projectId)
   const groups = GROUPS.map((g) => ({ ...g, refs: task[g.field] })).filter((g) => g.refs.length > 0)
+  const total = groups.reduce((n, g) => n + g.refs.length, 0)
+
+  // After a removal the focused button disappears; hand focus to its neighbour, else to "Add".
+  const root = useRef<HTMLElement>(null)
+  const afterRemove = useRef<{ index: number; total: number } | null>(null)
+  useEffect(() => {
+    const pending = afterRemove.current
+    if (!pending || total >= pending.total) return
+    afterRemove.current = null
+    const buttons = root.current?.querySelectorAll<HTMLElement>("[data-remove-relationship]")
+    const target = buttons?.[Math.min(pending.index, (buttons?.length ?? 1) - 1)]
+    ;(target ?? root.current?.querySelector<HTMLElement>("[data-add-relationship]"))?.focus()
+  }, [total])
+
+  function remove(type: RelationType, otherId: string, button: HTMLElement) {
+    const all = [...(root.current?.querySelectorAll("[data-remove-relationship]") ?? [])]
+    afterRemove.current = { index: all.indexOf(button), total }
+    change.mutate({ action: "remove", type, otherId })
+  }
 
   return (
-    <section aria-label="Relationships" className="flex flex-col gap-3">
+    <section ref={root} aria-label="Relationships" className="flex flex-col gap-3">
       <SectionTitle>Relationships</SectionTitle>
       {groups.map((g) => (
         // biome-ignore lint/a11y/useSemanticElements: a fieldset brings borders and padding we would undo
@@ -204,7 +235,7 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
               <li key={ref.id} className="flex items-center gap-1 rounded-md hover:bg-accent/60">
                 <button
                   type="button"
-                  onClick={() => void openRef(ref)}
+                  onClick={() => openRef(ref)}
                   className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded py-1 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <StatusIcon status={ref.status} />
@@ -216,7 +247,8 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
                   size="xs"
                   icon
                   aria-label={`Remove ${ref.key}`}
-                  onClick={() => change.mutate({ action: "remove", type: g.type, otherId: ref.id })}
+                  data-remove-relationship
+                  onClick={(e) => remove(g.type, ref.id, e.currentTarget)}
                 >
                   <X />
                 </Button>
@@ -303,7 +335,7 @@ function AddRelationship({
         </div>
       }
       trigger={
-        <Button variant="ghost" size="sm" className="text-foreground">
+        <Button variant="ghost" size="sm" className="text-foreground" data-add-relationship>
           <Link2 />
           Add relationship
         </Button>

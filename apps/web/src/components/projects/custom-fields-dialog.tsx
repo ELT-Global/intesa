@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
-import { type RefObject, useState } from "react"
+import { type Ref, type RefObject, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -53,7 +53,13 @@ export function CustomFieldsDialog({
 function FieldsBody({ projectId }: { projectId: string }) {
   const fields = useQuery(customFieldsQuery(projectId)).data ?? []
   const m = useFieldMutations(projectId)
-  const error = m.create.error ?? m.update.error ?? m.remove.error
+  // One slot for the latest outcome, so an old failure from another action never lingers.
+  const [error, setError] = useState<string | null>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  const handlers = {
+    onSuccess: () => setError(null),
+    onError: (e: Error) => setError(e.message),
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -65,15 +71,38 @@ function FieldsBody({ projectId }: { projectId: string }) {
           <FieldRow
             key={`${f.id}:${f.name}:${f.options.join("\n")}`}
             field={f}
-            onChange={(json) => m.update.mutate({ fieldId: f.id, json })}
-            onDelete={() => m.remove.mutate(f.id)}
+            onChange={(json) => {
+              setError(null)
+              m.update.mutate({ fieldId: f.id, json }, handlers)
+            }}
+            onDelete={() => {
+              setError(null)
+              m.remove.mutate(f.id, {
+                ...handlers,
+                // The row is gone, so keep keyboard focus inside the dialog.
+                onSuccess: () => {
+                  setError(null)
+                  nameInput.current?.focus()
+                },
+              })
+            }}
           />
         ))}
       </ul>
-      <FormError message={error?.message} />
+      <FormError message={error} />
       <NewFieldForm
+        nameRef={nameInput}
         pending={m.create.isPending}
-        onCreate={(json, done) => m.create.mutate(json, { onSuccess: done })}
+        onCreate={(json, done) => {
+          setError(null)
+          m.create.mutate(json, {
+            onError: handlers.onError,
+            onSuccess: () => {
+              setError(null)
+              done()
+            },
+          })
+        }}
       />
     </div>
   )
@@ -91,6 +120,8 @@ function FieldRow({
   const [name, setName] = useState(field.name)
   const [options, setOptions] = useState(field.options.join("\n"))
   const [confirming, setConfirming] = useState(false)
+  const [removing, setRemoving] = useState<{ options: string[]; removed: string[] } | null>(null)
+  const deleteButton = useRef<HTMLButtonElement>(null)
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0">
@@ -123,6 +154,7 @@ function FieldRow({
           size="sm"
           icon
           aria-label={`Delete field ${field.name}`}
+          ref={deleteButton}
           onClick={() => setConfirming(true)}
         >
           <Trash2 />
@@ -138,17 +170,56 @@ function FieldRow({
           onBlur={() => {
             const next = parseOptions(options)
             if (next.length === 0) setOptions(field.options.join("\n"))
-            else if (next.join("\n") !== field.options.join("\n")) onChange({ options: next })
+            else if (next.join("\n") !== field.options.join("\n")) {
+              const removed = field.options.filter((o) => !next.includes(o))
+              if (removed.length > 0) setRemoving({ options: next, removed })
+              else onChange({ options: next })
+            }
           }}
         />
       )}
       {confirming && (
         <div className="flex items-center gap-2 text-sm">
           <span className="flex-1">Delete {field.name} and its values on every task?</span>
-          <Button variant="destructive" size="sm" onClick={onDelete}>
+          <Button variant="destructive" size="sm" autoFocus onClick={onDelete}>
             Confirm delete
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setConfirming(false)
+              deleteButton.current?.focus()
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+      {removing && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="flex-1">
+            Removing {removing.removed.join(", ")} clears it from tasks that use it.
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            autoFocus
+            onClick={() => {
+              onChange({ options: removing.options })
+              setRemoving(null)
+            }}
+          >
+            Remove options
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setRemoving(null)
+              setOptions(field.options.join("\n"))
+            }}
+          >
             Cancel
           </Button>
         </div>
@@ -158,9 +229,11 @@ function FieldRow({
 }
 
 function NewFieldForm({
+  nameRef,
   pending,
   onCreate,
 }: {
+  nameRef: Ref<HTMLInputElement>
   pending: boolean
   onCreate: (
     input: { name: string; type: FieldType; required: boolean; options?: string[] },
@@ -194,6 +267,7 @@ function NewFieldForm({
     >
       <div className="flex items-center gap-2">
         <Input
+          ref={nameRef}
           aria-label="Field name"
           placeholder="New field name"
           value={name}

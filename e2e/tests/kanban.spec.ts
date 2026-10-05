@@ -91,6 +91,10 @@ test("a failed move rolls back and shows the error", async ({ page }) => {
 
 test("Alt+Arrow keys move a focused card one column and keep focus", async ({ page }) => {
   await setup(page, [{ title: "Write spec" }])
+  const patches: string[] = []
+  page.on("request", (r) => {
+    if (r.method() === "PATCH") patches.push(r.url())
+  })
   const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
   await card.focus()
 
@@ -106,9 +110,17 @@ test("Alt+Arrow keys move a focused card one column and keep focus", async ({ pa
 
   // Backlog is the first column, so there is nothing further left.
   await page.keyboard.press("Alt+ArrowLeft")
-  await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeFocused()
+  const backlogCard = column(page, "Backlog").getByRole("button", { name: /Write spec/ })
+  await expect(backlogCard).toBeFocused()
+  // Edits to one task are sent one after another, so wait for the third request to go out.
+  await expect.poll(() => patches.length).toBe(3)
+
+  const sentBefore = patches.length
   await page.keyboard.press("Alt+ArrowLeft")
-  await expect(column(page, "Backlog").getByRole("button", { name: /Write spec/ })).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: "already in Backlog" })).toBeVisible()
+  await expect(backlogCard).toBeFocused()
+  await page.waitForTimeout(300)
+  expect(patches.length).toBe(sentBefore)
 })
 
 const isTaskList = (url: URL, method: string) =>

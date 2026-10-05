@@ -119,3 +119,23 @@ test("a relationship to a task in another project opens that project's board", a
   await expect(page.getByRole("dialog", { name: b.key })).toBeVisible()
   await expect(group(page, "Related")).toContainText(a.key)
 })
+
+test("a circular block is rejected with the server's message", async ({ page }) => {
+  const { project, open } = await setup(page)
+  const a = await createTaskViaApi(page, project.id, { title: "First link" })
+  const b = await createTaskViaApi(page, project.id, { title: "Second link" })
+  const c = await createTaskViaApi(page, project.id, { title: "Third link" })
+
+  await open(project.id, a.id)
+  await addRelationship(page, "Blocks", { key: b.key, title: "Second link" })
+  await expect(group(page, "Blocks")).toContainText(b.key)
+
+  await open(project.id, b.id)
+  await addRelationship(page, "Blocks", { key: c.key, title: "Third link" })
+  await expect(group(page, "Blocks")).toContainText(c.key)
+
+  await open(project.id, c.id)
+  await addRelationship(page, "Blocks", { key: a.key, title: "First link" })
+  await expect(page.getByRole("alert")).toContainText("circular")
+  await expect(group(page, "Blocks")).toHaveCount(0)
+})

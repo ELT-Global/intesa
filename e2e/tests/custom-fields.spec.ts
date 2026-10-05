@@ -11,6 +11,19 @@ async function setup(page: Page) {
   await page.goto(`/w/${slug}/projects/${project.id}/board`)
 }
 
+/** Counts finished task saves, so tests can wait for the server instead of guessing at idleness. */
+function trackSaves(page: Page) {
+  let finished = 0
+  page.on("requestfinished", (r) => {
+    if (r.method() === "PATCH" && r.url().includes("/api/tasks/")) finished++
+  })
+  return {
+    count: () => finished,
+    waitFor: (n: number) =>
+      expect.poll(() => finished, { message: "task saves" }).toBeGreaterThanOrEqual(n),
+  }
+}
+
 const fieldsDialog = (page: Page) => page.getByRole("dialog", { name: "Custom fields" })
 const sheet = (page: Page) => page.getByRole("dialog", { name: /-1$/ })
 
@@ -44,6 +57,7 @@ async function openTask(page: Page) {
 
 test("each field type can be set on a task and persists after reload", async ({ page }) => {
   await setup(page)
+  const saves = trackSaves(page)
   await openFieldsDialog(page)
   await addField(page, "Notes", "Text")
   await addField(page, "Points", "Number")
@@ -59,9 +73,10 @@ test("each field type can be set on a task and persists after reload", async ({ 
   await s.getByRole("textbox", { name: "Points", exact: true }).blur()
   await s.getByRole("checkbox", { name: "Blocked" }).check()
   await s.getByLabel("Ship date", { exact: true }).fill("2030-01-15")
+  await s.getByLabel("Ship date", { exact: true }).blur()
   await s.getByRole("combobox", { name: "Stage" }).selectOption("Beta")
   await expect(s.getByRole("combobox", { name: "Stage" })).toHaveValue("Beta")
-  await page.waitForLoadState("networkidle")
+  await saves.waitFor(5)
 
   await page.reload()
   const after = sheet(page)
@@ -76,6 +91,7 @@ test("each field type can be set on a task and persists after reload", async ({ 
 
 test("an invalid number is rejected in the browser and not saved", async ({ page }) => {
   await setup(page)
+  const saves = trackSaves(page)
   await openFieldsDialog(page)
   await addField(page, "Points", "Number")
   await page.keyboard.press("Escape")
@@ -86,13 +102,14 @@ test("an invalid number is rejected in the browser and not saved", async ({ page
   await points.blur()
   await expect(sheet(page).getByRole("alert")).toHaveText("Enter a valid number.")
 
-  await page.waitForLoadState("networkidle")
+  expect(saves.count()).toBe(0)
   await page.reload()
   await expect(sheet(page).getByRole("textbox", { name: "Points", exact: true })).toHaveValue("")
 })
 
 test("a required field hints when empty and refuses to be cleared", async ({ page }) => {
   await setup(page)
+  const saves = trackSaves(page)
   await openFieldsDialog(page)
   await addField(page, "Team", "Text", { required: true })
   await page.keyboard.press("Escape")
@@ -103,7 +120,7 @@ test("a required field hints when empty and refuses to be cleared", async ({ pag
   await team.fill("Core")
   await team.blur()
   await expect(sheet(page).getByText("Required", { exact: true })).toHaveCount(0)
-  await page.waitForLoadState("networkidle")
+  await saves.waitFor(1)
 
   await team.fill("")
   await team.blur()
@@ -115,6 +132,7 @@ test("deleting a field removes it from the sheet; dropping an option clears its 
   page,
 }) => {
   await setup(page)
+  const saves = trackSaves(page)
   await openFieldsDialog(page)
   await addField(page, "Stage", "Select", { options: ["Alpha", "Beta"] })
   await addField(page, "Scratch", "Text")
@@ -123,13 +141,16 @@ test("deleting a field removes it from the sheet; dropping an option clears its 
   await openTask(page)
   await sheet(page).getByRole("combobox", { name: "Stage" }).selectOption("Beta")
   await expect(sheet(page).getByRole("combobox", { name: "Stage" })).toHaveValue("Beta")
-  await page.waitForLoadState("networkidle")
+  await saves.waitFor(1)
   await page.keyboard.press("Escape")
 
   await openFieldsDialog(page)
   const options = fieldsDialog(page).getByLabel("Options of Stage")
   await options.fill("Alpha")
   await options.blur()
+  // Removing an in-use option asks first.
+  await expect(fieldsDialog(page)).toContainText("Removing Beta clears it from tasks that use it.")
+  await fieldsDialog(page).getByRole("button", { name: "Remove options" }).click()
   await expect(fieldsDialog(page).getByLabel("Options of Stage")).toHaveValue("Alpha")
   await fieldsDialog(page).getByRole("button", { name: "Delete field Scratch" }).click()
   await fieldsDialog(page).getByRole("button", { name: "Confirm delete" }).click()
@@ -139,4 +160,55 @@ test("deleting a field removes it from the sheet; dropping an option clears its 
   await openTask(page)
   await expect(sheet(page).getByRole("combobox", { name: "Stage" })).toHaveValue("")
   await expect(sheet(page).getByRole("textbox", { name: "Scratch", exact: true })).toHaveCount(0)
+})
+
+test("a select field can be changed with the keyboard alone", async ({ page }) => {
+  await setup(page)
+  const saves = trackSaves(page)
+  await openFieldsDialog(page)
+  await addField(page, "Stage", "Select", { options: ["Alpha", "Beta"] })
+  await page.keyboard.press("Escape")
+
+  await openTask(page)
+  const stage = sheet(page).getByRole("combobox", { name: "Stage" })
+  await stage.focus()
+  await page.keyboard.press("ArrowDown")
+  await expect(stage).toHaveValue("Alpha")
+  await expect(stage).toBeFocused()
+  await page.keyboard.press("ArrowDown")
+  await expect(stage).toHaveValue("Beta")
+  await expect(stage).toBeFocused()
+
+  await saves.waitFor(2)
+  await page.reload()
+  await expect(sheet(page).getByRole("combobox", { name: "Stage" })).toHaveValue("Beta")
+})
+
+test("a failed field save rolls the value back and says so", async ({ page }) => {
+  await setup(page)
+  const saves = trackSaves(page)
+  await openFieldsDialog(page)
+  await addField(page, "Notes", "Text")
+  await page.keyboard.press("Escape")
+
+  await openTask(page)
+  const notes = sheet(page).getByRole("textbox", { name: "Notes", exact: true })
+  await notes.fill("Keep me")
+  await notes.blur()
+  await saves.waitFor(1)
+
+  await page.route("**/api/tasks/*", (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "INTERNAL", message: "Disk on fire" }),
+        })
+      : route.fallback(),
+  )
+  await notes.fill("Lost")
+  await notes.blur()
+  await expect(page.getByRole("alert").filter({ hasText: "Could not save the task." })).toBeVisible()
+  await expect(sheet(page).getByText("Could not save Notes.")).toBeVisible()
+  await expect(notes).toHaveValue("Keep me")
 })

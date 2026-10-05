@@ -20,7 +20,7 @@ import { Panel, PanelHeader } from "@/components/ui/panel"
 import { api, keys, type Member } from "@/lib/api"
 import { clearLastWorkspace } from "@/lib/last-workspace"
 import { membersQuery, meQuery, workspacesQuery } from "@/lib/queries"
-import { invalidateWorkspaceTasks } from "@/lib/tasks"
+import { invalidateTaskGraph } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/members")({
   staticData: { title: "Members" },
@@ -50,7 +50,7 @@ function MembersPage() {
 
   const refresh = () => qc.invalidateQueries({ queryKey: keys.members(workspaceId) })
   // Assignees appear in task lists, home and my tasks; membership changes can unassign people.
-  const refreshAssignees = () => invalidateWorkspaceTasks(qc, workspaceId)
+  const refreshAssignees = () => invalidateTaskGraph(qc)
   const changeRole = useMutation({
     mutationFn: (m: Member) =>
       api.changeRole(workspaceId, m.id, m.role === "owner" ? "member" : "owner"),

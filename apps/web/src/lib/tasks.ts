@@ -1,6 +1,14 @@
-import { type QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  keepPreviousData,
+  MutationObserver,
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { InferRequestType, InferResponseType } from "hono/client"
-import { ApiError, client, keys, unwrap } from "./api"
+import { useCallback } from "react"
+import { ApiError, client, unwrap } from "./api"
 
 const taskById = client.api.tasks[":taskId"]
 const projectTasks = client.api.projects[":projectId"].tasks
@@ -30,11 +38,7 @@ export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"
 export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]
 
 /** Resolved people/tags matching a patch's id sets, so the cache can update before the server answers. */
-export type TaskPatchView = {
-  assignees?: UserRef[]
-  tags?: TagRef[]
-  customFields?: Record<string, unknown>
-}
+export type TaskPatchView = { assignees?: UserRef[]; tags?: TagRef[] }
 
 const taskApi = {
   list: (projectId: string) => unwrap(projectTasks.$get({ param: { projectId } })),
@@ -86,6 +90,7 @@ export const taskSearchQuery = (workspaceId: string, q: string) =>
     queryKey: ["task-search", workspaceId, q] as const,
     queryFn: async () => (await taskApi.search(workspaceId, q)).tasks,
     staleTime: 5_000,
+    placeholderData: keepPreviousData,
   })
 
 export const taskHistoryQuery = (taskId: string) =>
@@ -94,133 +99,161 @@ export const taskHistoryQuery = (taskId: string) =>
     queryFn: async () => (await taskApi.history(taskId)).history,
   })
 
-type TaskGraphScope = {
-  projectId?: string
-  taskId?: string
-  /** Defaults to the parent in the cached detail. */
-  parentTaskId?: string | null
-  /** Defaults to the relationships in the cached detail. */
-  relatedTaskIds?: string[]
-  /** Without it, every workspace's my-tasks and home data is refreshed. */
-  workspaceId?: string
-}
-
-/** Refreshes everything that can show a change to one task: lists, details, history and dashboards. */
-export function invalidateTaskGraph(qc: QueryClient, scope: TaskGraphScope) {
-  const { projectId, taskId, workspaceId } = scope
-  const cached = taskId ? qc.getQueryData<TaskDetail>(taskKeys.detail(taskId)) : undefined
-  const parentId = scope.parentTaskId === undefined ? cached?.parent?.id : scope.parentTaskId
-  const relatedIds =
-    scope.relatedTaskIds ??
-    (cached ? [...cached.blocks, ...cached.blockedBy, ...cached.related].map((r) => r.id) : [])
-
-  if (projectId) void qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
-  if (taskId) {
-    void qc.invalidateQueries({ queryKey: taskKeys.detail(taskId), exact: true })
-    void qc.invalidateQueries({ queryKey: taskKeys.history(taskId) })
-  }
-  if (parentId) void qc.invalidateQueries({ queryKey: taskKeys.detail(parentId), exact: true })
-  for (const id of relatedIds) {
-    void qc.invalidateQueries({ queryKey: taskKeys.detail(id), exact: true })
-  }
-  void qc.invalidateQueries({ queryKey: workspaceId ? myTasksKey(workspaceId) : ["my-tasks"] })
+/** Refreshes every cached view of tasks: lists, details, history, my tasks and home. */
+export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
+  void qc.invalidateQueries(
+    projectId
+      ? { queryKey: taskKeys.list(projectId) }
+      : { queryKey: ["projects"], predicate: (q) => q.queryKey[2] === "tasks" },
+  )
+  // Details and history are inactive unless open, so this mostly just marks them stale.
+  void qc.invalidateQueries({ queryKey: ["tasks"] })
+  void qc.invalidateQueries({ queryKey: ["my-tasks"] })
   void qc.invalidateQueries({
-    queryKey: workspaceId ? keys.home(workspaceId) : ["workspaces"],
+    queryKey: ["workspaces"],
     predicate: (q) => q.queryKey[2] === "home",
   })
-}
-
-/** Refreshes every cached task view, e.g. after a member's assignments are removed. */
-export function invalidateWorkspaceTasks(qc: QueryClient, workspaceId: string) {
-  void qc.invalidateQueries({
-    queryKey: ["projects"],
-    predicate: (q) => q.queryKey[2] === "tasks" && q.queryKey.length === 3,
-  })
-  void qc.invalidateQueries({ queryKey: ["tasks"] })
-  void qc.invalidateQueries({ queryKey: myTasksKey(workspaceId) })
-  void qc.invalidateQueries({ queryKey: keys.home(workspaceId) })
 }
 
 /** Mutations carrying this meta have their failures shown by MutationErrorNotice. */
 const notifyMeta = (message: string) => ({ errorNotice: message })
 
-export const UPDATE_KEY = ["task-update"] as const
+// Shared by every task mutation: refetching while any of them is in flight would overwrite its
+// optimistic state, so only the last one to settle refreshes.
+const TASK_MUTATION = ["task-mutation"] as const
 
-export function useUpdateTask() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationKey: UPDATE_KEY,
+function settleTaskMutation(qc: QueryClient, projectId?: string) {
+  if (qc.isMutating({ mutationKey: TASK_MUTATION }) === 1) invalidateTaskGraph(qc, projectId)
+}
+
+// Edits to one task run one after another, so responses cannot land out of order. The scope
+// depends on the variables, which a hook cannot express, hence an observer per call.
+const taskScope = (taskId: string) => ({ id: `task:${taskId}` })
+
+type UpdateVars = {
+  taskId: string
+  projectId: string
+  patch: TaskPatch
+  /** Resolved people/tags for the patch; a function receives the task as currently cached. */
+  view?: TaskPatchView | ((current: TaskSummary) => TaskPatchView)
+  /** For subtask edits: the parent's detail shows this task, so it is updated too. */
+  parentTaskId?: string | null
+}
+
+const SUMMARY_SCALARS = ["title", "status", "priority", "dueAt"] as const
+
+type Rollback = {
+  summary?: Record<string, unknown>
+  detail?: Record<string, unknown>
+  customFields?: Record<string, { had: boolean; value: unknown }>
+  parentStatus?: TaskStatus
+}
+
+function pick(row: object | undefined, keys: string[]) {
+  if (!row) return undefined
+  const source = row as Record<string, unknown>
+  return Object.fromEntries(keys.map((k) => [k, source[k]]))
+}
+
+function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void) {
+  const { taskId, projectId, patch, parentTaskId } = vars
+  return {
+    mutationKey: TASK_MUTATION,
+    scope: taskScope(taskId),
     meta: notifyMeta("Could not save the task."),
-    mutationFn: ({
-      taskId,
-      patch,
-    }: {
-      taskId: string
-      projectId: string
-      patch: TaskPatch
-      view?: TaskPatchView
-      /** For subtask edits: the parent's detail shows this task, so it is updated and refreshed too. */
-      parentTaskId?: string | null
-    }) => taskApi.update(taskId, patch).then((r) => r.task),
-    onMutate: async ({ taskId, projectId, patch: fullPatch, view, parentTaskId }) => {
-      const { assigneeIds: _a, tagIds: _t, customFields: _c, ...plain } = fullPatch
-      const optimistic: Record<string, unknown> = { ...plain, ...view }
-      const fields = Object.keys(optimistic)
+    mutationFn: (v: UpdateVars) => taskApi.update(v.taskId, v.patch).then((r) => r.task),
+    onMutate: async (): Promise<Rollback> => {
       await Promise.all([
         qc.cancelQueries({ queryKey: taskKeys.list(projectId) }),
         qc.cancelQueries({ queryKey: taskKeys.detail(taskId), exact: true }),
       ])
-      // Only the fields this mutation touches are remembered, so a rollback can't undo other edits.
-      const previous = (task: object | undefined) =>
-        task ? pickFields(task as Record<string, unknown>, fields) : undefined
-      const ctx = {
-        list: previous(
-          qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))?.find((t) => t.id === taskId),
-        ),
-        detail: previous(qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))),
-      }
-      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-        old?.map((t) => (t.id === taskId ? { ...t, ...optimistic } : t)),
-      )
-      qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) =>
-        old ? { ...old, ...optimistic } : old,
-      )
-      const parentStatus = parentTaskId
-        ? setSubtaskStatus(qc, parentTaskId, taskId, fullPatch.status)
+      const row = qc
+        .getQueryData<TaskSummary[]>(taskKeys.list(projectId))
+        ?.find((t) => t.id === taskId)
+      const detail = qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))
+      const current = detail ?? row
+      const resolved =
+        typeof vars.view === "function" ? (current ? vars.view(current) : {}) : (vars.view ?? {})
+
+      // List rows only ever hold summary fields; the detail also gets body and custom fields.
+      const summaryChanges: Record<string, unknown> = {}
+      for (const k of SUMMARY_SCALARS) if (patch[k] !== undefined) summaryChanges[k] = patch[k]
+      if (resolved.assignees) summaryChanges.assignees = resolved.assignees
+      if (resolved.tags) summaryChanges.tags = resolved.tags
+      const detailChanges: Record<string, unknown> = { ...summaryChanges }
+      if (patch.body !== undefined) detailChanges.body = patch.body
+
+      const previousFields = detail
+        ? Object.fromEntries(
+            Object.keys(patch.customFields ?? {}).map((id) => {
+              const values = detail.customFields as Record<string, unknown>
+              return [id, { had: id in values, value: values[id] }]
+            }),
+          )
         : undefined
-      return { ...ctx, parentStatus }
-    },
-    onError: (_error, { taskId, projectId, parentTaskId }, ctx) => {
-      if (!ctx) return
-      const { list, detail } = ctx
-      if (parentTaskId && ctx.parentStatus)
-        setSubtaskStatus(qc, parentTaskId, taskId, ctx.parentStatus)
-      if (list) {
-        qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-          old?.map((t) => (t.id === taskId ? { ...t, ...list } : t)),
-        )
-      }
-      if (detail) {
-        qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) =>
-          old ? { ...old, ...detail } : old,
-        )
-      }
-    },
-    onSettled: (_data, _error, { taskId, projectId, parentTaskId }) => {
-      // Refetching while another edit is in flight would overwrite its optimistic state.
-      const pending = qc
-        .getMutationCache()
-        .findAll({ mutationKey: UPDATE_KEY, status: "pending" })
-        .map((m) => m.state.variables as { taskId: string; projectId: string })
-      if (pending.filter((v) => v.taskId === taskId).length > 1) return
-      const projectBusy = pending.filter((v) => v.projectId === projectId).length > 1
-      invalidateTaskGraph(qc, {
-        taskId,
-        parentTaskId,
-        projectId: projectBusy ? undefined : projectId,
+
+      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
+        old?.map((t) => (t.id === taskId ? { ...t, ...summaryChanges } : t)),
+      )
+      qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) => {
+        if (!old) return old
+        const customFields = { ...(old.customFields as Record<string, unknown>) }
+        for (const [id, value] of Object.entries(patch.customFields ?? {})) {
+          if (value === null) delete customFields[id]
+          else customFields[id] = value
+        }
+        return { ...old, ...detailChanges, customFields } as TaskDetail
       })
+      return {
+        summary: pick(row, Object.keys(summaryChanges)),
+        detail: pick(detail, Object.keys(detailChanges)),
+        customFields: previousFields,
+        parentStatus: parentTaskId
+          ? setSubtaskStatus(qc, parentTaskId, taskId, patch.status)
+          : undefined,
+      }
     },
-  })
+    onError: (_error: Error, _vars: UpdateVars, rollback: Rollback | undefined) => {
+      onFailed?.()
+      if (!rollback) return
+      const { summary, detail, customFields } = rollback
+      if (summary) {
+        qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
+          old?.map((t) => (t.id === taskId ? { ...t, ...summary } : t)),
+        )
+      }
+      qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) => {
+        if (!old) return old
+        const restored = { ...(old.customFields as Record<string, unknown>) }
+        for (const [id, prev] of Object.entries(customFields ?? {})) {
+          if (prev.had) restored[id] = prev.value
+          else delete restored[id]
+        }
+        return { ...old, ...detail, customFields: restored } as TaskDetail
+      })
+      if (parentTaskId && rollback.parentStatus) {
+        setSubtaskStatus(qc, parentTaskId, taskId, rollback.parentStatus)
+      }
+    },
+    onSettled: () => settleTaskMutation(qc, projectId),
+  }
+}
+
+/** Optimistic task edits, serialised per task. */
+export function useUpdateTask() {
+  const qc = useQueryClient()
+  const mutateAsync = useCallback(
+    (vars: UpdateVars, callbacks?: { onError?: () => void }) =>
+      new MutationObserver(qc, updateOptions(qc, vars, callbacks?.onError)).mutate(vars),
+    [qc],
+  )
+  const mutate = useCallback(
+    (vars: UpdateVars, callbacks?: { onError?: () => void }) => {
+      mutateAsync(vars, callbacks).catch(() => {})
+    },
+    [mutateAsync],
+  )
+  return { mutate, mutateAsync }
 }
 
 /** Sets a subtask's status inside its parent's cached detail; returns the previous status. */
@@ -242,68 +275,67 @@ function setSubtaskStatus(
   return previous
 }
 
-function pickFields(task: Record<string, unknown>, fields: string[]) {
-  return Object.fromEntries(fields.map((f) => [f, task[f]]))
-}
-
 export function useCreateTask(projectId: string) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: TASK_MUTATION,
     mutationFn: (input: CreateTaskInput) => taskApi.create(projectId, input).then((r) => r.task),
-    onSettled: (_d, _e, input) =>
-      invalidateTaskGraph(qc, { projectId, parentTaskId: input.parentTaskId ?? null }),
+    onSettled: () => settleTaskMutation(qc, projectId),
   })
 }
 
+type DeleteVars = { taskId: string; projectId: string }
+
 export function useDeleteTask() {
   const qc = useQueryClient()
-  return useMutation({
-    meta: notifyMeta("Could not delete the task."),
-    mutationFn: ({ taskId }: { taskId: string; projectId: string }) => taskApi.remove(taskId),
-    onMutate: async ({ taskId, projectId }) => {
-      await qc.cancelQueries({ queryKey: taskKeys.list(projectId) })
-      const list = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
-      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-        old?.filter((t) => t.id !== taskId),
-      )
-      const cached = qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))
-      return {
-        list,
-        parentTaskId: cached?.parent?.id ?? null,
-        relatedTaskIds: cached
-          ? [...cached.blocks, ...cached.blockedBy, ...cached.related].map((r) => r.id)
-          : [],
-      }
+  const mutate = useCallback(
+    (vars: DeleteVars) => {
+      const { taskId, projectId } = vars
+      new MutationObserver(qc, {
+        mutationKey: TASK_MUTATION,
+        scope: taskScope(taskId),
+        meta: notifyMeta("Could not delete the task."),
+        mutationFn: (v: DeleteVars) => taskApi.remove(v.taskId),
+        onMutate: async () => {
+          await qc.cancelQueries({ queryKey: taskKeys.list(projectId) })
+          const list = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
+          qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
+            old?.filter((t) => t.id !== taskId),
+          )
+          return { list }
+        },
+        onError: (_error, _vars, ctx) => {
+          if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
+        },
+        onSuccess: () => qc.removeQueries({ queryKey: taskKeys.detail(taskId) }),
+        onSettled: () => settleTaskMutation(qc, projectId),
+      })
+        .mutate(vars)
+        .catch(() => {})
     },
-    onError: (_error, { projectId }, ctx) => {
-      if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
-    },
-    onSuccess: (_d, { taskId }) => {
-      qc.removeQueries({ queryKey: taskKeys.detail(taskId) })
-    },
-    onSettled: (_d, _e, { projectId }, ctx) =>
-      invalidateTaskGraph(qc, {
-        projectId,
-        parentTaskId: ctx?.parentTaskId,
-        relatedTaskIds: ctx?.relatedTaskIds,
-      }),
-  })
+    [qc],
+  )
+  return { mutate }
 }
 
 export function useCreateSubtask(parent: { id: string; projectId: string }) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: TASK_MUTATION,
+    scope: taskScope(parent.id),
     meta: notifyMeta("Could not add the subtask."),
     mutationFn: (title: string) =>
       taskApi.create(parent.projectId, { title, parentTaskId: parent.id }).then((r) => r.task),
-    onSettled: () => invalidateTaskGraph(qc, { projectId: parent.projectId, taskId: parent.id }),
+    onSettled: () => settleTaskMutation(qc, parent.projectId),
   })
 }
 
-/** Adds or removes a relationship; both tasks' details are refreshed since each shows the link. */
+/** Adds or removes a relationship. Both tasks show the link, so everything is refetched. */
 export function useChangeRelationship(taskId: string) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: TASK_MUTATION,
+    scope: taskScope(taskId),
     meta: notifyMeta("Could not change the relationship."),
     mutationFn: ({
       action,
@@ -317,14 +349,8 @@ export function useChangeRelationship(taskId: string) {
       action === "add"
         ? taskApi.addRelation(taskId, type, otherId)
         : taskApi.removeRelation(taskId, type, otherId),
-    onSuccess: (data) => qc.setQueryData(taskKeys.detail(taskId), data.task),
-    onSettled: (_d, _e, { otherId }) =>
-      invalidateTaskGraph(qc, { taskId, relatedTaskIds: [otherId] }),
+    onSettled: () => settleTaskMutation(qc),
   })
-}
-
-export function invalidateProjectTasks(qc: QueryClient, projectId: string) {
-  return qc.invalidateQueries({ queryKey: taskKeys.list(projectId) })
 }
 
 // Due dates are calendar days (YYYY-MM-DD) with no time zone, so compare them as local days.

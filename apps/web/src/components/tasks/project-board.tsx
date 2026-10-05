@@ -62,12 +62,20 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     },
     [mutate, projectId],
   )
+  const [announcement, setAnnouncement] = useState("")
   const moveBy = useCallback(
     (taskId: string, delta: -1 | 1) => {
       const task = tasksRef.current?.find((t) => t.id === taskId)
-      const next = task && TASK_STATUSES[TASK_STATUSES.indexOf(task.status) + delta]
-      if (!next) return
+      if (!task) return
+      const next = TASK_STATUSES[TASK_STATUSES.indexOf(task.status) + delta]
+      if (!next) {
+        setAnnouncement(
+          `${task.title} is already in ${STATUS_LABELS[task.status]}, the ${delta < 0 ? "first" : "last"} column`,
+        )
+        return
+      }
       focusAfterMove.current = taskId
+      setAnnouncement(`${task.title} moved to ${STATUS_LABELS[next]}`)
       move(taskId, next)
     },
     [move],
@@ -80,6 +88,9 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
       <p id={DRAG_HINT_ID} className="sr-only">
         Drag to another column, or press Alt with the left or right arrow key, to change status. You
         can also open the task to change it.

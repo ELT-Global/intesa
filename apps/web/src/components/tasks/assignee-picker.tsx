@@ -5,7 +5,13 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import type { Member } from "@/lib/api"
 import { membersQuery, meQuery } from "@/lib/queries"
-import { type TaskDetail, type TaskSummary, taskKeys, type UserRef, useUpdateTask } from "@/lib/tasks"
+import {
+  type TaskDetail,
+  type TaskSummary,
+  taskKeys,
+  type UserRef,
+  useUpdateTask,
+} from "@/lib/tasks"
 import { PickerPopover } from "./picker-popover"
 
 export function AssigneePicker({
@@ -46,7 +52,8 @@ export function AssigneePicker({
   function toggle(member: Member) {
     // Built from the task's own assignees so a still-loading members list can't drop anyone.
     // Read at click time so two quick toggles build on each other instead of the render's snapshot.
-    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.assignees ?? task.assignees
+    const current =
+      qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.assignees ?? task.assignees
     const kept = current.filter((a) => a.id !== member.userId)
     if (current.some((a) => a.id === member.userId)) setAssignees(kept)
     else

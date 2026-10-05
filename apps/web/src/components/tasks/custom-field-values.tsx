@@ -36,40 +36,36 @@ function FieldValueRow({
   field: CustomField
   value: unknown
 }) {
-  // One mutation observer per row, so one field's failure or result can't replace another's.
   const update = useUpdateTask()
   const [rejected, setRejected] = useState(false)
   // Shown synchronously on edit: a controlled input reverts to its prop right after the event
   // if the cache hasn't changed yet, and the cache write happens after an awaited cancel.
   const [local, setLocal] = useState<{ value: Value } | null>(null)
-  const inflight = useRef(0)
-  const lastCall = useRef(0)
+
+  // Drop the override once the cache has caught up with it.
+  useEffect(() => {
+    if (local && local.value === value) setLocal(null)
+  }, [value, local])
 
   const shown = local ? local.value : value
   const empty = shown === null || shown === ""
 
   function commit(next: Value) {
-    const id = ++lastCall.current
-    inflight.current += 1
     setRejected(false)
     setLocal({ value: next })
-    const merged = { ...(task.customFields as Record<string, unknown>) }
-    if (next === null) delete merged[field.id]
-    else merged[field.id] = next
-    update
-      .mutateAsync({
+    update.mutate(
+      {
         taskId: task.id,
         projectId: task.projectId,
         patch: { customFields: { [field.id]: next } },
-        view: { customFields: merged },
-      })
-      .catch(() => {
-        if (id === lastCall.current) setRejected(true)
-      })
-      .finally(() => {
-        inflight.current -= 1
-        if (inflight.current === 0) setLocal(null)
-      })
+      },
+      {
+        onError: () => {
+          setLocal(null)
+          setRejected(true)
+        },
+      },
+    )
   }
 
   return (

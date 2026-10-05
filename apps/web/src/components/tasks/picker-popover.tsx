@@ -84,8 +84,8 @@ export function PickerPopover({
                 e.preventDefault()
                 setActive(e.key === "Home" ? 0 : options.length - 1)
               } else if (e.key === "Enter") {
-                e.preventDefault()
                 if (e.nativeEvent.isComposing) return
+                e.preventDefault()
                 options[current]?.onSelect()
               }
             }}
@@ -122,11 +122,16 @@ export function PickerPopover({
               </div>
             ))}
           </div>
-          {options.length === 0 && (
-            <p role="status" className="px-2 py-1.5 text-[13px] text-muted-foreground">
-              {empty}
-            </p>
-          )}
+          {/* Always mounted so the empty message is announced when it appears. */}
+          <p
+            role="status"
+            className={cn(
+              "text-[13px] text-muted-foreground",
+              options.length === 0 && "px-2 py-1.5",
+            )}
+          >
+            {options.length === 0 ? empty : ""}
+          </p>
         </P.Content>
       </P.Portal>
     </P.Root>
