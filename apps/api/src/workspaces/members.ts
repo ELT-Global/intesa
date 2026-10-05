@@ -1,4 +1,4 @@
-import { type Db, inTransaction, newId, now } from "../db"
+import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
 import type { Role } from "./membership"
 
@@ -63,18 +63,17 @@ export async function addMember(
   userId: string,
   role: Role,
 ): Promise<string> {
-  const existing = await db
-    .selectFrom("workspaceMembers")
-    .select("id")
-    .where("workspaceId", "=", workspaceId)
-    .where("userId", "=", userId)
-    .executeTakeFirst()
-  if (existing) throw new ApiError("CONFLICT", "Already a member of this workspace")
   const id = newId()
-  await db
-    .insertInto("workspaceMembers")
-    .values({ id, workspaceId, userId, role, createdAt: now() })
-    .execute()
+  try {
+    await db
+      .insertInto("workspaceMembers")
+      .values({ id, workspaceId, userId, role, createdAt: now() })
+      .execute()
+  } catch (err) {
+    // The unique (workspace, user) constraint decides, so concurrent adds cannot both win.
+    if (isUniqueViolation(err)) throw new ApiError("CONFLICT", "Already a member of this workspace")
+    throw err
+  }
   return id
 }
 

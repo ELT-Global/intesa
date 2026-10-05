@@ -64,17 +64,43 @@ const groupBy = <T, K>(items: T[], key: (item: T) => K): Map<K, T[]> => {
 
 // Which tasks to summarise. Related data is fetched with a subquery on the same filter, so
 // the number of bound parameters stays constant however many tasks match.
-export type TaskScope = { ids: string[] } | { projectId: string; topLevel?: boolean }
+export type TaskScope =
+  | { ids: string[] }
+  | { projectId: string; topLevel?: boolean }
+  | { workspaceId: string; assigneeId: string; excludeComplete?: boolean; limit?: number }
+  | { workspaceId: string; dueThrough: string; limit: number }
 
 const scopedIds = (db: Db, scope: TaskScope) => {
   const q = db.selectFrom("tasks").select("tasks.id")
   if ("ids" in scope) return q.where("tasks.id", "in", scope.ids)
-  const inProject = q.where("tasks.projectId", "=", scope.projectId)
-  return scope.topLevel ? inProject.where("tasks.parentTaskId", "is", null) : inProject
+  if ("projectId" in scope) {
+    const inProject = q.where("tasks.projectId", "=", scope.projectId)
+    return scope.topLevel ? inProject.where("tasks.parentTaskId", "is", null) : inProject
+  }
+  if ("assigneeId" in scope) {
+    const mine = q
+      .innerJoin("taskAssignees", "taskAssignees.taskId", "tasks.id")
+      .where("tasks.workspaceId", "=", scope.workspaceId)
+      .where("taskAssignees.userId", "=", scope.assigneeId)
+      .orderBy("tasks.updatedAt", "desc")
+      .orderBy("tasks.id")
+    const open = scope.excludeComplete ? mine.where("tasks.status", "!=", "complete") : mine
+    return scope.limit ? open.limit(scope.limit) : open
+  }
+  return q
+    .where("tasks.workspaceId", "=", scope.workspaceId)
+    .where("tasks.status", "!=", "complete")
+    .where("tasks.dueAt", "is not", null)
+    .where("tasks.dueAt", "<=", scope.dueThrough)
+    .orderBy("tasks.dueAt")
+    .orderBy("tasks.createdAt")
+    .orderBy("tasks.id")
+    .limit(scope.limit)
 }
 
 // Builds summaries with a fixed number of queries (tasks, assignees, tags, subtask counts).
-// By ids the result keeps the order of the ids; by project it is newest first (highest number).
+// By ids the result keeps the order of the ids; by project it is newest first (highest number);
+// assigned work is most recently updated first and due work is soonest due first.
 // Later features add data here, not new round trips.
 async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
@@ -97,7 +123,13 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
         "projects.key as projectKey",
       ])
       .where("tasks.id", "in", scopedIds(db, scope))
-      .orderBy("tasks.number", "desc")
+      .$call((q) => {
+        if ("assigneeId" in scope) return q.orderBy("tasks.updatedAt", "desc").orderBy("tasks.id")
+        if ("dueThrough" in scope) {
+          return q.orderBy("tasks.dueAt").orderBy("tasks.createdAt").orderBy("tasks.id")
+        }
+        return q.orderBy("tasks.number", "desc")
+      })
       .execute(),
     db
       .selectFrom("taskAssignees")
@@ -161,6 +193,21 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
 
 export const loadTaskSummaries = (db: Db, ids: string[]) => summarise(db, { ids })
 
+export const listAssignedTaskSummaries = (
+  db: Db,
+  workspaceId: string,
+  assigneeId: string,
+  opts: { excludeComplete?: boolean; limit?: number } = {},
+) => summarise(db, { workspaceId, assigneeId, ...opts })
+
+// Incomplete tasks in the workspace that are overdue or due on or before `through` (YYYY-MM-DD).
+export const listDueTaskSummaries = (
+  db: Db,
+  workspaceId: string,
+  dueThrough: string,
+  limit: number,
+) => summarise(db, { workspaceId, dueThrough, limit })
+
 export const listProjectTaskSummaries = (db: Db, projectId: string, topLevelOnly = true) =>
   summarise(db, { projectId, topLevel: topLevelOnly })
 
@@ -168,8 +215,13 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
   const [summary] = await loadTaskSummaries(db, [taskId])
   if (!summary) throw new ApiError("NOT_FOUND", "Task not found")
 
-  const [task, project, parent, children, relationships, customFields] = await Promise.all([
-    db.selectFrom("tasks").select("body").where("id", "=", taskId).executeTakeFirstOrThrow(),
+  const task = await db
+    .selectFrom("tasks")
+    .select(["body", "workspaceId"])
+    .where("id", "=", taskId)
+    .executeTakeFirstOrThrow()
+
+  const [project, parent, children, relationships, customFields] = await Promise.all([
     db
       .selectFrom("projects")
       .select(["id", "name", "key"])
@@ -189,7 +241,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
       .where("parentTaskId", "=", taskId)
       .orderBy("createdAt")
       .execute(),
-    loadRelationships(db, taskId),
+    loadRelationships(db, { id: taskId, workspaceId: task.workspaceId }),
     loadCustomFieldValues(db, taskId),
   ])
 
@@ -489,44 +541,4 @@ export async function withProjects(db: Db, tasks: TaskSummary[]): Promise<TaskWi
     const project = byId.get(t.projectId)
     return project ? [{ ...t, project }] : []
   })
-}
-
-// Tasks (subtasks included) assigned to the user in a workspace, soonest due first.
-export async function listAssignedTaskIds(
-  db: Db,
-  workspaceId: string,
-  userId: string,
-  opts: { excludeComplete?: boolean; limit?: number } = {},
-): Promise<string[]> {
-  let q = db
-    .selectFrom("tasks")
-    .innerJoin("taskAssignees", "taskAssignees.taskId", "tasks.id")
-    .select("tasks.id")
-    .where("tasks.workspaceId", "=", workspaceId)
-    .where("taskAssignees.userId", "=", userId)
-  if (opts.excludeComplete) q = q.where("tasks.status", "!=", "complete")
-  q = q.orderBy("tasks.updatedAt", "desc")
-  if (opts.limit) q = q.limit(opts.limit)
-  return (await q.execute()).map((r) => r.id)
-}
-
-// Incomplete tasks in the workspace that are overdue or due on or before `through`.
-export async function listDueTaskIds(
-  db: Db,
-  workspaceId: string,
-  through: string,
-  limit: number,
-): Promise<string[]> {
-  const rows = await db
-    .selectFrom("tasks")
-    .select("id")
-    .where("workspaceId", "=", workspaceId)
-    .where("status", "!=", "complete")
-    .where("dueAt", "is not", null)
-    .where("dueAt", "<=", through)
-    .orderBy("dueAt")
-    .orderBy("createdAt")
-    .limit(limit)
-    .execute()
-  return rows.map((r) => r.id)
 }

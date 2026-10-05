@@ -5,7 +5,7 @@ const text = "text" as const
 const notNull = (c: ColumnDefinitionBuilder) => c.notNull()
 
 const initial: Migration = {
-  async up(db: Kysely<any>) {
+  async up(db: Kysely<unknown>) {
     await db.schema
       .createTable("users")
       .addColumn("id", text, (c) => c.primaryKey())
@@ -214,4 +214,17 @@ const initial: Migration = {
   },
 }
 
-export const migrations: Record<string, Migration> = { "0001_initial": initial }
+// Tag names are unique per workspace ignoring case; the constraint, not a prior lookup,
+// decides concurrent creates.
+const tagNameIndex: Migration = {
+  async up(db: Kysely<unknown>) {
+    await sql`create unique index tags_workspace_lower_name on tags (workspace_id, lower(name))`.execute(
+      db,
+    )
+  },
+}
+
+export const migrations: Record<string, Migration> = {
+  "0001_initial": initial,
+  "0002_tag_name_unique": tagNameIndex,
+}

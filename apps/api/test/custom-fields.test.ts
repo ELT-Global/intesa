@@ -302,3 +302,53 @@ describe("custom field values", () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe("custom field edge cases", () => {
+  test("clearing an empty required field is a harmless no-op", async () => {
+    const { field, task, setValues, values } = await setup()
+    const required = await field({ name: "Estimate", type: "number", required: true })
+    const t1 = await task()
+    const res = await setValues(t1.id, { [required.id]: null })
+    expect(res.status).toBe(200)
+    expect(await values(t1.id)).toEqual({})
+  })
+
+  test("removing a select option marks only the affected tasks as updated", async () => {
+    const { owner, field, task, setValues } = await setup()
+    const f = await field({ name: "Stage", type: "select", options: ["a", "b"] })
+    const affected = await task()
+    const untouched = await task()
+    await setValues(affected.id, { [f.id]: "a" })
+    await setValues(untouched.id, { [f.id]: "b" })
+    const updatedAt = async (id: string) =>
+      (await owner.call("GET", `/api/tasks/${id}`)).body.task.updatedAt as string
+    const before = {
+      affected: await updatedAt(affected.id),
+      untouched: await updatedAt(untouched.id),
+    }
+
+    await owner.call("PATCH", `/api/custom-fields/${f.id}`, { options: ["b"] })
+
+    expect(await updatedAt(affected.id)).not.toBe(before.affected)
+    expect(await updatedAt(untouched.id)).toBe(before.untouched)
+  })
+
+  test("values that still match an option survive, including ones needing JSON escaping", async () => {
+    const { owner, field, task, setValues, values } = await setup()
+    const tricky = 'say "hi" \\ café'
+    const f = await field({ name: "Stage", type: "select", options: [tricky, "gone"] })
+    const t1 = await task()
+    await setValues(t1.id, { [f.id]: tricky })
+    await owner.call("PATCH", `/api/custom-fields/${f.id}`, { options: [tricky, "new"] })
+    expect(await values(t1.id)).toEqual({ [f.id]: tricky })
+  })
+
+  test("a PATCH with too many custom field entries is rejected", async () => {
+    const { task, setValues } = await setup()
+    const t1 = await task()
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`f${i}`, "x"]))
+    const res = await setValues(t1.id, many)
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe("VALIDATION_ERROR")
+  })
+})

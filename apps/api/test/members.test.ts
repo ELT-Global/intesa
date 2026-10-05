@@ -342,3 +342,63 @@ describe("home", () => {
     expect(res.body.dueSoon[0].project).toMatchObject({ name: "Website" })
   })
 })
+
+describe("member races", () => {
+  test("two simultaneous adds of the same person give one member and one conflict", async () => {
+    const { t, owner, url } = await setup()
+    await signIn(t.app, "twice@example.com")
+    const results = await Promise.all([
+      owner.call("POST", `${url}/members`, { email: "twice@example.com" }),
+      owner.call("POST", `${url}/members`, { email: "twice@example.com" }),
+    ])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    const members = await owner.call("GET", `${url}/members`)
+    expect(
+      members.body.members.filter((m: { email: string }) => m.email === "twice@example.com"),
+    ).toHaveLength(1)
+  })
+})
+
+describe("home and my tasks details", () => {
+  test("dueSoon uses the client's date when ?today is given", async () => {
+    const { owner, createTask, url } = await setup()
+    await createTask({ title: "soon-for-a-traveller", dueAt: day(20) })
+    await createTask({ title: "never", dueAt: day(40) })
+
+    const normal = await owner.call("GET", `${url}/home`)
+    expect(normal.body.dueSoon).toEqual([])
+
+    const ahead = await owner.call("GET", `${url}/home?today=${day(15)}`)
+    expect(ahead.body.dueSoon.map((x: { title: string }) => x.title)).toEqual([
+      "soon-for-a-traveller",
+    ])
+  })
+
+  test("rejects a malformed or impossible ?today", async () => {
+    const { owner, url } = await setup()
+    for (const bad of ["tomorrow", "2026-02-31", "2026-1-1"]) {
+      const res = await owner.call("GET", `${url}/home?today=${bad}`)
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe("VALIDATION_ERROR")
+    }
+  })
+
+  test("dueSoon is ordered soonest first and my-tasks most recently updated first", async () => {
+    const { t, owner, createTask, url } = await setup()
+    const me = await userId(t, "owner@example.com")
+    const later = await createTask({ title: "later", dueAt: day(5), assigneeIds: [me] })
+    await createTask({ title: "sooner", dueAt: day(1), assigneeIds: [me] })
+    await createTask({ title: "overdue", dueAt: day(-2), assigneeIds: [me] })
+
+    const home = await owner.call("GET", `${url}/home`)
+    expect(home.body.dueSoon.map((x: { title: string }) => x.title)).toEqual([
+      "overdue",
+      "sooner",
+      "later",
+    ])
+
+    await owner.call("PATCH", `/api/tasks/${later.id}`, { title: "later (edited)" })
+    const mine = await owner.call("GET", `${url}/my-tasks`)
+    expect(mine.body.tasks[0].title).toBe("later (edited)")
+  })
+})

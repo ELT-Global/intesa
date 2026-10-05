@@ -132,25 +132,20 @@ export async function updateField(
       .executeTakeFirstOrThrow()
 
     if (patch.options) {
-      // Values pointing at a removed option would be invalid, so they are cleared with the edit.
-      const allowed = new Set(patch.options)
-      const values = await trx
+      // Values (stored as JSON text) that point at a removed option would be invalid, so they
+      // are cleared with the edit, and the tasks they belonged to are marked as changed.
+      const kept = patch.options.map((o) => JSON.stringify(o))
+      const stale = trx
         .selectFrom("taskCustomFieldValues")
-        .select(["taskId", "value"])
+        .select("taskId")
         .where("fieldId", "=", field.id)
+        .where("value", "not in", kept)
+      await trx.updateTable("tasks").set({ updatedAt: now() }).where("id", "in", stale).execute()
+      await trx
+        .deleteFrom("taskCustomFieldValues")
+        .where("fieldId", "=", field.id)
+        .where("value", "not in", kept)
         .execute()
-      const stale = values.filter((v) => !allowed.has(JSON.parse(v.value) as string))
-      if (stale.length > 0) {
-        await trx
-          .deleteFrom("taskCustomFieldValues")
-          .where("fieldId", "=", field.id)
-          .where(
-            "taskId",
-            "in",
-            stale.map((v) => v.taskId),
-          )
-          .execute()
-      }
     }
     return toFieldJson(row)
   })

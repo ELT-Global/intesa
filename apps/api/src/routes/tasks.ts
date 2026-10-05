@@ -44,7 +44,7 @@ export function taskRoutes({ db }: Deps) {
       validate("query", z.object({ type: z.enum(RELATION_TYPES) })),
       async (c) => {
         const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
-        await removeRelationship(db, task.id, c.req.valid("query").type, c.req.param("otherTaskId"))
+        await removeRelationship(db, task, c.req.valid("query").type, c.req.param("otherTaskId"))
         return c.json({ task: await loadTaskDetail(db, task.id) })
       },
     )

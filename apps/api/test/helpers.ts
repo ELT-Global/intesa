@@ -66,6 +66,7 @@ export type Client = {
     method: string,
     path: string,
     body?: unknown,
+    // biome-ignore lint/suspicious/noExplicitAny: tests read arbitrary response shapes
   ) => Promise<{ status: number; body: any; res: Response }>
 }
 

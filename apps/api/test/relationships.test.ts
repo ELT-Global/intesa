@@ -212,3 +212,52 @@ describe("task search", () => {
     ).toBe(404)
   })
 })
+
+describe("relationship integrity", () => {
+  test("a longer block cycle is rejected (A -> B -> C -> A)", async () => {
+    const { a, b, c, link, rows } = await setup()
+    expect((await link(a, "blocks", b)).status).toBe(201)
+    expect((await link(b, "blocks", c)).status).toBe(201)
+
+    const closing = await link(c, "blocks", a)
+    expect(closing.status).toBe(409)
+    expect(closing.body.code).toBe("CONFLICT")
+    expect((await link(a, "blocked_by", c)).status).toBe(409)
+    expect(await rows()).toHaveLength(2)
+  })
+
+  test("non-cyclic shapes are fine: diamonds and shared blockers", async () => {
+    const { a, b, c, make, link } = await setup()
+    const d = await make("D")
+    for (const [from, to] of [
+      [a, b],
+      [a, c],
+      [b, d],
+      [c, d],
+    ] as const) {
+      expect((await link(from, "blocks", to)).status).toBe(201)
+    }
+    expect((await link(d, "blocks", a)).status).toBe(409)
+  })
+
+  test("related links do not take part in cycle checks", async () => {
+    const { a, b, link } = await setup()
+    await link(a, "related", b)
+    expect((await link(a, "blocks", b)).status).toBe(201)
+    expect((await link(b, "related", a)).status).toBe(409)
+  })
+
+  test("two simultaneous identical links produce one row and one conflict", async () => {
+    const { a, b, link, rows } = await setup()
+    const results = await Promise.all([link(a, "blocks", b), link(a, "blocks", b)])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect(await rows()).toHaveLength(1)
+  })
+
+  test("two simultaneous opposite blocks cannot both succeed", async () => {
+    const { a, b, link, rows } = await setup()
+    const results = await Promise.all([link(a, "blocks", b), link(b, "blocks", a)])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect(await rows()).toHaveLength(1)
+  })
+})

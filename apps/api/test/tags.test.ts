@@ -135,3 +135,34 @@ describe("tags", () => {
     expect((await owner.call("DELETE", "/api/tags/nope")).status).toBe(404)
   })
 })
+
+describe("tag name uniqueness is enforced by the database", () => {
+  test("simultaneous creates differing only by case give one tag and one conflict", async () => {
+    const { owner, url } = await setup()
+    const results = await Promise.all([
+      owner.call("POST", url, { name: "Race" }),
+      owner.call("POST", url, { name: "rACE" }),
+    ])
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+    expect((await owner.call("GET", url)).body.tags).toHaveLength(1)
+  })
+
+  test("the index rejects a case-variant duplicate even when inserted directly", async () => {
+    const { t, workspaceId } = await setup()
+    const insert = (name: string) =>
+      t.db
+        .insertInto("tags")
+        .values({ id: crypto.randomUUID(), workspaceId, name, color: "blue", createdAt: "x" })
+        .execute()
+    await insert("Bug")
+    await expect(insert("bUG")).rejects.toThrow()
+  })
+
+  test("renaming onto an existing name (any case) is a conflict", async () => {
+    const { owner, url } = await setup()
+    await owner.call("POST", url, { name: "Alpha" })
+    const beta = (await owner.call("POST", url, { name: "Beta" })).body.tag
+    const res = await owner.call("PATCH", `/api/tags/${beta.id}`, { name: "ALPHA" })
+    expect(res.status).toBe(409)
+  })
+})

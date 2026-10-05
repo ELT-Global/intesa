@@ -1,5 +1,5 @@
 import { sql } from "kysely"
-import { type Db, inTransaction, newId, now } from "../db"
+import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
 import type { Status } from "./schemas"
 import type { TaskRef, TaskRow } from "./service"
@@ -7,12 +7,14 @@ import type { TaskRef, TaskRow } from "./service"
 export const RELATION_TYPES = ["blocks", "blocked_by", "related"] as const
 export type RelationType = (typeof RELATION_TYPES)[number]
 
-export async function loadTaskRefs(db: Db, ids: string[]): Promise<TaskRef[]> {
+// Refs are always scoped to one workspace, so an id from elsewhere can never leak a title.
+export async function loadTaskRefs(db: Db, workspaceId: string, ids: string[]): Promise<TaskRef[]> {
   if (ids.length === 0) return []
   const rows = await db
     .selectFrom("tasks")
     .innerJoin("projects", "projects.id", "tasks.projectId")
     .select(["tasks.id", "tasks.number", "tasks.title", "tasks.status", "projects.key"])
+    .where("tasks.workspaceId", "=", workspaceId)
     .where("tasks.id", "in", ids)
     .orderBy("projects.key")
     .orderBy("tasks.number")
@@ -26,7 +28,8 @@ export async function loadTaskRefs(db: Db, ids: string[]): Promise<TaskRef[]> {
 }
 
 // One query for the edges, one for the referenced tasks.
-export async function loadRelationships(db: Db, taskId: string) {
+export async function loadRelationships(db: Db, task: { id: string; workspaceId: string }) {
+  const taskId = task.id
   const edges = await db
     .selectFrom("taskRelationships")
     .select(["sourceTaskId", "targetTaskId", "type"])
@@ -45,13 +48,35 @@ export async function loadRelationships(db: Db, taskId: string) {
       .map((e) => (e.sourceTaskId === taskId ? e.targetTaskId : e.sourceTaskId)),
   }
   const refs = new Map(
-    (await loadTaskRefs(db, [...ids.blocks, ...ids.blockedBy, ...ids.related])).map((r) => [
-      r.id,
-      r,
-    ]),
+    (
+      await loadTaskRefs(db, task.workspaceId, [...ids.blocks, ...ids.blockedBy, ...ids.related])
+    ).map((r) => [r.id, r]),
   )
   const pick = (list: string[]) => list.flatMap((id) => refs.get(id) ?? [])
   return { blocks: pick(ids.blocks), blockedBy: pick(ids.blockedBy), related: pick(ids.related) }
+}
+
+// "blocked_by" is stored as the other task blocking this one. "related" is symmetric, so it
+// is stored with the ids in sorted order; the unique constraint then also catches the
+// reversed duplicate.
+function storedEdge(type: RelationType, taskId: string, otherId: string) {
+  if (type === "related") {
+    const [source, target] = [taskId, otherId].sort() as [string, string]
+    return { source, target, storedType: "related" as const }
+  }
+  const [source, target] = type === "blocked_by" ? [otherId, taskId] : [taskId, otherId]
+  return { source, target, storedType: "blocks" as const }
+}
+
+// Tasks in other workspaces are indistinguishable from missing ones.
+async function requireSameWorkspace(db: Db, workspaceId: string, otherId: string) {
+  const other = await db
+    .selectFrom("tasks")
+    .select("id")
+    .where("id", "=", otherId)
+    .where("workspaceId", "=", workspaceId)
+    .executeTakeFirst()
+  if (!other) throw new ApiError("NOT_FOUND", "Task not found")
 }
 
 export async function addRelationship(
@@ -63,79 +88,67 @@ export async function addRelationship(
   if (otherId === task.id) {
     throw new ApiError("VALIDATION_ERROR", "A task cannot be related to itself")
   }
-  const other = await db
-    .selectFrom("tasks")
-    .select("workspaceId")
-    .where("id", "=", otherId)
-    .executeTakeFirst()
-  // Tasks in other workspaces are indistinguishable from missing ones.
-  if (!other || other.workspaceId !== task.workspaceId) {
-    throw new ApiError("NOT_FOUND", "Task not found")
-  }
-
-  // "blocked_by" is stored as the other task blocking this one.
-  const [source, target] = type === "blocked_by" ? [otherId, task.id] : [task.id, otherId]
-  const storedType = type === "related" ? "related" : "blocks"
+  await requireSameWorkspace(db, task.workspaceId, otherId)
+  const { source, target, storedType } = storedEdge(type, task.id, otherId)
+  const exists = new ApiError("CONFLICT", "That relationship already exists")
 
   await inTransaction(db, async (trx) => {
-    const forward = await trx
-      .selectFrom("taskRelationships")
-      .select("id")
-      .where("sourceTaskId", "=", source)
-      .where("targetTaskId", "=", target)
-      .where("type", "=", storedType)
-      .executeTakeFirst()
-    if (forward) throw new ApiError("CONFLICT", "That relationship already exists")
+    // Serialises relationship writes within a workspace so two requests cannot each pass the
+    // cycle check and then both insert (a no-op update that still takes the row lock).
+    await trx
+      .updateTable("workspaces")
+      .set((eb) => ({ updatedAt: eb.ref("updatedAt") }))
+      .where("id", "=", task.workspaceId)
+      .execute()
 
-    const reverse = await trx
-      .selectFrom("taskRelationships")
-      .select("id")
-      .where("sourceTaskId", "=", target)
-      .where("targetTaskId", "=", source)
-      .where("type", "=", storedType)
-      .executeTakeFirst()
-    if (reverse) {
-      throw new ApiError(
-        "CONFLICT",
-        storedType === "related"
-          ? "That relationship already exists"
-          : "These tasks already block each other in the other direction",
-      )
+    if (storedType === "blocks") {
+      // Adding source -> target closes a loop if source is already reachable from target.
+      const { rows } = await sql<{ id: string }>`
+        with recursive reach(id) as (
+          select cast(${target} as text)
+          union
+          select r.target_task_id from task_relationships r
+            join reach on r.source_task_id = reach.id
+            where r.type = 'blocks'
+        )
+        select id from reach where id = ${source}`.execute(trx)
+      if (rows.length > 0) {
+        throw new ApiError("CONFLICT", "That would create a circular block")
+      }
     }
 
-    await trx
-      .insertInto("taskRelationships")
-      .values({
-        id: newId(),
-        sourceTaskId: source,
-        targetTaskId: target,
-        type: storedType,
-        createdAt: now(),
-      })
-      .execute()
+    try {
+      await trx
+        .insertInto("taskRelationships")
+        .values({
+          id: newId(),
+          sourceTaskId: source,
+          targetTaskId: target,
+          type: storedType,
+          createdAt: now(),
+        })
+        .execute()
+    } catch (err) {
+      if (isUniqueViolation(err)) throw exists
+      throw err
+    }
   })
 }
 
 export async function removeRelationship(
   db: Db,
-  taskId: string,
+  task: { id: string; workspaceId: string },
   type: RelationType,
   otherId: string,
 ): Promise<void> {
-  const [source, target] = type === "blocked_by" ? [otherId, taskId] : [taskId, otherId]
-  const storedType = type === "related" ? "related" : "blocks"
-
-  let q = db.deleteFrom("taskRelationships").where("type", "=", storedType)
-  q =
-    storedType === "related"
-      ? q.where((eb) =>
-          eb.or([
-            eb.and([eb("sourceTaskId", "=", taskId), eb("targetTaskId", "=", otherId)]),
-            eb.and([eb("sourceTaskId", "=", otherId), eb("targetTaskId", "=", taskId)]),
-          ]),
-        )
-      : q.where("sourceTaskId", "=", source).where("targetTaskId", "=", target)
-  const result = await q.executeTakeFirst()
+  await requireSameWorkspace(db, task.workspaceId, otherId)
+  const { source, target, storedType } = storedEdge(type, task.id, otherId)
+  const result = await db
+    .deleteFrom("taskRelationships")
+    .where("type", "=", storedType)
+    .where("sourceTaskId", "=", source)
+    .where("targetTaskId", "=", target)
+    .executeTakeFirst()
   if (Number(result.numDeletedRows) === 0) throw new ApiError("NOT_FOUND", "Relationship not found")
 }
 

@@ -6,7 +6,7 @@
       "!**/node_modules",
       "!**/dist",
       "!**/.turbo",
-      "!**/.e2e",
+      "!.claude",
       "!docs",
       "!**/routeTree.gen.ts",
       "!**/test-results",

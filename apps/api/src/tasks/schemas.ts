@@ -3,6 +3,8 @@ import { z } from "zod"
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "complete"] as const
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const
 
+const MAX_CUSTOM_FIELDS_PER_PATCH = 50
+
 export type Status = (typeof STATUSES)[number]
 export type Priority = (typeof PRIORITIES)[number]
 
@@ -43,7 +45,10 @@ export const patchTaskBody = z.object({
   dueAt: dueAt.nullable().optional(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
-  customFields: z.record(z.string(), z.unknown()).optional(),
+  customFields: z
+    .record(z.string(), z.unknown())
+    .refine((r) => Object.keys(r).length <= MAX_CUSTOM_FIELDS_PER_PATCH, "Too many custom fields")
+    .optional(),
 })
 
 export type CreateTaskInput = z.infer<typeof createTaskBody>
