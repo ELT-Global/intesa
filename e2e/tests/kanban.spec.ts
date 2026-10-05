@@ -1,0 +1,84 @@
+import { expect, type Page, test } from "@playwright/test"
+import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
+import { createProject, createTaskViaApi, workspaceIdBySlug } from "../support/projects"
+
+async function setup(page: Page, tasks: { title: string; status?: string }[]) {
+  await signIn(page, { email: uniqueEmail() })
+  const slug = await createWorkspace(page, uniqueName())
+  const workspaceId = await workspaceIdBySlug(page, slug)
+  const project = await createProject(page, workspaceId, uniqueName("Project"))
+  for (const t of tasks) await createTaskViaApi(page, project.id, t)
+  await page.goto(`/w/${slug}/projects/${project.id}/board`)
+}
+
+const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true })
+
+test("tasks appear in the column for their status", async ({ page }) => {
+  await setup(page, [
+    { title: "Sketch ideas", status: "backlog" },
+    { title: "Write spec" },
+    { title: "Build it", status: "in_progress" },
+    { title: "Ship it", status: "complete" },
+  ])
+  for (const name of ["Backlog", "Todo", "In Progress", "Review", "Complete"]) {
+    await expect(column(page, name)).toBeVisible()
+  }
+  await expect(column(page, "Backlog").getByRole("button", { name: /Sketch ideas/ })).toBeVisible()
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
+  await expect(column(page, "In Progress").getByRole("button", { name: /Build it/ })).toBeVisible()
+  await expect(column(page, "Complete").getByRole("button", { name: /Ship it/ })).toBeVisible()
+  await expect(column(page, "Review").getByRole("button")).toHaveCount(1) // only the add button
+})
+
+test("dragging a card to another column changes its status and persists", async ({ page }) => {
+  await setup(page, [{ title: "Write spec" }])
+  const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
+  await card.dragTo(column(page, "In Progress"))
+
+  await expect(
+    column(page, "In Progress").getByRole("button", { name: /Write spec/ }),
+  ).toBeVisible()
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toHaveCount(0)
+
+  await page.waitForLoadState("networkidle")
+  await page.reload()
+  await expect(
+    column(page, "In Progress").getByRole("button", { name: /Write spec/ }),
+  ).toBeVisible()
+
+  await column(page, "In Progress")
+    .getByRole("button", { name: /Write spec/ })
+    .click()
+  const sheet = page.getByRole("dialog", { name: /-1$/ })
+  await sheet.getByRole("button", { name: "History" }).click()
+  await expect(sheet.getByRole("list", { name: "History" })).toContainText("Todo → In Progress")
+})
+
+test("a column's add button creates a task in that column", async ({ page }) => {
+  await setup(page, [])
+  await column(page, "Review").getByRole("button", { name: "Add task" }).click()
+  const dialog = page.getByRole("dialog", { name: "New task" })
+  await dialog.getByLabel("Title").fill("Review the draft")
+  await page.keyboard.press("Enter")
+  await expect(
+    column(page, "Review").getByRole("button", { name: /Review the draft/ }),
+  ).toBeVisible()
+})
+
+test("a failed move rolls back and shows the error", async ({ page }) => {
+  await setup(page, [{ title: "Write spec" }])
+  await page.route("**/api/tasks/*", (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } })
+      : route.continue(),
+  )
+  await column(page, "Todo")
+    .getByRole("button", { name: /Write spec/ })
+    .dragTo(column(page, "In Progress"))
+
+  await expect(page.getByRole("alert")).toContainText("boom")
+  await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
+  await expect(column(page, "In Progress").getByRole("button", { name: /Write spec/ })).toHaveCount(
+    0,
+  )
+})

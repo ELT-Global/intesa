@@ -23,3 +23,14 @@ export async function createProject(
   const { project } = (await res.json()) as { project: { id: string; key: string } }
   return project
 }
+
+/** Creates a task through the API. */
+export async function createTaskViaApi(
+  page: Page,
+  projectId: string,
+  input: { title: string; status?: string },
+): Promise<{ id: string; key: string }> {
+  const res = await page.request.post(`/api/projects/${projectId}/tasks`, { data: input })
+  expect(res.status()).toBe(201)
+  return ((await res.json()) as { task: { id: string; key: string } }).task
+}
