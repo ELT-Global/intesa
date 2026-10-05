@@ -1,11 +1,9 @@
-import { resolve } from "node:path"
 import { defineConfig, devices } from "@playwright/test"
 
 const PORT = 4173
 
 export default defineConfig({
   testDir: "./tests",
-  globalSetup: "./global-setup.ts",
   fullyParallel: true,
   workers: 4,
   retries: 0,
@@ -20,7 +18,9 @@ export default defineConfig({
     env: {
       PORT: String(PORT),
       NODE_ENV: "test",
-      DATABASE_URL: resolve(import.meta.dirname, "../.e2e/e2e.db"),
+      DEV_LOGIN: "true",
+      // A fresh in-memory database per run keeps tests independent of earlier runs.
+      DATABASE_URL: ":memory:",
     },
   },
 })

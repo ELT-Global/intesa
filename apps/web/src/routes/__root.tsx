@@ -1,6 +1,15 @@
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
+import {
+  createRootRouteWithContext,
+  HeadContent,
+  Link,
+  Outlet,
+  Scripts,
+} from "@tanstack/react-router"
 import type { ReactNode } from "react"
+import { Message } from "@/components/page"
+import { buttonClass } from "@/components/ui/button"
+import { themeInitScript } from "@/lib/theme"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -11,8 +20,26 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Intesa" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
+    scripts: [{ children: themeInitScript }],
   }),
   component: RootComponent,
+  notFoundComponent: () => (
+    <Message title="Page not found." body="That address doesn't lead anywhere.">
+      <Link to="/" className={buttonClass("outline")}>
+        Go home
+      </Link>
+    </Message>
+  ),
+  errorComponent: ({ error }) => (
+    <Message
+      title="Something went wrong."
+      body={error instanceof Error ? error.message : undefined}
+    >
+      <a href="/" className={buttonClass("outline")}>
+        Reload
+      </a>
+    </Message>
+  ),
 })
 
 function RootComponent() {
@@ -26,10 +53,10 @@ function RootComponent() {
   )
 }
 
-// Dark is the default theme; a stored preference can override it later.
+// The theme script sets the class before paint; React must not reset it on hydration.
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
