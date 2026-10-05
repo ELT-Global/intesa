@@ -28,3 +28,16 @@ export const projectQuery = (projectId: string) =>
     queryKey: keys.project(projectId),
     queryFn: async () => (await api.project(projectId)).project,
   })
+
+export const membersQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: keys.members(workspaceId),
+    queryFn: async () => (await api.members(workspaceId)).members,
+  })
+
+export const homeQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: keys.home(workspaceId),
+    queryFn: () => api.home(workspaceId),
+    staleTime: 0,
+  })

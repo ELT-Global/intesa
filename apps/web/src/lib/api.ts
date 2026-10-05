@@ -41,7 +41,22 @@ export type Project = InferResponseType<
   (typeof client.api.projects)[":projectId"]["$get"]
 >["project"]
 
+const workspaceApi = client.api.workspaces[":workspaceId"]
+const memberApi = workspaceApi.members[":memberId"]
+export type Member = InferResponseType<typeof workspaceApi.members.$get>["members"][number]
+export type MemberRole = Member["role"]
+export type HomeData = InferResponseType<typeof workspaceApi.home.$get>
+
 export const api = {
+  members: (workspaceId: string) => unwrap(workspaceApi.members.$get({ param: { workspaceId } })),
+  addMember: (workspaceId: string, json: { email: string; role: MemberRole }) =>
+    unwrap(workspaceApi.members.$post({ param: { workspaceId }, json })),
+  changeRole: (workspaceId: string, memberId: string, role: MemberRole) =>
+    unwrap(memberApi.$patch({ param: { workspaceId, memberId }, json: { role } })),
+  removeMember: (workspaceId: string, memberId: string) =>
+    unwrap(memberApi.$delete({ param: { workspaceId, memberId } })),
+  home: (workspaceId: string) => unwrap(workspaceApi.home.$get({ param: { workspaceId } })),
+
   projects: (workspaceId: string) =>
     unwrap(client.api.workspaces[":workspaceId"].projects.$get({ param: { workspaceId } })),
   createProject: (
@@ -79,4 +94,6 @@ export const keys = {
   authConfig: ["auth-config"] as const,
   projects: (workspaceId: string) => ["projects", workspaceId] as const,
   project: (projectId: string) => ["project", projectId] as const,
+  members: (workspaceId: string) => ["members", workspaceId] as const,
+  home: (workspaceId: string) => ["home", workspaceId] as const,
 }

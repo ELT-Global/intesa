@@ -1,4 +1,10 @@
-import type { InputHTMLAttributes, LabelHTMLAttributes, Ref, TextareaHTMLAttributes } from "react"
+import type {
+  InputHTMLAttributes,
+  LabelHTMLAttributes,
+  Ref,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react"
 import { cn } from "@/lib/utils"
 
 export function Input({
@@ -31,6 +37,20 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
     <textarea
       className={cn(
         "min-h-20 w-full resize-y rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs/5 outline-none placeholder:text-muted-foreground",
+        "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+/** Native select styled like Input; keeps platform behaviour on touch devices. */
+export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={cn(
+        "h-8 w-full rounded-lg border border-input bg-background px-2 text-sm shadow-xs/5 outline-none",
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
         className,
       )}
