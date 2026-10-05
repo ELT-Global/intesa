@@ -49,3 +49,14 @@ export const newId = () => crypto.randomUUID()
 export function inTransaction<T>(db: Db, fn: (trx: Db) => Promise<T>): Promise<T> {
   return db.isTransaction ? fn(db) : db.transaction().execute(fn)
 }
+
+// True for a unique/primary-key violation on either dialect (SQLite message or Postgres 23505).
+export function isUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string }
+  return (
+    e?.code === "23505" ||
+    e?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    e?.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    /UNIQUE constraint failed/i.test(e?.message ?? "")
+  )
+}

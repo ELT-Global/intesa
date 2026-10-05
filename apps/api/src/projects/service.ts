@@ -1,8 +1,8 @@
 import type { Selectable } from "kysely"
-import { type Db, newId, now } from "../db"
+import { type Db, isUniqueViolation, newId, now } from "../db"
 import type { ProjectTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
-import { type Role, requireMembership } from "../workspaces/membership"
+import type { Role } from "../workspaces/membership"
 
 export type ProjectRow = Selectable<ProjectTable>
 
@@ -46,22 +46,13 @@ export function deriveKeyBase(name: string): string {
   return key
 }
 
-const keyExists = async (db: Db, workspaceId: string, key: string) =>
-  (await db
-    .selectFrom("projects")
-    .select("id")
-    .where("workspaceId", "=", workspaceId)
-    .where("key", "=", key)
-    .executeTakeFirst()) !== undefined
-
-async function uniqueKey(db: Db, workspaceId: string, base: string): Promise<string> {
-  if (!(await keyExists(db, workspaceId, base))) return base
+// Candidate keys in preference order: the base, then base with a numeric suffix (WS2, WS3...).
+function* keyCandidates(base: string) {
+  yield base
   for (let n = 2; n < 1000; n++) {
     const suffix = String(n)
-    const candidate = base.slice(0, 5 - suffix.length) + suffix
-    if (!(await keyExists(db, workspaceId, candidate))) return candidate
+    yield base.slice(0, 5 - suffix.length) + suffix
   }
-  throw new ApiError("CONFLICT", "Could not derive a unique project key")
 }
 
 export async function createProject(
@@ -69,13 +60,9 @@ export async function createProject(
   workspaceId: string,
   input: { name: string; key?: string; description?: string | null },
 ): Promise<ProjectRow> {
-  const conflict = new ApiError("CONFLICT", "That project key is already in use")
-  if (input.key && (await keyExists(db, workspaceId, input.key))) throw conflict
-  const key = input.key ?? (await uniqueKey(db, workspaceId, deriveKeyBase(input.name)))
-
-  const ts = now()
-  try {
-    return await db
+  const insert = (key: string) => {
+    const ts = now()
+    return db
       .insertInto("projects")
       .values({
         id: newId(),
@@ -89,11 +76,27 @@ export async function createProject(
       })
       .returningAll()
       .executeTakeFirstOrThrow()
-  } catch (err) {
-    // A concurrent request may have claimed the key after the check above.
-    if (await keyExists(db, workspaceId, key)) throw conflict
-    throw err
   }
+
+  // The unique (workspace, key) constraint is the only arbiter, so concurrent creates cannot
+  // both win: an explicit key that loses is a conflict, a derived key moves to the next suffix.
+  if (input.key) {
+    try {
+      return await insert(input.key)
+    } catch (err) {
+      if (isUniqueViolation(err))
+        throw new ApiError("CONFLICT", "That project key is already in use")
+      throw err
+    }
+  }
+  for (const key of keyCandidates(deriveKeyBase(input.name))) {
+    try {
+      return await insert(key)
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err
+    }
+  }
+  throw new ApiError("CONFLICT", "Could not derive a unique project key")
 }
 
 // Authorization for project-scoped routes: the caller must belong to the project's
@@ -103,14 +106,18 @@ export async function requireProject(
   userId: string,
   projectId: string,
 ): Promise<{ project: ProjectRow; role: Role }> {
-  const project = await db
+  const row = await db
     .selectFrom("projects")
-    .selectAll()
-    .where("id", "=", projectId)
+    .leftJoin("workspaceMembers", (join) =>
+      join
+        .onRef("workspaceMembers.workspaceId", "=", "projects.workspaceId")
+        .on("workspaceMembers.userId", "=", userId),
+    )
+    .selectAll("projects")
+    .select("workspaceMembers.role")
+    .where("projects.id", "=", projectId)
     .executeTakeFirst()
-  if (!project) throw new ApiError("NOT_FOUND", "Project not found")
-  const role = await requireMembership(db, userId, project.workspaceId).catch(() => {
-    throw new ApiError("NOT_FOUND", "Project not found")
-  })
+  if (!row?.role) throw new ApiError("NOT_FOUND", "Project not found")
+  const { role, ...project } = row
   return { project, role }
 }

@@ -2,7 +2,6 @@ import { Hono } from "hono"
 import { deleteCookie, getCookie, setCookie } from "hono/cookie"
 import { createMiddleware } from "hono/factory"
 import { z } from "zod"
-import { createAttemptLimiter, MAX_CODE_ATTEMPTS } from "../auth/attempts"
 import { buildAuthUrl, exchangeCode } from "../auth/google"
 import { type AppEnv, requirePending2fa } from "../auth/middleware"
 import {
@@ -27,8 +26,7 @@ const devLoginBody = z.object({
 })
 export const codeBody = z.object({ code: z.string().regex(/^\d{6}$/, "Code must be 6 digits") })
 
-export function authRoutes({ db, config }: Deps) {
-  const attempts = createAttemptLimiter(MAX_CODE_ATTEMPTS, 0)
+export function authRoutes({ db, config, attempts }: Deps) {
   // Checked before body validation so a disabled endpoint reveals nothing.
   const devLoginGate = createMiddleware(async (_c, next) => {
     if (!config.devLogin) throw new ApiError("NOT_FOUND", "Not found")
@@ -89,16 +87,22 @@ export function authRoutes({ db, config }: Deps) {
       const user = c.var.user
       const { code } = c.req.valid("json")
       const { tokenHash } = c.var.session
+      const abandon = () => db.deleteFrom("sessions").where("tokenHash", "=", tokenHash).execute()
+
+      // The budget belongs to the user, so signing in again does not refresh it.
+      const turn = attempts.take(user.id)
+      if (turn === "locked") {
+        await abandon()
+        throw new ApiError("RATE_LIMITED", "Too many attempts, try again later")
+      }
       if (!user.totpSecret || !(await verifyTotp(user.totpSecret, code))) {
-        if (attempts.fail(tokenHash)) {
-          // Too many guesses: the sign-in is abandoned and must start over.
-          await db.deleteFrom("sessions").where("tokenHash", "=", tokenHash).execute()
-          attempts.reset(tokenHash)
+        if (turn === "last") {
+          await abandon()
           throw new ApiError("UNAUTHORIZED", "Too many attempts, sign in again")
         }
         throw new ApiError("VALIDATION_ERROR", "Invalid code")
       }
-      attempts.reset(tokenHash)
+      attempts.reset(user.id)
       await db
         .updateTable("sessions")
         .set({ pendingTwoFactor: 0 })

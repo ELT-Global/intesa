@@ -60,7 +60,9 @@ describe("task creation", () => {
     expect(first.body.task.number).toBe(1)
   })
 
-  test("concurrent creates never share a number", async () => {
+  // The counter bump and the (project, number) unique constraint keep numbers distinct;
+  // this checks that outcome, not true parallelism (SQLite serialises the transactions).
+  test("simultaneous creates end up with distinct, gap-free numbers", async () => {
     const { create } = await setup()
     const tasks = await Promise.all([create(), create(), create(), create()])
     expect(tasks.map((x) => x.number).sort()).toEqual([1, 2, 3, 4])
@@ -223,9 +225,8 @@ describe("updating tasks", () => {
   test("a rejected PATCH changes nothing, including status and history", async () => {
     const { t, owner, create } = await setup()
     const task = await create({ title: "Keep" })
-    const stranger = await signIn(t.app, "stranger@example.com")
+    await signIn(t.app, "stranger@example.com")
     const strangerId = await userId(t, "stranger@example.com")
-    void stranger
 
     const res = await owner.call("PATCH", `/api/tasks/${task.id}`, {
       title: "Changed",

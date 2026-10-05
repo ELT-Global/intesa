@@ -52,6 +52,23 @@ describe("projects", () => {
     expect(dup.body.code).toBe("CONFLICT")
   })
 
+  test("simultaneous creates never share a key", async () => {
+    const t = await createTestApp()
+    const { owner, workspaceId } = await setupProject(t, "race@example.com", "Zebra Crossing")
+    const url = `/api/workspaces/${workspaceId}/projects`
+    const derived = await Promise.all(
+      [1, 2, 3, 4].map(() => owner.call("POST", url, { name: "Zed Zone" })),
+    )
+    expect(derived.every((r) => r.status === 201)).toBe(true)
+    const keys = derived.map((r) => r.body.project.key)
+    expect(new Set(keys).size).toBe(4)
+
+    const explicit = await Promise.all(
+      [1, 2, 3].map((i) => owner.call("POST", url, { name: `Same ${i}`, key: "SAME" })),
+    )
+    expect(explicit.map((r) => r.status).sort()).toEqual([201, 409, 409])
+  })
+
   test("the same key can exist in different workspaces", async () => {
     const t = await createTestApp()
     const a = await setupProject(t, "a@example.com", "Web Site")

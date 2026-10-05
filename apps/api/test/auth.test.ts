@@ -251,12 +251,59 @@ describe("two-factor guess limiting", () => {
 
     const late = await pending.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })
     expect(late.status).toBe(401)
-    // A fresh sign-in starts over.
-    const again = await app.request("/api/auth/dev-login", json({ email: "guess@example.com" }))
-    const fresh = clientWithCookie(app, sessionCookieFrom(again))
-    expect(
-      (await fresh.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })).status,
-    ).toBe(200)
+  })
+
+  test("signing in again does not refresh the guess budget", async () => {
+    const { app } = await createTestApp()
+    const { secret } = await userWith2fa(app, "budget@example.com")
+    const wrong = await wrongCode(secret)
+    const signInPending = async () => {
+      const login = await app.request("/api/auth/dev-login", json({ email: "budget@example.com" }))
+      return clientWithCookie(app, sessionCookieFrom(login))
+    }
+
+    // Spend the whole budget across several sign-ins.
+    const first = await signInPending()
+    for (let i = 0; i < 3; i++) await first.call("POST", "/api/auth/2fa", { code: wrong })
+    const second = await signInPending()
+    expect((await second.call("POST", "/api/auth/2fa", { code: wrong })).status).toBe(400)
+    expect((await second.call("POST", "/api/auth/2fa", { code: wrong })).status).toBe(401)
+
+    // A brand new sign-in is locked even with the right code.
+    const third = await signInPending()
+    const res = await third.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })
+    expect(res.status).toBe(429)
+    expect(res.body.code).toBe("RATE_LIMITED")
+    expect((await third.call("GET", "/api/me")).status).toBe(401)
+  })
+
+  test("sign-in and account-settings attempts share one budget", async () => {
+    const { app } = await createTestApp()
+    const { me, secret } = await userWith2fa(app, "shared@example.com")
+    const wrong = await wrongCode(secret)
+    for (let i = 0; i < 5; i++) await me.call("POST", "/api/me/2fa/disable", { code: wrong })
+    const login = await app.request("/api/auth/dev-login", json({ email: "shared@example.com" }))
+    const pending = clientWithCookie(app, sessionCookieFrom(login))
+    const res = await pending.call("POST", "/api/auth/2fa", { code: await totpCode(secret) })
+    expect(res.status).toBe(429)
+  })
+
+  test("a parallel burst cannot check more codes than the budget", async () => {
+    const { app } = await createTestApp()
+    const { secret } = await userWith2fa(app, "burst@example.com")
+    const login = await app.request("/api/auth/dev-login", json({ email: "burst@example.com" }))
+    const pending = clientWithCookie(app, sessionCookieFrom(login))
+    const good = await totpCode(secret)
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        pending.call("POST", "/api/auth/2fa", { code: good === "000000" ? "000001" : "000000" }),
+      ),
+    )
+    const checked = results.filter(
+      (r) =>
+        r.body.message === "Invalid code" || r.body.message === "Too many attempts, sign in again",
+    )
+    expect(checked.length).toBeLessThanOrEqual(5)
   })
 
   test("a correct code resets the failure count", async () => {

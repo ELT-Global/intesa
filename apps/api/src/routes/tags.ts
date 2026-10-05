@@ -73,11 +73,19 @@ export function workspaceTagRoutes({ db }: Deps) {
 export function tagRoutes({ db }: Deps) {
   // Outsiders get NOT_FOUND, same as a missing tag.
   const requireTag = async (userId: string, tagId: string) => {
-    const tag = await db.selectFrom("tags").selectAll().where("id", "=", tagId).executeTakeFirst()
-    if (!tag) throw new ApiError("NOT_FOUND", "Tag not found")
-    await requireMembership(db, userId, tag.workspaceId).catch(() => {
-      throw new ApiError("NOT_FOUND", "Tag not found")
-    })
+    const row = await db
+      .selectFrom("tags")
+      .leftJoin("workspaceMembers", (join) =>
+        join
+          .onRef("workspaceMembers.workspaceId", "=", "tags.workspaceId")
+          .on("workspaceMembers.userId", "=", userId),
+      )
+      .selectAll("tags")
+      .select("workspaceMembers.role")
+      .where("tags.id", "=", tagId)
+      .executeTakeFirst()
+    if (!row?.role) throw new ApiError("NOT_FOUND", "Tag not found")
+    const { role: _role, ...tag } = row
     return tag
   }
 

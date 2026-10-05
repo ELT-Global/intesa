@@ -1,7 +1,6 @@
 import { Hono } from "hono"
 import type { Updateable } from "kysely"
 import { z } from "zod"
-import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "../auth/attempts"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { generateSecret, otpauthUrl, verifyTotp } from "../auth/totp"
 import { toUserJson } from "../auth/users"
@@ -14,15 +13,13 @@ import { codeBody } from "./auth"
 
 const patchBody = z.object({ name: z.string().trim().min(1).max(100) })
 
-export function meRoutes({ db }: Deps) {
-  const attempts = createAttemptLimiter(MAX_CODE_ATTEMPTS, LOCKOUT_MS)
+export function meRoutes({ db, attempts }: Deps) {
   // Wrong codes count against the user; too many in a row locks code entry for a while.
   const checkCode = async (user: { id: string; totpSecret: string | null }, code: string) => {
-    if (attempts.isLocked(user.id)) {
+    if (attempts.take(user.id) === "locked") {
       throw new ApiError("RATE_LIMITED", "Too many attempts, try again later")
     }
     if (!user.totpSecret || !(await verifyTotp(user.totpSecret, code))) {
-      attempts.fail(user.id)
       throw new ApiError("VALIDATION_ERROR", "Invalid code")
     }
     attempts.reset(user.id)

@@ -1,29 +1,38 @@
 export const MAX_CODE_ATTEMPTS = 5
 export const LOCKOUT_MS = 5 * 60 * 1000
 
-// In-memory consecutive-failure counter. State is per process, which is enough for the
-// single-service deployment and resets on restart.
-export function createAttemptLimiter(max: number, lockoutMs: number) {
-  const entries = new Map<string, { fails: number; lockedUntil: number }>()
+export type AttemptLimiter = ReturnType<typeof createAttemptLimiter>
+
+// In-memory limiter for code guessing, keyed by user. Each try is counted when it starts
+// (before the code is checked), so a burst of parallel requests cannot get more than `max`
+// checks. Once the budget is spent the key stays locked until `lockoutMs` after its last
+// try. State is per process, which suits the single-service deployment.
+export function createAttemptLimiter(
+  max: number,
+  lockoutMs: number,
+  clock: () => number = Date.now,
+) {
+  const entries = new Map<string, { tries: number; until: number }>()
+
+  const prune = (at: number) => {
+    for (const [key, entry] of entries) if (entry.until <= at) entries.delete(key)
+  }
+
   return {
-    isLocked(key: string): boolean {
-      const entry = entries.get(key)
-      if (!entry || entry.lockedUntil === 0) return false
-      if (entry.lockedUntil > Date.now()) return true
-      entries.delete(key)
-      return false
-    },
-    // Records a failure; returns true when this one reached the limit.
-    fail(key: string): boolean {
-      const entry = entries.get(key) ?? { fails: 0, lockedUntil: 0 }
-      entry.fails += 1
-      const reached = entry.fails >= max
-      if (reached) entry.lockedUntil = Date.now() + lockoutMs
+    // "locked": do not check the code. "last": check it, but this was the final try.
+    take(key: string): "ok" | "last" | "locked" {
+      const at = clock()
+      prune(at)
+      const entry = entries.get(key) ?? { tries: 0, until: 0 }
+      if (entry.tries >= max) return "locked"
+      entry.tries += 1
+      entry.until = at + lockoutMs
       entries.set(key, entry)
-      return reached
+      return entry.tries >= max ? "last" : "ok"
     },
     reset(key: string) {
       entries.delete(key)
     },
+    size: () => entries.size,
   }
 }

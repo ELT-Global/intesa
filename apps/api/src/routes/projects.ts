@@ -7,7 +7,7 @@ import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
 import { createProject, KEY_PATTERN, requireProject, toProjectJson } from "../projects/service"
 import { createTaskBody } from "../tasks/schemas"
-import { createTask, loadTaskSummaries } from "../tasks/service"
+import { createTask, listProjectTaskSummaries, loadTaskSummaries } from "../tasks/service"
 import { requireMembership } from "../workspaces/membership"
 
 const name = z.string().trim().min(1).max(80)
@@ -79,19 +79,7 @@ export function projectRoutes({ db }: Deps) {
     })
     .get("/:projectId/tasks", async (c) => {
       const { project } = await requireProject(db, c.var.user.id, c.req.param("projectId"))
-      const ids = await db
-        .selectFrom("tasks")
-        .select("id")
-        .where("projectId", "=", project.id)
-        .where("parentTaskId", "is", null)
-        .orderBy("createdAt", "desc")
-        .execute()
-      return c.json({
-        tasks: await loadTaskSummaries(
-          db,
-          ids.map((r) => r.id),
-        ),
-      })
+      return c.json({ tasks: await listProjectTaskSummaries(db, project.id) })
     })
     .post("/:projectId/tasks", validate("json", createTaskBody), async (c) => {
       const { project } = await requireProject(db, c.var.user.id, c.req.param("projectId"))
