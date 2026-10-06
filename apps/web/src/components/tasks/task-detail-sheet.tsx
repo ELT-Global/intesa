@@ -1,4 +1,3 @@
-import * as D from "@radix-ui/react-dialog"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Trash2, X } from "lucide-react"
 import { type ReactNode, useEffect, useRef, useState } from "react"
@@ -6,6 +5,7 @@ import { ErrorState } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { ApiError } from "@/lib/api"
 import {
   relativeTime,
@@ -37,46 +37,49 @@ export function TaskDetailSheet({
   const task = query.data
 
   return (
-    <D.Root open={taskId !== null} onOpenChange={(open) => !open && closeTask()}>
-      <D.Portal>
-        <D.Overlay className="sheet-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
-        <D.Content
-          aria-describedby={undefined}
-          className={cn(
-            "sheet-panel fixed inset-0 z-40 flex flex-col overflow-hidden bg-background text-foreground outline-none",
-            "md:left-auto md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl md:ring-1 md:ring-black/5",
-          )}
-        >
-          <D.Title className="sr-only">{task?.key ?? "Task"}</D.Title>
-          {task ? (
-            <SheetBody
-              key={task.id}
-              task={task}
-              onClose={closeTask}
-              propertySlots={propertySlots}
-              sections={sections}
-            />
-          ) : (
-            <SheetPlaceholder
-              error={query.isError ? query.error : null}
-              loading={query.isPending}
-              onClose={closeTask}
-              onRetry={() => void query.refetch()}
-            />
-          )}
-        </D.Content>
-      </D.Portal>
-    </D.Root>
+    <Sheet open={taskId !== null} onOpenChange={(open) => !open && closeTask()}>
+      <SheetContent
+        side="right"
+        aria-describedby={undefined}
+        // Fields that use Escape to cancel their own edit mark themselves so the sheet stays open.
+        onEscapeKeyDown={(e) => {
+          if (e.target instanceof Element && e.target.closest("[data-keeps-escape]"))
+            e.preventDefault()
+        }}
+        className={cn(
+          "z-40 w-full overflow-hidden bg-background text-foreground",
+          "md:w-[min(40rem,100vw)] md:border-l md:border-border md:shadow-2xl md:ring-1 md:ring-black/5",
+        )}
+      >
+        <SheetTitle className="sr-only">{task?.key ?? "Task"}</SheetTitle>
+        {task ? (
+          <SheetBody
+            key={task.id}
+            task={task}
+            onClose={closeTask}
+            propertySlots={propertySlots}
+            sections={sections}
+          />
+        ) : (
+          <SheetPlaceholder
+            error={query.isError ? query.error : null}
+            loading={query.isPending}
+            onClose={closeTask}
+            onRetry={() => void query.refetch()}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
   )
 }
 
 function CloseButton() {
   return (
-    <D.Close asChild>
+    <SheetClose asChild>
       <Button variant="ghost" size="sm" icon aria-label="Close">
         <X />
       </Button>
-    </D.Close>
+    </SheetClose>
   )
 }
 

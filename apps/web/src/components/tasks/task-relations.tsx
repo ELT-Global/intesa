@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react"
-import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   type RelationType,
@@ -19,11 +18,11 @@ import {
   taskSearchQuery,
   useChangeRelationship,
   useCreateSubtask,
-  useUpdateTask,
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { PickerPopover } from "./picker-popover"
 import { StatusIcon } from "./properties"
+import { SubtaskRow } from "./subtask-row"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
 
@@ -37,7 +36,7 @@ export function TaskStructureSections({
 }) {
   return (
     <>
-      {!task.parent && <SubtasksSection task={task} />}
+      {!task.parent && <SubtasksSection task={task} workspaceId={workspaceId} />}
       <RelationshipsSection task={task} workspaceId={workspaceId} />
     </>
   )
@@ -80,9 +79,8 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
   )
 }
 
-function SubtasksSection({ task }: { task: TaskDetail }) {
+function SubtasksSection({ task, workspaceId }: { task: TaskDetail; workspaceId: string }) {
   const { openTask } = useTaskParam()
-  const update = useUpdateTask()
   const create = useCreateSubtask(task)
   const [title, setTitle] = useState("")
   const done = task.subtasks.filter((s) => s.status === "complete").length
@@ -110,49 +108,15 @@ function SubtasksSection({ task }: { task: TaskDetail }) {
       </SectionTitle>
       {task.subtasks.length > 0 && (
         <ul className="flex flex-col">
-          {task.subtasks.map((s) => {
-            const complete = s.status === "complete"
-            return (
-              <li
-                key={s.id}
-                className="group flex items-center gap-2 rounded-md py-1 hover:bg-accent/60"
-              >
-                <button
-                  type="button"
-                  aria-label={complete ? `Mark ${s.title} incomplete` : `Mark ${s.title} complete`}
-                  onClick={() =>
-                    update.mutate({
-                      taskId: s.id,
-                      projectId: s.projectId,
-                      parentTaskId: task.id,
-                      patch: { status: complete ? "todo" : "complete" },
-                    })
-                  }
-                  className="touch-target cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <StatusIcon status={s.status} />
-                </button>
-                <TaskKey>{s.key}</TaskKey>
-                <button
-                  type="button"
-                  onClick={() => openTask(s.id)}
-                  className={cn(
-                    "min-w-0 flex-1 cursor-pointer truncate rounded text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    complete && "text-muted-foreground line-through",
-                  )}
-                >
-                  {s.title}
-                </button>
-                {s.assignees.length > 0 && (
-                  <span className="flex -space-x-1">
-                    {s.assignees.slice(0, 3).map((a) => (
-                      <Avatar key={a.id} name={a.name} size="sm" className="border-background" />
-                    ))}
-                  </span>
-                )}
-              </li>
-            )
-          })}
+          {task.subtasks.map((s) => (
+            <SubtaskRow
+              key={s.id}
+              parent={task}
+              subtask={s}
+              workspaceId={workspaceId}
+              onOpen={() => openTask(s.id)}
+            />
+          ))}
         </ul>
       )}
       <form onSubmit={add}>

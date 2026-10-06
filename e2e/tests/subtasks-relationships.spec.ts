@@ -41,7 +41,8 @@ test("subtasks are added from the sheet, tracked as progress, and open as their 
   }
   await expect(subtasks).toContainText("0/2")
 
-  await subtasks.getByRole("button", { name: "Mark Design it complete" }).click()
+  await subtasks.getByRole("button", { name: "Change status of Design it" }).click()
+  await page.getByRole("menuitemradio", { name: "Complete" }).click()
   await expect(subtasks).toContainText("1/2")
 
   await page.keyboard.press("Escape")
@@ -52,7 +53,7 @@ test("subtasks are added from the sheet, tracked as progress, and open as their 
   await page.goto(`${board(project.id)}?task=${parent.id}`)
   await sheet
     .getByRole("region", { name: "Subtasks" })
-    .getByRole("button", { name: "Build it", exact: true })
+    .getByRole("button", { name: "Open Build it" })
     .click()
   await expect(page.getByRole("button", { name: /Parent: .*Parent task/ })).toBeVisible()
   await expect(page.getByLabel("Add subtask")).toHaveCount(0)
@@ -138,4 +139,130 @@ test("a circular block is rejected with the server's message", async ({ page }) 
   await addRelationship(page, "Blocks", { key: a.key, title: "First link" })
   await expect(page.getByRole("alert")).toContainText("circular")
   await expect(group(page, "Blocks")).toHaveCount(0)
+})
+
+/** Counts finished writes of one method, so tests wait for the server rather than guessing. */
+function trackWrites(page: Page, method: "PATCH" | "DELETE") {
+  let finished = 0
+  // Responses, not requestfinished: bodiless 204 replies are reported as aborted requests.
+  page.on("response", (r) => {
+    if (r.request().method() === method && r.ok() && r.url().includes("/api/tasks/")) finished++
+  })
+  return { waitFor: (n: number) => expect.poll(() => finished).toBeGreaterThanOrEqual(n) }
+}
+
+async function parentWithSubtasks(page: Page, titles: string[]) {
+  const ctx = await setup(page)
+  const parent = await createTaskViaApi(page, ctx.project.id, { title: "Parent task" })
+  for (const title of titles) {
+    const res = await page.request.post(`/api/projects/${ctx.project.id}/tasks`, {
+      data: { title, parentTaskId: parent.id },
+    })
+    expect(res.status()).toBe(201)
+  }
+  await ctx.open(ctx.project.id, parent.id)
+  const subtasks = page.getByRole("dialog", { name: parent.key }).getByRole("region", {
+    name: "Subtasks",
+  })
+  await expect(subtasks.getByRole("listitem")).toHaveCount(titles.length)
+  const row = (title: string) =>
+    subtasks
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("button", { name: title, exact: true }) })
+  return { ...ctx, parent, subtasks, row }
+}
+
+test("a subtask's title, priority and assignee are edited from its row and persist", async ({
+  page,
+}) => {
+  const writes = trackWrites(page, "PATCH")
+  const { subtasks, row } = await parentWithSubtasks(page, ["Draft"])
+
+  await row("Draft").getByRole("button", { name: "Draft", exact: true }).click()
+  const input = subtasks.getByRole("textbox", { name: "Subtask title" })
+  await input.fill("Draft v2")
+  await input.press("Enter")
+  await expect(row("Draft v2")).toBeVisible()
+
+  // Escape abandons an edit.
+  await row("Draft v2").getByRole("button", { name: "Draft v2", exact: true }).click()
+  await subtasks.getByRole("textbox", { name: "Subtask title" }).fill("Nope")
+  await page.keyboard.press("Escape")
+  await expect(row("Draft v2")).toBeVisible()
+  await expect(subtasks.getByRole("textbox", { name: "Subtask title" })).toHaveCount(0)
+
+  await row("Draft v2")
+    .getByRole("button", { name: /Change priority/ })
+    .click()
+  await page.getByRole("menuitemradio", { name: "High" }).click()
+
+  await row("Draft v2")
+    .getByRole("button", { name: /Change assignees/ })
+    .click()
+  await page.getByRole("option", { name: "Assign to me" }).click()
+  await page.keyboard.press("Escape")
+  await expect(row("Draft v2").getByRole("img")).toHaveCount(1)
+
+  await writes.waitFor(3)
+  await page.reload()
+  const after = page.getByRole("region", { name: "Subtasks" })
+  const reloaded = after.getByRole("listitem").filter({
+    has: page.getByRole("button", { name: "Draft v2", exact: true }),
+  })
+  await expect(reloaded).toBeVisible()
+  await expect(reloaded.getByRole("img")).toHaveCount(1)
+  await reloaded.getByRole("button", { name: /Change priority/ }).click()
+  await expect(page.getByRole("menuitemradio", { name: "High" })).toBeChecked()
+})
+
+test("the status dropdown sets any status and progress counts only complete subtasks", async ({
+  page,
+}) => {
+  const { subtasks, row } = await parentWithSubtasks(page, ["One", "Two", "Three"])
+  await expect(subtasks).toContainText("0/3")
+
+  await row("One").getByRole("button", { name: "Change status of One" }).click()
+  await page.getByRole("menuitemradio", { name: "Review" }).click()
+  await row("Two").getByRole("button", { name: "Change status of Two" }).click()
+  await page.getByRole("menuitemradio", { name: "In Progress" }).click()
+  await expect(subtasks).toContainText("0/3")
+
+  await row("Three").getByRole("button", { name: "Change status of Three" }).click()
+  await expect(page.getByRole("menuitemradio", { name: "Todo" })).toBeChecked()
+  await page.getByRole("menuitemradio", { name: "Complete" }).click()
+  await expect(subtasks).toContainText("1/3")
+
+  // Keyboard only: open with Enter, choose with End. The menu moves focus a tick after the key.
+  await row("One").getByRole("button", { name: "Change status of One" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("menu")).toBeVisible()
+  await page.keyboard.press("End")
+  await expect(page.getByRole("menuitemradio", { name: "Complete" })).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(subtasks).toContainText("2/3")
+})
+
+test("deleting a subtask asks first and lowers the count", async ({ page }) => {
+  const writes = trackWrites(page, "DELETE")
+  const { subtasks, row } = await parentWithSubtasks(page, ["Keep me", "Drop me"])
+  await expect(subtasks).toContainText("0/2")
+
+  await row("Drop me").getByRole("button", { name: "Actions for Drop me" }).click()
+  await page.getByRole("menuitem", { name: "Delete subtask" }).click()
+  const confirm = page.getByRole("dialog", { name: "Delete subtask?" })
+  await confirm.getByRole("button", { name: "Cancel" }).click()
+  await expect(row("Drop me")).toBeVisible()
+
+  await row("Drop me").getByRole("button", { name: "Actions for Drop me" }).click()
+  await page.getByRole("menuitem", { name: "Delete subtask" }).click()
+  await page
+    .getByRole("dialog", { name: "Delete subtask?" })
+    .getByRole("button", { name: "Delete" })
+    .click()
+  await expect(row("Drop me")).toHaveCount(0)
+  await expect(subtasks).toContainText("0/1")
+
+  await writes.waitFor(1)
+  await page.reload()
+  await expect(page.getByRole("region", { name: "Subtasks" }).getByRole("listitem")).toHaveCount(1)
 })
