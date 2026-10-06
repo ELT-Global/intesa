@@ -1,6 +1,7 @@
 import * as P from "@radix-ui/react-popover"
 import { Check } from "lucide-react"
 import { type ReactNode, useEffect, useId, useState } from "react"
+import { menuAnimation } from "@/components/ui/animation"
 import { cn } from "@/lib/utils"
 
 export type PickerOption = {
@@ -56,7 +57,10 @@ export function PickerPopover({
           sideOffset={6}
           collisionPadding={8}
           aria-label={label}
-          className="z-50 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+          className={cn(
+            menuAnimation,
+            "origin-(--radix-popover-content-transform-origin) z-50 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none",
+          )}
         >
           <input
             role="combobox"

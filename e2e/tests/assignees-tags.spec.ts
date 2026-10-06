@@ -31,6 +31,8 @@ test("assign and unassign people; avatars persist on the card; Assign to me", as
   await popover.getByRole("option", { name: new RegExp(memberEmail) }).click()
   await expect(popover.getByRole("option", { selected: true })).toHaveCount(2)
   await page.keyboard.press("Escape")
+  // The picker fades out; a second Escape sent meanwhile would be swallowed by it.
+  await expect(page.getByRole("dialog", { name: /^(Assignees|Tags)$/ })).toBeHidden()
   await page.keyboard.press("Escape")
 
   await expect(card(page, "Task in A").getByRole("img", { name: "Olive Owner" })).toBeVisible()
@@ -45,6 +47,8 @@ test("assign and unassign people; avatars persist on the card; Assign to me", as
   await popover.getByRole("combobox").fill(memberEmail.split("@")[0] as string)
   await page.keyboard.press("Enter")
   await page.keyboard.press("Escape")
+  // The picker fades out; a second Escape sent meanwhile would be swallowed by it.
+  await expect(page.getByRole("dialog", { name: /^(Assignees|Tags)$/ })).toBeHidden()
   await page.keyboard.press("Escape")
   await expect(card(page, "Task in A").getByRole("img")).toHaveCount(1)
 
@@ -70,6 +74,8 @@ test("create a tag from the picker, reuse it in another project, then remove it"
   await popover.getByRole("combobox").fill("Frontend")
   await popover.getByRole("option", { name: "Create tag “Frontend”" }).click()
   await page.keyboard.press("Escape")
+  // The picker fades out; a second Escape sent meanwhile would be swallowed by it.
+  await expect(page.getByRole("dialog", { name: /^(Assignees|Tags)$/ })).toBeHidden()
   await page.keyboard.press("Escape")
   await expect(card(page, "Task in A")).toContainText("Frontend")
 
@@ -80,6 +86,8 @@ test("create a tag from the picker, reuse it in another project, then remove it"
   await expect(popover.getByRole("option", { name: /Create tag/ })).toHaveCount(0)
   await popover.getByRole("option", { name: "Frontend" }).click()
   await page.keyboard.press("Escape")
+  // The picker fades out; a second Escape sent meanwhile would be swallowed by it.
+  await expect(page.getByRole("dialog", { name: /^(Assignees|Tags)$/ })).toBeHidden()
   await page.keyboard.press("Escape")
   await expect(card(page, "Task in B")).toContainText("Frontend")
 

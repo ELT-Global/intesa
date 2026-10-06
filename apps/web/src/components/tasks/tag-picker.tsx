@@ -4,30 +4,46 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
 import { type Tag, tagsQuery, useCreateTag } from "@/lib/tags"
-import { type TaskDetail, type TaskSummary, taskKeys, useUpdateTask } from "@/lib/tasks"
+import {
+  type TagRef,
+  type TaskDetail,
+  type TaskSummary,
+  taskKeys,
+  useUpdateTask,
+} from "@/lib/tasks"
 import { PickerPopover } from "./picker-popover"
 import { TagDot } from "./tag-chip"
 
+/**
+ * Edits a task's tags, or, with `value`/`onChange` instead of `task`, a draft list
+ * (e.g. while composing a new task).
+ */
 export function TagPicker({
   task,
   workspaceId,
+  value,
+  onChange,
 }: {
-  task: TaskDetail | TaskSummary
+  task?: TaskDetail | TaskSummary
   workspaceId: string
+  value?: Tag[]
+  onChange?: (next: Tag[]) => void
 }) {
+  const applied = value ?? task?.tags ?? []
   const update = useUpdateTask()
   const qc = useQueryClient()
   const createTag = useCreateTag(workspaceId)
   const tags = useQuery(tagsQuery(workspaceId)).data ?? []
   const [filter, setFilter] = useState("")
 
-  const appliedIds = new Set(task.tags.map((t) => t.id))
+  const appliedIds = new Set(applied.map((t) => t.id))
   const name = filter.trim()
   const needle = name.toLowerCase()
   const visible = tags.filter((t) => !needle || t.name.toLowerCase().includes(needle))
   const exists = tags.some((t) => t.name.toLowerCase() === needle)
 
   function setTags(next: Tag[]) {
+    if (onChange || !task) return onChange?.(next)
     update.mutate({
       taskId: task.id,
       projectId: task.projectId,
@@ -36,8 +52,14 @@ export function TagPicker({
     })
   }
 
+  function currentTags(): TagRef[] {
+    return task
+      ? (qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.tags ?? task.tags)
+      : applied
+  }
+
   function toggle(tag: Tag) {
-    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.tags ?? task.tags
+    const current = currentTags()
     const kept = current.filter((t) => t.id !== tag.id)
     setTags(current.some((t) => t.id === tag.id) ? kept : [...kept, tag])
   }
@@ -56,7 +78,7 @@ export function TagPicker({
     }
     if (!tag) return
     // The task may have changed while the tag was being created.
-    const current = qc.getQueryData<TaskDetail>(taskKeys.detail(task.id))?.tags ?? task.tags
+    const current = currentTags()
     const created = tag
     if (!current.some((t) => t.id === created.id)) setTags([...current, created])
   }
@@ -73,11 +95,11 @@ export function TagPicker({
         <Button
           variant="ghost"
           size="sm"
-          aria-label={task.tags.length === 0 ? "Add tag" : "Change tags"}
+          aria-label={applied.length === 0 ? "Add tag" : "Change tags"}
           className="text-foreground"
         >
           <TagIcon />
-          {task.tags.length === 0 && "Add tag"}
+          {applied.length === 0 && "Add tag"}
         </Button>
       }
       options={[
