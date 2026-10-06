@@ -1,0 +1,83 @@
+# Docker Compose definition for Coolify (build pack "Docker Compose", Base Directory "/",
+# Docker Compose Location "/coolify.compose.yaml"), also usable with plain
+# `docker compose -f coolify.compose.yaml up --build` for a local trial (see the notes at the
+# bottom).
+# One container: the API serves /api/* and the built web client on the same port.
+services:
+  intesa:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    # Also published on the server's port 5580 (plain HTTP), alongside the HTTPS Coolify
+    # domain. The server's firewall decides who can reach it.
+    ports:
+      - "5580:5580"
+    # Restart after a crash (non-zero exit), at most 5 times; then the container stays down.
+    restart: on-failure:5
+    # A small init process forwards stop signals so the server can close the database cleanly.
+    init: true
+    stop_grace_period: 10s
+    environment:
+      # Coolify "magic" variable: declaring SERVICE_FQDN_<NAME>_<PORT> makes Coolify route the
+      # service's domain to that container port.
+      - SERVICE_FQDN_INTESA_5580
+      - NODE_ENV=production
+      - PORT=5580
+      # Runtime-only variables: in Coolify, untick "Available at Buildtime" so their values are
+      # not baked into the image history as build args. No ":?" guard on them, because
+      # `docker compose build` interpolates the whole file and would fail when they are left
+      # out of the build environment.
+      #
+      # Required. The app's public origin, e.g. https://intesa.eltglobal.xyz: the Google
+      # redirect URI (<PUBLIC_URL>/api/auth/google/callback) and the session cookies use it.
+      - PUBLIC_URL=${PUBLIC_URL}
+      # Required: the dev login is disabled in production, so Google is the only way in.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      # Optional: set a postgres:// URL to use PostgreSQL instead of the SQLite file in /data
+      # (see the commented postgres service below for a ready-made URL).
+      - DATABASE_URL=${DATABASE_URL:-/data/intesa.db}
+    volumes:
+      - intesa-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:5580/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    # Uncomment when using the postgres service below:
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
+
+  # Optional PostgreSQL. To use it, uncomment this service, the volume below, the depends_on
+  # block above, and change the intesa DATABASE_URL line to:
+  #   - DATABASE_URL=postgres://intesa:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/intesa
+  # Coolify generates SERVICE_PASSWORD_POSTGRES once and uses it for both services.
+  #
+  # postgres:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_USER=intesa
+  #     - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+  #     - POSTGRES_DB=intesa
+  #   volumes:
+  #     - intesa-pg:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U intesa -d intesa"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+
+volumes:
+  intesa-data:
+  # intesa-pg:
+
+# Local trial: the app is on http://localhost:5580 with
+#   PUBLIC_URL=http://localhost:5580 \
+#   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... docker compose -f coolify.compose.yaml up --build

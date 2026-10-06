@@ -1,3 +1,7 @@
+# Single image: the API serves both /api/* and the built web client (WEB_DIST), so the browser
+# sees one origin (the client calls "/api", session cookies are SameSite=Lax and the OAuth
+# callback redirects to relative paths).
+#
 # The API is bundled into one file (~0.4 MB, dependencies included), so the runtime image
 # needs only the Bun runtime, that bundle and the built web client. `bun build --compile`
 # was measured too: the binary is ~86 MB because it embeds the whole runtime, which is the
@@ -6,7 +10,8 @@
 FROM oven/bun:1.4.2-alpine AS build
 WORKDIR /app
 
-# Manifests first so the dependency layer is cached until they change.
+# Manifests first so the dependency layer is cached until they change. Every workspace
+# manifest is needed for --frozen-lockfile, even the ones not installed.
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
@@ -20,7 +25,7 @@ RUN bun run --cwd apps/web build \
 
 FROM oven/bun:1.4.2-alpine
 ENV NODE_ENV=production \
-    PORT=3000 \
+    PORT=5580 \
     DATABASE_URL=/data/intesa.db \
     WEB_DIST=/app/web
 WORKDIR /app
@@ -32,9 +37,9 @@ COPY --from=build /app/apps/web/dist/client ./web
 RUN mkdir /data && chown bun:bun /data
 USER bun
 VOLUME /data
-EXPOSE 3000
+EXPOSE 5580
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD bun -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD bun -e "fetch('http://127.0.0.1:' + (process.env.PORT || 5580) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
 CMD ["bun", "server.js"]

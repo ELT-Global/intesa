@@ -75,14 +75,14 @@ bun run lint
 ## Docker
 
 ```sh
-docker build -t intesa .
-docker run -d --name intesa --init -p 3000:3000 -v intesa-data:/data \
+docker build -f Dockerfile.coolify -t intesa .
+docker run -d --name intesa --init -p 5580:5580 -v intesa-data:/data \
   -e PUBLIC_URL=https://pm.example.com \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
   intesa
 ```
 
-The image runs as an unprivileged user, keeps the SQLite database in the `/data` volume (`DATABASE_URL=/data/intesa.db`) and has a health check on `/api/health`, which also checks the database connection. The API is bundled into a single file, so the image holds only the Bun runtime, that file and the built client. Terminate TLS in front of it (a reverse proxy); the app itself speaks plain HTTP.
+The image runs as an unprivileged user, keeps the SQLite database in the `/data` volume (`DATABASE_URL=/data/intesa.db`) and listens on port 5580 (`PORT`) and has a health check on `/api/health`, which also checks the database connection. One container serves both the API (`/api/*`) and the built client. The API is bundled into a single file, so the image holds only the Bun runtime, that file and the built client. Terminate TLS in front of it (a reverse proxy); the app itself speaks plain HTTP.
 
 Things to know when running the container:
 
@@ -94,19 +94,19 @@ Things to know when running the container:
 
 Two ways; the Docker Compose one is the simpler.
 
-**Docker Compose build pack (uses `docker-compose.yml`)**
+**Docker Compose build pack (uses `coolify.compose.yaml`)**
 
-1. In Coolify: New Resource, choose the Git repository, set the build pack to Docker Compose (compose file `/docker-compose.yml`).
-2. Create a Google OAuth client first (see "Google sign-in") and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the resource's Environment Variables. Both are required; the deploy refuses to start without them.
-3. Optionally set a domain for the `intesa` service (Configuration, Domains). If you leave it, Coolify generates one. Coolify fills `SERVICE_URL_INTESA` from it, and the compose file passes that to the app as `PUBLIC_URL`. If you change the domain later, redeploy so the app picks it up.
+1. In Coolify: New Resource, choose the Git repository, set the build pack to Docker Compose (Base Directory `/`, compose file `/coolify.compose.yaml`).
+2. Create a Google OAuth client first (see "Google sign-in") and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the resource's Environment Variables. Both are required (nobody can sign in without them); mark them runtime only by unticking "Available at Buildtime".
+3. Optionally set a domain for the `intesa` service (Configuration, Domains). If you leave it, Coolify generates one. Set `PUBLIC_URL` in the resource's Environment Variables to that domain's full `https://` URL (for example `https://intesa.eltglobal.xyz`). If you change the domain later, update `PUBLIC_URL` and redeploy.
 4. In the Google console, add the authorised redirect URI `<the service URL>/api/auth/google/callback` (for example `https://pm.example.com/api/auth/google/callback`). If you let Coolify generate the domain, deploy once, copy the domain from the Configuration page, register the URI, then try signing in.
 5. Deploy. The first person to sign in creates a workspace.
 
-To use PostgreSQL instead of SQLite, uncomment the `postgres` service, the `depends_on` block and the `intesa-pg` volume in `docker-compose.yml`, and replace the `DATABASE_URL` line of the `intesa` service with `DATABASE_URL=postgres://intesa:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/intesa` (Coolify generates the password and uses it for both services, so no manual URL is needed).
+To use PostgreSQL instead of SQLite, uncomment the `postgres` service, the `depends_on` block and the `intesa-pg` volume in `coolify.compose.yaml`, and replace the `DATABASE_URL` line of the `intesa` service with `DATABASE_URL=postgres://intesa:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/intesa` (Coolify generates the password and uses it for both services, so no manual URL is needed).
 
 **Dockerfile build pack**
 
-Choose Dockerfile as the build pack and set: port exposed `3000`, health check path `/api/health` (HTTP, port 3000), and a persistent storage mount at `/data`. Add the environment variables from the table above: `PUBLIC_URL` (the full `https://` URL of the domain you assign), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and optionally `DATABASE_URL`. `NODE_ENV`, `PORT` and the default `DATABASE_URL=/data/intesa.db` are already set in the image.
+Choose Dockerfile as the build pack, with Dockerfile location `/Dockerfile.coolify`, and set: port exposed `5580`, health check path `/api/health` (HTTP, port 5580), and a persistent storage mount at `/data`. Add the environment variables from the table above: `PUBLIC_URL` (the full `https://` URL of the domain you assign), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and optionally `DATABASE_URL`. `NODE_ENV`, `PORT` and the default `DATABASE_URL=/data/intesa.db` are already set in the image.
 
 **Backups.** With SQLite, everything lives in the `intesa-data` volume (`intesa.db` plus `-wal` and `-shm` files), and Coolify does not back up volumes for you. Copying the live files can capture a half-written state; make a consistent copy first, then back up that file:
 

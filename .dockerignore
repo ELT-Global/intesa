@@ -12,7 +12,8 @@ e2e/playwright-report
 test-results
 playwright-report
 docs
-Dockerfile
+Dockerfile*
+*.compose.yaml
 .dockerignore
 **/.env
 **/.env.local
