@@ -1,20 +1,21 @@
 import { resolve } from "node:path"
 import { createApp } from "./app"
-import { configFromEnv } from "./config"
+import { configFromEnv, optionalEnv } from "./config"
 import { createDb, migrate } from "./db"
 
 const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: "info", time: new Date().toISOString(), msg, ...extra }))
 
-const port = Number(process.env.PORT ?? 3000)
-const webDist = process.env.WEB_DIST ?? resolve(import.meta.dir, "../../web/dist/client")
+const port = Number(optionalEnv(process.env, "PORT") ?? 3000)
+const webDist =
+  optionalEnv(process.env, "WEB_DIST") ?? resolve(import.meta.dir, "../../web/dist/client")
 
 // Without DATABASE_URL the database lives in <repo root>/data, whatever directory the
 // process was started from. An explicit relative DATABASE_URL is relative to the cwd.
 const defaultDatabase = resolve(import.meta.dir, "../../../data/intesa.db")
 
 const config = configFromEnv(process.env)
-const db = await createDb(process.env.DATABASE_URL ?? defaultDatabase)
+const db = await createDb(optionalEnv(process.env, "DATABASE_URL") ?? defaultDatabase)
 await migrate(db)
 
 // In dev the Vite server serves the web app, so static hosting is production-only.

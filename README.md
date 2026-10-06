@@ -102,7 +102,7 @@ Two ways; the Docker Compose one is the simpler.
 4. In the Google console, add the authorised redirect URI `<the service URL>/api/auth/google/callback` (for example `https://pm.example.com/api/auth/google/callback`). If you let Coolify generate the domain, deploy once, copy the domain from the Configuration page, register the URI, then try signing in.
 5. Deploy. The first person to sign in creates a workspace.
 
-To use PostgreSQL instead of SQLite, uncomment the `postgres` service, the `depends_on` block and the `intesa-pg` volume in `docker-compose.yml`, and set `DATABASE_URL=postgres://intesa:<password>@postgres:5432/intesa`, where the password is the generated `SERVICE_PASSWORD_POSTGRES`.
+To use PostgreSQL instead of SQLite, uncomment the `postgres` service, the `depends_on` block and the `intesa-pg` volume in `docker-compose.yml`, and replace the `DATABASE_URL` line of the `intesa` service with `DATABASE_URL=postgres://intesa:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/intesa` (Coolify generates the password and uses it for both services, so no manual URL is needed).
 
 **Dockerfile build pack**
 
