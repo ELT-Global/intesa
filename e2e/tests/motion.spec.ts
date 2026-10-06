@@ -2,36 +2,50 @@ import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { createProject, workspaceIdBySlug } from "../support/projects"
 
-type Sample = { name: string; scale: string; translateX: string }
-type Motion = { open: Sample[]; sawClosed: boolean }
-
 /**
- * Records, for every dialog that appears, its animation while open (name plus the tw-animate-css
- * enter variables) and whether a `data-state="closed"` copy was ever in the DOM. Sampling from a
- * MutationObserver avoids racing a 150-200ms animation with Playwright's polling.
+ * What the page observed about each overlay (dialog or menu) as it appeared:
+ * - `animations`: running animations at the moment it was inserted
+ * - `moves`: whether its transform differed from identity halfway through the animation
+ * - `finished`: whether those animations ran to completion
+ * Sampling happens in a MutationObserver callback, before the first paint, so it never races a
+ * 150-200ms animation. The animations are paused at their midpoint to read the transform, then
+ * restarted.
  */
-async function recordDialogMotion(page: Page) {
-  await page.evaluate(() => {
-    const w = window as unknown as { __motion: Motion }
-    w.__motion = { open: [], sawClosed: false }
+type Observed = { animations: number; moves: boolean; finished: boolean }
+type Probe = { opened: Observed[]; sawClosed: boolean }
+
+async function observeOverlays(page: Page, selector: string) {
+  await page.evaluate((sel) => {
+    const probe: Probe = { opened: [], sawClosed: false }
+    ;(window as unknown as { __probe: Probe }).__probe = probe
+    const seen = new WeakSet<Element>()
     new MutationObserver(() => {
-      for (const el of document.querySelectorAll<HTMLElement>("[role=dialog]")) {
-        const style = getComputedStyle(el)
-        if (el.dataset.state === "open") {
-          w.__motion.open.push({
-            name: style.animationName,
-            scale: style.getPropertyValue("--tw-enter-scale").trim(),
-            translateX: style.getPropertyValue("--tw-enter-translate-x").trim(),
-          })
+      for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+        if (el.dataset.state === "closed") probe.sawClosed = true
+        if (el.dataset.state !== "open" || seen.has(el)) continue
+        seen.add(el)
+        const animations = el.getAnimations()
+        const entry: Observed = { animations: animations.length, moves: false, finished: false }
+        probe.opened.push(entry)
+        for (const a of animations) {
+          a.pause()
+          a.currentTime = Number(a.effect?.getComputedTiming().duration ?? 0) / 2
         }
-        if (el.dataset.state === "closed") w.__motion.sawClosed = true
+        const t = getComputedStyle(el).transform
+        entry.moves = t !== "none" && !new DOMMatrix(t).isIdentity
+        for (const a of animations) {
+          a.currentTime = 0
+          a.play()
+        }
+        void Promise.all(animations.map((a) => a.finished)).then(() => {
+          entry.finished = true
+        })
       }
     }).observe(document.body, { subtree: true, childList: true, attributes: true })
-  })
+  }, selector)
 }
 
-const motion = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __motion: Motion }).__motion)
+const probe = (page: Page) => page.evaluate(() => (window as unknown as { __probe: Probe }).__probe)
 
 async function boardWithTask(page: Page) {
   await signIn(page, { email: uniqueEmail() })
@@ -54,54 +68,59 @@ async function openProjectSettings(page: Page) {
   await page.getByRole("menuitem", { name: "Project settings" }).click()
 }
 
-test("a dialog zooms in and plays its exit animation before leaving the DOM", async ({ page }) => {
+test("a dialog animates in and stays mounted while it animates out", async ({ page }) => {
   await boardWithTask(page)
-  await recordDialogMotion(page)
+  await observeOverlays(page, "[role=dialog]")
 
   await openProjectSettings(page)
   const dialog = page.getByRole("dialog", { name: "Project settings" })
   await expect(dialog).toBeVisible()
   await page.keyboard.press("Escape")
 
-  await expect.poll(async () => (await motion(page)).sawClosed).toBe(true)
+  await expect.poll(async () => (await probe(page)).sawClosed).toBe(true)
   await expect(dialog).toHaveCount(0)
 
-  const { open } = await motion(page)
-  expect(open.length).toBeGreaterThan(0)
-  expect(open.every((s) => s.name === "enter")).toBe(true)
-  // zoom-in-95 is applied: the start scale differs from the neutral value 1.
-  expect(open.some((s) => s.scale !== "" && s.scale !== "1")).toBe(true)
+  const [opened] = (await probe(page)).opened
+  expect(opened?.animations).toBeGreaterThan(0)
+  expect(opened?.moves).toBe(true)
+  // The exit animation kept the element mounted (sawClosed) until it ended (count 0 above).
 })
 
-test("the task sheet slides in from the right and out again", async ({ page }) => {
+test("the task sheet slides in and out", async ({ page }) => {
   await boardWithTask(page)
-  await recordDialogMotion(page)
+  await observeOverlays(page, "[role=dialog]")
 
   await page.getByRole("button", { name: /Animate me/ }).click()
   const sheet = page.getByRole("dialog")
   await expect(sheet).toBeVisible()
   await page.keyboard.press("Escape")
-  await expect.poll(async () => (await motion(page)).sawClosed).toBe(true)
+  await expect.poll(async () => (await probe(page)).sawClosed).toBe(true)
   await expect(sheet).toHaveCount(0)
 
-  const { open } = await motion(page)
-  expect(open.some((s) => s.name === "enter" && s.translateX.includes("100%"))).toBe(true)
+  const [opened] = (await probe(page)).opened
+  expect(opened?.animations).toBeGreaterThan(0)
+  expect(opened?.moves).toBe(true)
 })
 
 test("menus animate in", async ({ page }) => {
   await boardWithTask(page)
+  await observeOverlays(page, "[role=menu]")
+
   await page.getByRole("button", { name: "Project options" }).click()
-  const menu = page.getByRole("menu")
-  await expect(menu).toBeVisible()
-  expect(await menu.evaluate((el) => getComputedStyle(el).animationName)).toBe("enter")
+  await expect(page.getByRole("menu")).toBeVisible()
+
+  // Menus scale from a popper-positioned wrapper, so only the presence of an animation is
+  // asserted; whether its transform is non-identity at a given instant is not reliable.
+  const [opened] = (await probe(page)).opened
+  expect(opened?.animations).toBeGreaterThan(0)
 })
 
 test.describe("reduced motion", () => {
   test.use({ reducedMotion: "reduce" })
 
-  test("dialogs and sheets only fade: no zoom, no slide", async ({ page }) => {
+  test("dialogs and sheets still fade but never move", async ({ page }) => {
     await boardWithTask(page)
-    await recordDialogMotion(page)
+    await observeOverlays(page, "[role=dialog]")
 
     await page.getByRole("button", { name: /Animate me/ }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
@@ -111,12 +130,11 @@ test.describe("reduced motion", () => {
     await openProjectSettings(page)
     await expect(page.getByRole("dialog", { name: "Project settings" })).toBeVisible()
 
-    const { open } = await motion(page)
-    expect(open.length).toBeGreaterThan(0)
-    for (const s of open) {
-      expect(s.name).toBe("enter")
-      expect(["", "0"]).toContain(s.translateX)
-      expect(["", "1"]).toContain(s.scale)
+    const { opened } = await probe(page)
+    expect(opened.length).toBe(2)
+    for (const o of opened) {
+      expect(o.animations).toBeGreaterThan(0)
+      expect(o.moves).toBe(false)
     }
   })
 })

@@ -1,7 +1,7 @@
 import * as S from "@radix-ui/react-dialog"
 import type { ComponentProps, HTMLAttributes } from "react"
 import { cn } from "@/lib/utils"
-import { overlayAnimation, sheetAnimation } from "./animation"
+import { overlayAnimation, sheetAnimation, sheetSides } from "./animation"
 
 export const Sheet = S.Root
 export const SheetTrigger = S.Trigger
@@ -21,11 +21,6 @@ export function SheetOverlay({ className, ...props }: ComponentProps<typeof S.Ov
   )
 }
 
-const sides = {
-  right: "inset-y-0 right-0",
-  left: "inset-y-0 left-0",
-} as const
-
 /** Edge-anchored panel. Slides in and out through the shared overlay animations. */
 export function SheetContent({
   side = "right",
@@ -33,15 +28,18 @@ export function SheetContent({
   overlayClassName,
   children,
   ...props
-}: ComponentProps<typeof S.Content> & { side?: keyof typeof sides; overlayClassName?: string }) {
+}: ComponentProps<typeof S.Content> & {
+  side?: keyof typeof sheetSides
+  overlayClassName?: string
+}) {
   return (
     <SheetPortal>
       <SheetOverlay className={overlayClassName} />
       <S.Content
         className={cn(
           "fixed z-50 flex flex-col outline-none",
-          sheetAnimation[side],
-          sides[side],
+          sheetAnimation(side),
+          sheetSides[side].position,
           className,
         )}
         {...props}

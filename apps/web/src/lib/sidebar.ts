@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { isPlainShortcut } from "./shortcuts"
 
 const KEY = "intesa-sidebar-collapsed"
 
@@ -26,12 +27,7 @@ export function useSidebarCollapsed() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
-      const el = e.target as HTMLElement | null
-      if (el?.closest("input, textarea, select, [contenteditable], [role=menu], [role=listbox]")) {
-        return
-      }
-      if (document.querySelector("[role=dialog]")) return
+      if (!isPlainShortcut(e, "[")) return
       // Below the md breakpoint the sidebar is a drawer, which has its own toggle.
       if (!window.matchMedia("(min-width: 768px)").matches) return
       e.preventDefault()

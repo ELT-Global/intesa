@@ -5,6 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Drawer and sheet easing (DESIGN §7). */
+  --ease-drawer: cubic-bezier(0.23, 1, 0.32, 1);
   --font-sans: "Geist", "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-heading: var(--font-sans);

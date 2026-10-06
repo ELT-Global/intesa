@@ -24,10 +24,21 @@ test("the sidebar collapses and expands from the top bar button", async ({ page 
   await expect(nav(page)).toBeVisible()
 })
 
-test("the sidebar header button collapses it too", async ({ page }) => {
+test("the sidebar header button collapses it, makes it inert and keeps focus on the toggle", async ({
+  page,
+}) => {
   await setup(page)
+  const aside = page.locator("aside")
+  await expect(aside).not.toHaveAttribute("inert", /.*/)
+
   await page.getByRole("button", { name: "Collapse sidebar" }).click()
   await expect(nav(page)).toBeHidden()
+  await expect(aside).toHaveAttribute("inert", "")
+  await expect(page.getByRole("button", { name: "Toggle sidebar" })).toBeFocused()
+
+  await page.keyboard.press("Enter")
+  await expect(nav(page)).toBeVisible()
+  await expect(aside).not.toHaveAttribute("inert", /.*/)
 })
 
 test("[ toggles the sidebar, except while typing", async ({ page }) => {
@@ -47,6 +58,15 @@ test("[ toggles the sidebar, except while typing", async ({ page }) => {
   await expect(email).toHaveValue("[")
   // The open dialog makes the page behind it inert for role queries, so check the element itself.
   await expect(page.locator('nav[aria-label="Primary"]')).toBeVisible()
+})
+
+test("[ is ignored while a menu is open", async ({ page }) => {
+  await setup(page)
+  await page.getByRole("button", { name: "Switch workspace" }).click()
+  await expect(page.getByRole("menu")).toBeVisible()
+  await page.keyboard.press("[")
+  await page.keyboard.press("Escape")
+  await expect(nav(page)).toBeVisible()
 })
 
 test("the collapsed state survives a reload", async ({ page }) => {

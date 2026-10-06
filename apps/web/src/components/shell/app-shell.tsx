@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useMatches } from "@tanstack/react-router"
 import { Menu, PanelLeft, X } from "lucide-react"
-import { createContext, type ReactNode, useContext, useState } from "react"
+import { createContext, type ReactNode, useContext, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -71,6 +71,7 @@ export function AppShell({
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const [slot, setSlot] = useState<HTMLElement | null>(null)
   // The kanban board needs the full main area and its own scrolling.
   const fullBleed = useMatches({ select: (ms) => ms.some((m) => m.staticData.fullBleed) })
@@ -88,12 +89,20 @@ export function AppShell({
       <aside
         inert={collapsed}
         className={cn(
-          "hidden shrink-0 overflow-hidden bg-sidebar transition-[width,visibility] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none md:block",
+          "hidden shrink-0 overflow-hidden bg-sidebar transition-[width,visibility] duration-200 ease-drawer motion-reduce:transition-none md:block",
           collapsed ? "invisible w-0" : "w-64 border-r border-sidebar-border lg:max-xl:w-60",
         )}
       >
         <div className="h-full w-64 overflow-y-auto lg:max-xl:w-60">
-          <SidebarContent workspace={workspace} workspaces={workspaces} onCollapse={toggle} />
+          <SidebarContent
+            workspace={workspace}
+            workspaces={workspaces}
+            onCollapse={() => {
+              // The sidebar goes inert; keep focus on the control that brings it back.
+              toggleRef.current?.focus()
+              toggle()
+            }}
+          />
         </div>
       </aside>
 
@@ -105,6 +114,7 @@ export function AppShell({
               setSlot={setSlot}
               sidebarToggle={
                 <Button
+                  ref={toggleRef}
                   variant="ghost"
                   size="sm"
                   icon
