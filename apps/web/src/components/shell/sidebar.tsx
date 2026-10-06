@@ -7,12 +7,14 @@ import {
   House,
   LogOut,
   Moon,
+  PanelLeft,
   Plus,
   Settings,
   Sun,
   Users,
 } from "lucide-react"
 import { Avatar } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -152,11 +154,14 @@ export function SidebarContent({
   workspace,
   workspaces,
   onNavigate,
+  onCollapse,
   header,
 }: {
   workspace: Workspace
   workspaces: Workspace[]
   onNavigate?: () => void
+  /** Desktop only: shows a collapse button in the header. */
+  onCollapse?: () => void
   header?: React.ReactNode
 }) {
   const params = { slug: workspace.slug }
@@ -167,7 +172,23 @@ export function SidebarContent({
   ] as const
   return (
     <div className="flex h-full flex-col gap-3 p-2">
-      {header ?? <Wordmark />}
+      {header ?? (
+        <div className="flex items-center justify-between">
+          <Wordmark />
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar ([)"
+              onClick={onCollapse}
+            >
+              <PanelLeft />
+            </Button>
+          )}
+        </div>
+      )}
       <WorkspaceSwitcher workspace={workspace} workspaces={workspaces} onNavigate={onNavigate} />
       <nav aria-label="Primary" className="flex flex-col gap-0.5">
         {items.map(({ to, label, icon: Icon }) => (

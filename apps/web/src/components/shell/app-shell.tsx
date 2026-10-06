@@ -1,13 +1,14 @@
-import * as Dialog from "@radix-ui/react-dialog"
 import { useQuery } from "@tanstack/react-query"
 import { useMatches } from "@tanstack/react-router"
-import { Menu, X } from "lucide-react"
+import { Menu, PanelLeft, X } from "lucide-react"
 import { createContext, type ReactNode, useContext, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import type { Workspace } from "@/lib/api"
 import { useRememberProjectView } from "@/lib/last-view"
 import { projectQuery } from "@/lib/queries"
+import { useSidebarCollapsed } from "@/lib/sidebar"
 import { cn } from "@/lib/utils"
 import { SidebarContent, Wordmark } from "./sidebar"
 
@@ -22,10 +23,12 @@ export function TopBarActions({ children }: { children: ReactNode }) {
 function TopBar({
   workspace,
   trigger,
+  sidebarToggle,
   setSlot,
 }: {
   workspace: Workspace
   trigger: ReactNode
+  sidebarToggle: ReactNode
   setSlot: (el: HTMLElement | null) => void
 }) {
   useRememberProjectView()
@@ -42,6 +45,7 @@ function TopBar({
   return (
     <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-3 backdrop-blur-md">
       {trigger}
+      {sidebarToggle}
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-[13px]">
         <span className="hidden truncate text-muted-foreground sm:inline">{workspace.name}</span>
         <span className="hidden text-muted-foreground sm:inline" aria-hidden>
@@ -66,6 +70,7 @@ export function AppShell({
   children: ReactNode
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const { collapsed, toggle } = useSidebarCollapsed()
   const [slot, setSlot] = useState<HTMLElement | null>(null)
   // The kanban board needs the full main area and its own scrolling.
   const fullBleed = useMatches({ select: (ms) => ms.some((m) => m.staticData.fullBleed) })
@@ -80,18 +85,40 @@ export function AppShell({
       >
         Skip to content
       </button>
-      <aside className="hidden w-64 shrink-0 overflow-y-auto border-r border-sidebar-border bg-sidebar md:block lg:max-xl:w-60">
-        <SidebarContent workspace={workspace} workspaces={workspaces} />
+      <aside
+        inert={collapsed}
+        className={cn(
+          "hidden shrink-0 overflow-hidden bg-sidebar transition-[width,visibility] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none md:block",
+          collapsed ? "invisible w-0" : "w-64 border-r border-sidebar-border lg:max-xl:w-60",
+        )}
+      >
+        <div className="h-full w-64 overflow-y-auto lg:max-xl:w-60">
+          <SidebarContent workspace={workspace} workspaces={workspaces} onCollapse={toggle} />
+        </div>
       </aside>
 
       <TopBarSlot.Provider value={slot}>
-        <Dialog.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <div className="flex min-w-0 flex-1 flex-col">
             <TopBar
               workspace={workspace}
               setSlot={setSlot}
+              sidebarToggle={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  className="max-md:hidden"
+                  aria-label="Toggle sidebar"
+                  aria-expanded={!collapsed}
+                  title="Toggle sidebar ([)"
+                  onClick={toggle}
+                >
+                  <PanelLeft />
+                </Button>
+              }
               trigger={
-                <Dialog.Trigger asChild>
+                <SheetTrigger asChild>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -101,7 +128,7 @@ export function AppShell({
                   >
                     <Menu />
                   </Button>
-                </Dialog.Trigger>
+                </SheetTrigger>
               }
             />
             <main
@@ -122,31 +149,30 @@ export function AppShell({
             </main>
           </div>
 
-          <Dialog.Portal>
-            <Dialog.Overlay className="drawer-scrim fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" />
-            <Dialog.Content
-              aria-describedby={undefined}
-              className="drawer-panel fixed inset-y-0 left-0 z-50 w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl ring-1 ring-black/5 outline-none md:hidden"
-            >
-              <Dialog.Title className="sr-only">Navigation</Dialog.Title>
-              <SidebarContent
-                workspace={workspace}
-                workspaces={workspaces}
-                onNavigate={() => setDrawerOpen(false)}
-                header={
-                  <div className="flex items-center justify-between">
-                    <Wordmark />
-                    <Dialog.Close asChild>
-                      <Button variant="ghost" size="sm" icon aria-label="Close navigation">
-                        <X />
-                      </Button>
-                    </Dialog.Close>
-                  </div>
-                }
-              />
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+          <SheetContent
+            side="left"
+            overlayClassName="md:hidden"
+            aria-describedby={undefined}
+            className="w-[min(288px,85vw)] overflow-y-auto border-r border-sidebar-border bg-sidebar shadow-2xl ring-1 ring-black/5 md:hidden"
+          >
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SidebarContent
+              workspace={workspace}
+              workspaces={workspaces}
+              onNavigate={() => setDrawerOpen(false)}
+              header={
+                <div className="flex items-center justify-between">
+                  <Wordmark />
+                  <SheetClose asChild>
+                    <Button variant="ghost" size="sm" icon aria-label="Close navigation">
+                      <X />
+                    </Button>
+                  </SheetClose>
+                </div>
+              }
+            />
+          </SheetContent>
+        </Sheet>
       </TopBarSlot.Provider>
     </div>
   )
