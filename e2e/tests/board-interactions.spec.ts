@@ -30,7 +30,7 @@ async function holdDragOver(
       const x = edge === "right" ? box.right - 8 : edge === "left" ? box.left + 8 : box.left + 40
       const y = edge === "bottom" ? box.bottom - 8 : box.top + 120
       const data = new DataTransfer()
-      data.setData("text/plain", "task")
+      data.setData("application/x-intesa-task", "task")
       const end = performance.now() + ms
       while (performance.now() < end) {
         el.dispatchEvent(
@@ -106,4 +106,69 @@ test("a table row's menu deletes the task after confirming", async ({ page }) =>
 
   await expect(page.getByRole("row", { name: /Write spec/ })).toHaveCount(0)
   await expect(page.getByRole("row", { name: /Keep me/ })).toBeVisible()
+})
+
+test("Shift+F10 opens exactly one menu; Cancel on Delete returns focus to the card", async ({
+  page,
+}) => {
+  await setup(page, ["Write spec"])
+  const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
+  await card.focus()
+  await page.keyboard.press("Shift+F10")
+  await expect(page.getByRole("menu")).toHaveCount(1)
+
+  await page.getByRole("menuitem", { name: /^Delete/ }).click()
+  const confirm = page.getByRole("dialog", { name: "Delete task?" })
+  await confirm.getByRole("button", { name: "Cancel" }).click()
+  await expect(confirm).toBeHidden()
+  await expect(card).toBeFocused()
+})
+
+test("a picker inside a table row does not open the row menu on Shift+F10", async ({ page }) => {
+  await setup(page, ["Write spec"], "table")
+  await page
+    .getByRole("row", { name: /Write spec/ })
+    .getByRole("button", { name: "Change status" })
+    .focus()
+  await page.keyboard.press("Shift+F10")
+  await expect(page.getByRole("menu", { name: /Actions for/ })).toHaveCount(0)
+})
+
+test("copying reports success, and failure when the clipboard refuses", async ({ page }) => {
+  const { tasks } = await setup(page, ["Write spec"])
+  const card = column(page, "Todo").getByRole("button", { name: /Write spec/ })
+  await card.click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Copy ID" }).click()
+  await expect(
+    page.getByRole("status").filter({ hasText: `Copied ${tasks[0]?.key}` }),
+  ).toBeVisible()
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    })
+  })
+  await card.click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Copy link" }).click()
+  await expect(page.getByRole("alert")).toContainText("Could not copy")
+})
+
+test("deleting from the menu while that task's sheet is open closes the sheet", async ({
+  page,
+}) => {
+  const { slug, project, tasks } = await setup(page, ["Write spec"])
+  await page.goto(`/w/${slug}/projects/${project.id}/board?task=${tasks[0]?.id}`)
+  await expect(page.getByRole("dialog", { name: tasks[0]?.key })).toBeVisible()
+
+  // The sheet covers the board, so a person cannot reach the card; send the event directly.
+  await page.locator("[data-task-primary]").dispatchEvent("contextmenu")
+  await page.getByRole("menuitem", { name: /^Delete/ }).click()
+  await page
+    .getByRole("dialog", { name: "Delete task?" })
+    .getByRole("button", { name: "Delete" })
+    .click()
+
+  await expect(page).not.toHaveURL(/task=/)
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 })

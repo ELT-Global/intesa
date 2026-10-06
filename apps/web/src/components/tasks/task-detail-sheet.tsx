@@ -41,9 +41,10 @@ export function TaskDetailSheet({
       <SheetContent
         side="right"
         aria-describedby={undefined}
-        // Fields that use Escape to cancel their own edit mark themselves so the sheet stays open.
+        // The sheet's listener runs before any field's own, so a field that uses Escape to cancel
+        // its edit marks itself and the sheet leaves the key to it.
         onEscapeKeyDown={(e) => {
-          if (e.target instanceof Element && e.target.closest("[data-keeps-escape]"))
+          if (e.target instanceof HTMLElement && e.target.matches("[data-keeps-escape]"))
             e.preventDefault()
         }}
         className={cn(

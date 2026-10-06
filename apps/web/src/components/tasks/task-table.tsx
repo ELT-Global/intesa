@@ -150,6 +150,7 @@ const Row = memo(function Row({
                 e.stopPropagation()
                 onOpen(task)
               }}
+              data-task-primary
               className="flex max-w-80 min-w-40 cursor-pointer items-baseline gap-2 text-left outline-none focus-visible:underline"
             >
               <span className="font-mono text-[12.5px] text-subtle-foreground">{task.key}</span>

@@ -2,7 +2,12 @@ import * as Menu from "@radix-ui/react-context-menu"
 import { Check, ChevronRight } from "lucide-react"
 import type { ComponentProps } from "react"
 import { cn } from "@/lib/utils"
-import { menuContentClass, menuItemClass, menuRadioItemClass } from "./menu-styles"
+import {
+  menuContentClass,
+  menuDestructiveClass,
+  menuItemClass,
+  menuRadioItemClass,
+} from "./menu-styles"
 
 export const ContextMenu = Menu.Root
 export const ContextMenuTrigger = Menu.Trigger
@@ -44,11 +49,7 @@ export function ContextMenuItem({
 }: ComponentProps<typeof Menu.Item> & { destructive?: boolean }) {
   return (
     <Menu.Item
-      className={cn(
-        menuItemClass,
-        destructive && "text-destructive-foreground [&_svg]:text-destructive-foreground",
-        className,
-      )}
+      className={cn(menuItemClass, destructive && menuDestructiveClass, className)}
       {...props}
     />
   )

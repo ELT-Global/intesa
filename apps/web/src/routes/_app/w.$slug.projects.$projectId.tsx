@@ -23,6 +23,7 @@ import {
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { ApiError } from "@/lib/api"
 import { projectQuery, workspacesQuery } from "@/lib/queries"
+import { isPlainShortcut } from "@/lib/shortcuts"
 import { projectTasksQuery } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/projects/$projectId")({
@@ -43,11 +44,7 @@ type View = "board" | "table"
 function useNewTaskShortcut(open: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "c" || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
-      const el = e.target as HTMLElement | null
-      if (el?.closest("input, textarea, select, [contenteditable], [role=menu], [role=listbox]"))
-        return
-      if (document.querySelector("[role=dialog]")) return
+      if (!isPlainShortcut(e, "c")) return
       e.preventDefault()
       open()
     }

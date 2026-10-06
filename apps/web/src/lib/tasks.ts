@@ -150,7 +150,8 @@ type Rollback = {
   summary?: Record<string, unknown>
   detail?: Record<string, unknown>
   customFields?: Record<string, { had: boolean; value: unknown }>
-  parentStatus?: TaskStatus
+  /** Previous values of the changed fields, in the parent's copy of this subtask. */
+  parent?: Record<string, unknown>
 }
 
 function pick(row: object | undefined, keys: string[]) {
@@ -212,9 +213,7 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
         summary: pick(row, Object.keys(summaryChanges)),
         detail: pick(detail, Object.keys(detailChanges)),
         customFields: previousFields,
-        parentStatus: parentTaskId
-          ? setSubtaskStatus(qc, parentTaskId, taskId, patch.status)
-          : undefined,
+        parent: parentTaskId ? editSubtask(qc, parentTaskId, taskId, summaryChanges) : undefined,
       }
     },
     onError: (_error: Error, _vars: UpdateVars, rollback: Rollback | undefined) => {
@@ -235,9 +234,7 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
         }
         return { ...old, ...detail, customFields: restored } as TaskDetail
       })
-      if (parentTaskId && rollback.parentStatus) {
-        setSubtaskStatus(qc, parentTaskId, taskId, rollback.parentStatus)
-      }
+      if (parentTaskId && rollback.parent) editSubtask(qc, parentTaskId, taskId, rollback.parent)
     },
     onSettled: () => settleTaskMutation(qc, projectId),
   }
@@ -263,23 +260,26 @@ export function useUpdateTask() {
   return { mutate, mutateAsync }
 }
 
-/** Sets a subtask's status inside its parent's cached detail; returns the previous status. */
-function setSubtaskStatus(
+/**
+ * Applies changes to a subtask as listed in its parent's cached detail, keeping the parent's
+ * counts right. Returns the previous values of the changed fields, to undo the edit.
+ */
+function editSubtask(
   qc: QueryClient,
   parentId: string,
   subtaskId: string,
-  status: TaskStatus | undefined,
-): TaskStatus | undefined {
+  changes: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   const parent = qc.getQueryData<TaskDetail>(taskKeys.detail(parentId))
-  const previous = parent?.subtasks.find((t) => t.id === subtaskId)?.status
-  if (!parent || !status || !previous) return undefined
-  const subtasks = parent.subtasks.map((t) => (t.id === subtaskId ? { ...t, status } : t))
+  const entry = parent?.subtasks.find((t) => t.id === subtaskId)
+  if (!parent || !entry) return undefined
+  const subtasks = parent.subtasks.map((t) => (t.id === subtaskId ? { ...t, ...changes } : t))
   qc.setQueryData<TaskDetail>(taskKeys.detail(parentId), {
     ...parent,
     subtasks,
     subtaskDoneCount: subtasks.filter((t) => t.status === "complete").length,
   })
-  return previous
+  return pick(entry, Object.keys(changes))
 }
 
 export function useCreateTask(projectId: string) {
@@ -291,13 +291,18 @@ export function useCreateTask(projectId: string) {
   })
 }
 
-type DeleteVars = { taskId: string; projectId: string }
+type DeleteVars = {
+  taskId: string
+  projectId: string
+  /** For a subtask: removed from the parent's detail straight away too. */
+  parentTaskId?: string | null
+}
 
 export function useDeleteTask() {
   const qc = useQueryClient()
   const mutate = useCallback(
     (vars: DeleteVars) => {
-      const { taskId, projectId } = vars
+      const { taskId, projectId, parentTaskId } = vars
       qc.getMutationCache()
         .build(qc, {
           mutationKey: TASK_MUTATION,
@@ -310,10 +315,24 @@ export function useDeleteTask() {
             qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
               old?.filter((t) => t.id !== taskId),
             )
-            return { list }
+            const parent = parentTaskId
+              ? qc.getQueryData<TaskDetail>(taskKeys.detail(parentTaskId))
+              : undefined
+            if (parentTaskId && parent) {
+              const subtasks = parent.subtasks.filter((t) => t.id !== taskId)
+              qc.setQueryData<TaskDetail>(taskKeys.detail(parentTaskId), {
+                ...parent,
+                subtasks,
+                subtaskCount: subtasks.length,
+                subtaskDoneCount: subtasks.filter((t) => t.status === "complete").length,
+              })
+            }
+            return { list, parent }
           },
           onError: (_error, _vars, ctx) => {
             if (ctx?.list) qc.setQueryData(taskKeys.list(projectId), ctx.list)
+            if (parentTaskId && ctx?.parent)
+              qc.setQueryData(taskKeys.detail(parentTaskId), ctx.parent)
           },
           onSuccess: () => qc.removeQueries({ queryKey: taskKeys.detail(taskId) }),
           onSettled: () => settleTaskMutation(qc, projectId),
@@ -375,6 +394,13 @@ export function dueState(dueAt: string, status: TaskStatus, now = new Date()): D
   const days = Math.round((parseDay(dueAt).getTime() - today.getTime()) / 86_400_000)
   if (days < 0) return "overdue"
   return days <= 2 ? "soon" : "neutral"
+}
+
+/** The calendar day `offset` days from `now`, as YYYY-MM-DD. */
+export function dayFromToday(offset: number, now = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 export function formatDay(day: string, now = new Date()): string {

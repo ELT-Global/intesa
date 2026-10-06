@@ -8,7 +8,7 @@ import {
   Minus,
   X,
 } from "lucide-react"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ComponentType, type ReactNode, useEffect, useState } from "react"
 import { Chip } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -156,19 +156,46 @@ export function StatusPicker({
       </PickerButton>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as TaskStatus)}>
-          {TASK_STATUSES.map((s) => (
-            <DropdownMenuRadioItem key={s} value={s}>
-              <StatusIcon status={s} />
-              {STATUS_LABELS[s]}
-            </DropdownMenuRadioItem>
-          ))}
+          <StatusOptions Item={DropdownMenuRadioItem} />
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-const NO_PRIORITY = "none"
+/** Radio item component of a menu (dropdown or context), so the option lists can be shared. */
+type RadioItem = ComponentType<{ value: string; children?: ReactNode }>
+
+/** One radio item per status, for use inside a menu's radio group. */
+export function StatusOptions({ Item }: { Item: RadioItem }) {
+  return TASK_STATUSES.map((s) => (
+    <Item key={s} value={s}>
+      <StatusIcon status={s} />
+      {STATUS_LABELS[s]}
+    </Item>
+  ))
+}
+
+export const NO_PRIORITY = "none"
+export const priorityFromValue = (v: string) => (v === NO_PRIORITY ? null : (v as TaskPriority))
+
+/** "No priority" plus one radio item per priority, for use inside a menu's radio group. */
+export function PriorityOptions({ Item }: { Item: RadioItem }) {
+  return (
+    <>
+      <Item value={NO_PRIORITY}>
+        <PriorityIcon priority={null} className="size-4" />
+        No priority
+      </Item>
+      {TASK_PRIORITIES.map((p) => (
+        <Item key={p} value={p}>
+          <PriorityIcon priority={p} className="size-4" />
+          {PRIORITY_LABELS[p]}
+        </Item>
+      ))}
+    </>
+  )
+}
 
 export function PriorityPicker({
   value,
@@ -185,18 +212,9 @@ export function PriorityPicker({
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
           value={value ?? NO_PRIORITY}
-          onValueChange={(v) => onChange(v === NO_PRIORITY ? null : (v as TaskPriority))}
+          onValueChange={(v) => onChange(priorityFromValue(v))}
         >
-          <DropdownMenuRadioItem value={NO_PRIORITY}>
-            <PriorityIcon priority={null} className="size-4" />
-            No priority
-          </DropdownMenuRadioItem>
-          {TASK_PRIORITIES.map((p) => (
-            <DropdownMenuRadioItem key={p} value={p}>
-              <PriorityIcon priority={p} className="size-4" />
-              {PRIORITY_LABELS[p]}
-            </DropdownMenuRadioItem>
-          ))}
+          <PriorityOptions Item={DropdownMenuRadioItem} />
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

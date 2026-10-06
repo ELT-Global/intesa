@@ -31,6 +31,7 @@ export const TaskCard = memo(function TaskCard({
         className,
       )}
       aria-describedby={describedBy}
+      data-task-primary
     >
       <span className="flex items-center justify-between gap-2">
         <TaskKey>{task.key}</TaskKey>

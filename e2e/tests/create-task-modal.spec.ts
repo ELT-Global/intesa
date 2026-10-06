@@ -92,3 +92,36 @@ test("a column's Add task starts the composer in that status", async ({ page }) 
   const dialog = page.getByRole("dialog", { name: "New task" })
   await expect(dialog.getByRole("button", { name: "Change status" })).toContainText("Review")
 })
+
+test("Ctrl+Enter inside the date field submits the date just typed", async ({ page }) => {
+  await openBoard(page)
+  await page.getByRole("button", { name: "New task" }).click()
+  const dialog = page.getByRole("dialog", { name: "New task" })
+  await dialog.getByLabel("Title").fill("Dated at once")
+
+  const due = dialog.getByLabel("Due date", { exact: true })
+  await due.fill("2031-05-06")
+  await due.press("ControlOrMeta+Enter")
+  await expect(dialog).toBeHidden()
+
+  const card = column(page, "Todo").getByRole("button", { name: /Dated at once/ })
+  await expect(card).toContainText("May 6")
+})
+
+test("a failed create shows the error in the composer and keeps the draft", async ({ page }) => {
+  await openBoard(page)
+  await page.route(
+    (url) => /\/api\/projects\/[^/]+\/tasks$/.test(url.pathname),
+    (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } })
+        : route.continue(),
+  )
+  await page.getByRole("button", { name: "New task" }).click()
+  const dialog = page.getByRole("dialog", { name: "New task" })
+  await dialog.getByLabel("Title").fill("Will not save")
+  await dialog.getByLabel("Title").press("Enter")
+
+  await expect(dialog.getByRole("alert")).toContainText("Could not create the task")
+  await expect(dialog.getByLabel("Title")).toHaveValue("Will not save")
+})

@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils"
 import { PickerPopover } from "./picker-popover"
 import { StatusIcon } from "./properties"
-import { SubtaskRow } from "./subtask-row"
+import { type DeleteRequest, DeleteSubtaskDialog, SubtaskRow } from "./subtask-row"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
 
@@ -83,6 +83,7 @@ function SubtasksSection({ task, workspaceId }: { task: TaskDetail; workspaceId:
   const { openTask } = useTaskParam()
   const create = useCreateSubtask(task)
   const [title, setTitle] = useState("")
+  const [deleting, setDeleting] = useState<DeleteRequest | null>(null)
   const done = task.subtasks.filter((s) => s.status === "complete").length
 
   function add(e: FormEvent) {
@@ -115,10 +116,12 @@ function SubtasksSection({ task, workspaceId }: { task: TaskDetail; workspaceId:
               subtask={s}
               workspaceId={workspaceId}
               onOpen={() => openTask(s.id)}
+              onRequestDelete={setDeleting}
             />
           ))}
         </ul>
       )}
+      <DeleteSubtaskDialog parent={task} request={deleting} onClose={() => setDeleting(null)} />
       <form onSubmit={add}>
         <input
           aria-label="Add subtask"

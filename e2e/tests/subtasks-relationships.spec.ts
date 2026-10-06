@@ -266,3 +266,36 @@ test("deleting a subtask asks first and lowers the count", async ({ page }) => {
   await page.reload()
   await expect(page.getByRole("region", { name: "Subtasks" }).getByRole("listitem")).toHaveCount(1)
 })
+
+test("keyboard-only rename and a cancelled delete keep focus on the row", async ({ page }) => {
+  const { subtasks, row } = await parentWithSubtasks(page, ["First", "Second"])
+
+  await row("First").getByRole("button", { name: "First", exact: true }).focus()
+  await page.keyboard.press("Enter")
+  const input = subtasks.getByRole("textbox", { name: "Subtask title" })
+  await expect(input).toBeFocused()
+  await input.fill("First renamed")
+  await page.keyboard.press("Enter")
+  await expect(row("First renamed")).toBeVisible()
+  await expect(
+    row("First renamed").getByRole("button", { name: "First renamed", exact: true }),
+  ).toBeFocused()
+
+  // Escape cancels the edit, keeps the sheet open, and keeps focus on the title.
+  await page.keyboard.press("Enter")
+  await page.keyboard.press("Escape")
+  await expect(subtasks.getByRole("textbox", { name: "Subtask title" })).toHaveCount(0)
+  await expect(
+    row("First renamed").getByRole("button", { name: "First renamed", exact: true }),
+  ).toBeFocused()
+
+  const actions = row("Second").getByRole("button", { name: "Actions for Second" })
+  await actions.focus()
+  await page.keyboard.press("Enter")
+  await page.getByRole("menuitem", { name: "Delete subtask" }).click()
+  await page
+    .getByRole("dialog", { name: "Delete subtask?" })
+    .getByRole("button", { name: "Cancel" })
+    .click()
+  await expect(actions).toBeFocused()
+})

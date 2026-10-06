@@ -1,10 +1,20 @@
 import { useQuery } from "@tanstack/react-query"
+import { X } from "lucide-react"
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
 import { Kbd } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { FormError } from "@/components/ui/field"
+import { ApiError } from "@/lib/api"
 import { projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
 import {
@@ -34,7 +44,20 @@ export function CreateTaskDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="New task" className="w-[min(40rem,calc(100vw-2rem))]">
+      <DialogContent className="w-[min(40rem,calc(100vw-2rem))] p-0">
+        <DialogHeader className="mb-0 flex-row items-start gap-2 px-5 pt-5">
+          <div className="flex flex-1 flex-col gap-1">
+            <DialogTitle>New task</DialogTitle>
+            <DialogDescription className="sr-only">
+              Describe the task. Only the title is required.
+            </DialogDescription>
+          </div>
+          <DialogClose asChild>
+            <Button variant="ghost" size="sm" icon aria-label="Close">
+              <X />
+            </Button>
+          </DialogClose>
+        </DialogHeader>
         <CreateTaskForm
           projectId={projectId}
           defaultStatus={defaultStatus}
@@ -48,7 +71,12 @@ export function CreateTaskDialog({
   )
 }
 
-const isMac = () => typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+const isMac = () => {
+  if (typeof navigator === "undefined") return false
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData?.platform
+  return /mac/i.test(platform ?? navigator.userAgent)
+}
 
 // Mounted only while the dialog is open, so the form state resets on every open.
 function CreateTaskForm({
@@ -69,6 +97,13 @@ function CreateTaskForm({
   const [status, setStatus] = useState<TaskStatus>(defaultStatus ?? "todo")
   const [priority, setPriority] = useState<TaskPriority | null>(null)
   const [dueAt, setDueAt] = useState<string | null>(null)
+  // Ctrl+Enter in the date field commits the date and submits in one event; the form must see
+  // the committed value, not the one from the render that registered the handler.
+  const dueRef = useRef<string | null>(null)
+  const changeDue = (next: string | null) => {
+    dueRef.current = next
+    setDueAt(next)
+  }
   const [assignees, setAssignees] = useState<UserRef[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [createMore, setCreateMore] = useState(false)
@@ -84,7 +119,7 @@ function CreateTaskForm({
         status,
         body: body.trim() || undefined,
         priority,
-        dueAt,
+        dueAt: dueRef.current,
         assigneeIds: assignees.length ? assignees.map((a) => a.id) : undefined,
         tagIds: tags.length ? tags.map((t) => t.id) : undefined,
       },
@@ -114,35 +149,53 @@ function CreateTaskForm({
 
   return (
     <form onSubmit={submit} onKeyDown={onKeyDown} className="flex flex-col">
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 px-5 pt-4">
         <input
           ref={titleRef}
           aria-label="Title"
           placeholder="Task title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value)
+            setCreated(null)
+          }}
           maxLength={200}
           autoComplete="off"
           // biome-ignore lint/a11y/noAutofocus: the composer exists to type a title
           autoFocus
           className="w-full bg-transparent text-xl font-semibold tracking-[-0.02em] outline-none placeholder:text-muted-foreground"
         />
-        <GrowingTextarea value={body} onChange={setBody} />
+        <GrowingTextarea
+          value={body}
+          onChange={(v) => {
+            setBody(v)
+            setCreated(null)
+          }}
+        />
       </div>
-      <div className="-mx-1 flex flex-wrap items-center gap-1 py-3">
+      <div className="flex flex-wrap items-center gap-1 px-4 py-3">
         <StatusPicker value={status} onChange={setStatus} />
         <PriorityPicker value={priority} onChange={setPriority} />
         {workspaceId && (
           <AssigneePicker workspaceId={workspaceId} value={assignees} onChange={setAssignees} />
         )}
-        <DuePicker value={dueAt} status={status} onChange={setDueAt} />
+        <DuePicker value={dueAt} status={status} onChange={changeDue} />
         {workspaceId && <TagPicker workspaceId={workspaceId} value={tags} onChange={setTags} />}
         {tags.map((t) => (
           <TagDot key={t.id} name={t.name} color={t.color} />
         ))}
       </div>
-      <FormError message={create.error?.message} />
-      <div className="-mx-5 -mb-5 flex items-center gap-3 border-t border-border px-5 py-3">
+      <div className="px-5">
+        <FormError
+          message={
+            create.error &&
+            (create.error instanceof ApiError && create.error.status < 500
+              ? create.error.message
+              : "Could not create the task.")
+          }
+        />
+      </div>
+      <DialogFooter className="mt-0 items-center gap-3 border-t border-border px-5 py-3">
         <label
           htmlFor={moreId}
           className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
@@ -161,7 +214,7 @@ function CreateTaskForm({
         <Button type="submit" variant="primary" size="sm" pending={create.isPending}>
           Create task
         </Button>
-      </div>
+      </DialogFooter>
     </form>
   )
 }

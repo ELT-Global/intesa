@@ -5,7 +5,6 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import type { Member } from "@/lib/api"
 import { membersQuery, meQuery } from "@/lib/queries"
-import { patchSubtask } from "@/lib/subtasks"
 import {
   type TaskDetail,
   type TaskSummary,
@@ -55,7 +54,6 @@ export function AssigneePicker({
 
   function setAssignees(next: UserRef[]) {
     if (!task) return onChange?.(next)
-    if (parentTaskId) patchSubtask(qc, parentTaskId, task.id, { assignees: next })
     update.mutate({
       taskId: task.id,
       projectId: task.projectId,

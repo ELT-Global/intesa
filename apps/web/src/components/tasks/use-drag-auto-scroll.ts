@@ -1,9 +1,13 @@
 import { type DragEvent, useCallback, useEffect, useRef } from "react"
 
+/** Set on dragstart of a card, so other drags (files, text) do not trigger board behaviour. */
+export const CARD_DRAG_TYPE = "application/x-intesa-task"
+
 const EDGE = 64
 const MAX_STEP = 20
-// dragover repeats while the pointer is over a target; silence this long means the drag is over.
-const IDLE_MS = 250
+// dragover repeats while the pointer is over a target (about every 50ms in Chrome, up to
+// ~350ms in Firefox); silence for longer than this means the drag is over.
+const IDLE_MS = 500
 
 /** Scroll step for a pointer `distance` px from an edge: faster the closer it gets. */
 function step(distance: number, edge: number) {
@@ -12,9 +16,9 @@ function step(distance: number, edge: number) {
 }
 
 /**
- * Scrolls a container while something is dragged near its left or right edge, and the
- * column list under the pointer near its top or bottom edge. Native drag and drop does
- * not scroll by itself in nested containers.
+ * Scrolls a container while a card is dragged near its left or right edge, and the column list
+ * under the pointer near its top or bottom edge. Native drag and drop does not scroll nested
+ * containers by itself.
  */
 export function useDragAutoScroll() {
   const canvas = useRef<HTMLDivElement>(null)
@@ -44,12 +48,22 @@ export function useDragAutoScroll() {
     frame.current = requestAnimationFrame(tick)
   }, [stop])
 
-  useEffect(() => stop, [stop])
+  // A drag can end anywhere, including outside the board.
+  useEffect(() => {
+    document.addEventListener("dragend", stop)
+    document.addEventListener("drop", stop)
+    return () => {
+      document.removeEventListener("dragend", stop)
+      document.removeEventListener("drop", stop)
+      stop()
+    }
+  }, [stop])
 
   return {
     canvas,
     handlers: {
       onDragOver: (e: DragEvent) => {
+        if (!e.dataTransfer.types.includes(CARD_DRAG_TYPE)) return
         pointer.current = {
           x: e.clientX,
           y: e.clientY,
@@ -58,8 +72,6 @@ export function useDragAutoScroll() {
         }
         if (frame.current === null) frame.current = requestAnimationFrame(tick)
       },
-      onDrop: stop,
-      onDragEnd: stop,
     },
   }
 }

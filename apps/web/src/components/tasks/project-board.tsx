@@ -27,7 +27,7 @@ import { STATUS_LABELS, StatusIcon } from "./properties"
 import { TaskCard } from "./task-card"
 import { TaskContextMenu } from "./task-context-menu"
 import { useTaskParam } from "./task-param"
-import { useDragAutoScroll } from "./use-drag-auto-scroll"
+import { CARD_DRAG_TYPE, useDragAutoScroll } from "./use-drag-auto-scroll"
 
 const DRAG_HINT_ID = "kanban-drag-hint"
 
@@ -172,7 +172,7 @@ const Column = memo(function Column({
   const label = STATUS_LABELS[status]
 
   function onDragOver(e: DragEvent) {
-    if (!e.dataTransfer.types.includes("text/plain")) return
+    if (!e.dataTransfer.types.includes(CARD_DRAG_TYPE)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
     setOver(true)
@@ -188,7 +188,7 @@ const Column = memo(function Column({
       onDrop={(e) => {
         e.preventDefault()
         setOver(false)
-        const id = e.dataTransfer.getData("text/plain")
+        const id = e.dataTransfer.getData(CARD_DRAG_TYPE)
         if (id) onMove(id, status)
       }}
       className={cn(
@@ -247,7 +247,7 @@ const DraggableCard = memo(function DraggableCard({
         draggable
         onKeyDown={onKeyDown}
         onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", task.id)
+          e.dataTransfer.setData(CARD_DRAG_TYPE, task.id)
           e.dataTransfer.effectAllowed = "move"
           e.currentTarget.dataset.dragging = ""
         }}

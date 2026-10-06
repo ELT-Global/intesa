@@ -2,7 +2,12 @@ import * as Menu from "@radix-ui/react-dropdown-menu"
 import { Check } from "lucide-react"
 import type { ComponentProps } from "react"
 import { cn } from "@/lib/utils"
-import { menuContentClass, menuItemClass, menuRadioItemClass } from "./menu-styles"
+import {
+  menuContentClass,
+  menuDestructiveClass,
+  menuItemClass,
+  menuRadioItemClass,
+} from "./menu-styles"
 
 export const DropdownMenu = Menu.Root
 export const DropdownMenuTrigger = Menu.Trigger
@@ -35,8 +40,17 @@ export function DropdownMenuLabel({ className, ...props }: ComponentProps<typeof
   )
 }
 
-export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof Menu.Item>) {
-  return <Menu.Item className={cn(menuItemClass, className)} {...props} />
+export function DropdownMenuItem({
+  className,
+  destructive,
+  ...props
+}: ComponentProps<typeof Menu.Item> & { destructive?: boolean }) {
+  return (
+    <Menu.Item
+      className={cn(menuItemClass, destructive && menuDestructiveClass, className)}
+      {...props}
+    />
+  )
 }
 
 export const DropdownMenuRadioGroup = Menu.RadioGroup
