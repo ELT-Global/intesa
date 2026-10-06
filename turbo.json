@@ -29,6 +29,7 @@
     "WEB_DIST",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
-    "TEST_DATABASE_URL"
+    "TEST_DATABASE_URL",
+    "API_URL"
   ]
 }

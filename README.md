@@ -15,6 +15,8 @@ bun install
 DEV_LOGIN=true bun run dev
 ```
 
+Settings can also live in files: copy `apps/api/.env.example` to `apps/api/.env` (and, only if the API is not on port 3000, `apps/web/.env.example` to `apps/web/.env`). Bun reads `apps/api/.env` automatically because the dev, start and test scripts run inside `apps/api`; variables set in the shell win over the file, and the dev script always sets `NODE_ENV=development`.
+
 The web client is on <http://localhost:5173> and proxies `/api` to the API on port 3000. With `DEV_LOGIN=true` (and `NODE_ENV` not `production`) the login page offers an email-only sign-in that creates the account on the fly, so you do not need Google credentials to try it. The SQLite file is created at `data/intesa.db` in the repository root (git-ignored), whichever directory you start from.
 
 To run the production build on one port:
@@ -26,7 +28,7 @@ NODE_ENV=production PUBLIC_URL=http://localhost:3000 bun run start
 
 ## Configuration
 
-All settings come from environment variables (see `.env.example`).
+All settings come from environment variables (see `apps/api/.env.example`; copy it to `apps/api/.env`, which Bun loads automatically, or set them in the shell).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -87,6 +89,32 @@ Things to know when running the container:
 - It runs in production mode, where the dev login is disabled, so Google sign-in must be configured (`PUBLIC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) or nobody can sign in. The first person to sign in has no workspace yet and creates one.
 - Use `--init` so signals reach the server and it can shut down cleanly: it closes the database and exits within about 8 seconds, inside Docker's default 10-second stop timeout.
 - With a bind mount instead of a named volume (`-v /srv/intesa:/data`), the directory must be writable by the image's `bun` user (uid 1000): `chown 1000:1000 /srv/intesa`, or run with `--user` set to the directory's owner.
+
+## Deploy on Coolify
+
+Two ways; the Docker Compose one is the simpler.
+
+**Docker Compose build pack (uses `docker-compose.yml`)**
+
+1. In Coolify: New Resource, choose the Git repository, set the build pack to Docker Compose (compose file `/docker-compose.yml`).
+2. Create a Google OAuth client first (see "Google sign-in") and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the resource's Environment Variables. Both are required; the deploy refuses to start without them.
+3. Optionally set a domain for the `intesa` service (Configuration, Domains). If you leave it, Coolify generates one. Coolify fills `SERVICE_URL_INTESA` from it, and the compose file passes that to the app as `PUBLIC_URL`. If you change the domain later, redeploy so the app picks it up.
+4. In the Google console, add the authorised redirect URI `<the service URL>/api/auth/google/callback` (for example `https://pm.example.com/api/auth/google/callback`). If you let Coolify generate the domain, deploy once, copy the domain from the Configuration page, register the URI, then try signing in.
+5. Deploy. The first person to sign in creates a workspace.
+
+To use PostgreSQL instead of SQLite, uncomment the `postgres` service, the `depends_on` block and the `intesa-pg` volume in `docker-compose.yml`, and set `DATABASE_URL=postgres://intesa:<password>@postgres:5432/intesa`, where the password is the generated `SERVICE_PASSWORD_POSTGRES`.
+
+**Dockerfile build pack**
+
+Choose Dockerfile as the build pack and set: port exposed `3000`, health check path `/api/health` (HTTP, port 3000), and a persistent storage mount at `/data`. Add the environment variables from the table above: `PUBLIC_URL` (the full `https://` URL of the domain you assign), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and optionally `DATABASE_URL`. `NODE_ENV`, `PORT` and the default `DATABASE_URL=/data/intesa.db` are already set in the image.
+
+**Backups.** With SQLite, everything lives in the `intesa-data` volume (`intesa.db` plus `-wal` and `-shm` files), and Coolify does not back up volumes for you. Copying the live files can capture a half-written state; make a consistent copy first, then back up that file:
+
+```sh
+docker exec <container> bun -e "new (require('bun:sqlite').Database)('/data/intesa.db').run(\"VACUUM INTO '/data/backup.db'\")"
+```
+
+(`docker volume ls` shows the volume name, which Coolify prefixes with the resource id.) With PostgreSQL, use Coolify's database backups or `pg_dump`.
 
 ## Logging
 

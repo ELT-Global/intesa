@@ -7,8 +7,6 @@
 data
 *.db
 *.db-*
-.env
-.env.local
 e2e/test-results
 e2e/playwright-report
 test-results
@@ -16,3 +14,5 @@ playwright-report
 docs
 Dockerfile
 .dockerignore
+**/.env
+**/.env.local
