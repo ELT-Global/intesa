@@ -2,6 +2,7 @@ import * as Menu from "@radix-ui/react-dropdown-menu"
 import { Check } from "lucide-react"
 import type { ComponentProps } from "react"
 import { cn } from "@/lib/utils"
+import { menuContentClass, menuItemClass, menuRadioItemClass } from "./menu-styles"
 
 export const DropdownMenu = Menu.Root
 export const DropdownMenuTrigger = Menu.Trigger
@@ -19,7 +20,7 @@ export function DropdownMenuContent({ className, ...props }: ComponentProps<type
         sideOffset={6}
         collisionPadding={8}
         className={cn(
-          "z-50 min-w-48 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none",
+          menuContentClass("origin-(--radix-dropdown-menu-content-transform-origin)"),
           className,
         )}
         {...props}
@@ -35,15 +36,7 @@ export function DropdownMenuLabel({ className, ...props }: ComponentProps<typeof
 }
 
 export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof Menu.Item>) {
-  return (
-    <Menu.Item
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-accent data-[disabled]:opacity-64 [&_svg]:size-4 [&_svg]:text-muted-foreground",
-        className,
-      )}
-      {...props}
-    />
-  )
+  return <Menu.Item className={cn(menuItemClass, className)} {...props} />
 }
 
 export const DropdownMenuRadioGroup = Menu.RadioGroup
@@ -54,13 +47,7 @@ export function DropdownMenuRadioItem({
   ...props
 }: ComponentProps<typeof Menu.RadioItem>) {
   return (
-    <Menu.RadioItem
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-accent data-[state=checked]:font-medium [&_svg]:size-4",
-        className,
-      )}
-      {...props}
-    >
+    <Menu.RadioItem className={cn(menuRadioItemClass, className)} {...props}>
       {children}
       <Menu.ItemIndicator className="ml-auto text-foreground">
         <Check className="size-3.5" aria-hidden />
