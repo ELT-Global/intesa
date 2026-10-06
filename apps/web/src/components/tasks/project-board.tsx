@@ -25,7 +25,9 @@ import { cn } from "@/lib/utils"
 import { CreateTaskDialog } from "./create-task-dialog"
 import { STATUS_LABELS, StatusIcon } from "./properties"
 import { TaskCard } from "./task-card"
+import { TaskContextMenu } from "./task-context-menu"
 import { useTaskParam } from "./task-param"
+import { useDragAutoScroll } from "./use-drag-auto-scroll"
 
 const DRAG_HINT_ID = "kanban-drag-hint"
 
@@ -34,6 +36,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const tasks = useQuery(projectTasksQuery(projectId))
   const { openTask } = useTaskParam()
   const { mutate } = useUpdateTask()
+  const autoScroll = useDragAutoScroll()
   const [createStatus, setCreateStatus] = useState<TaskStatus | null>(null)
   const all = tasks.data
   const byStatus = useMemo(() => {
@@ -95,7 +98,12 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         Drag to another column, or press Alt with the left or right arrow key, to change status. You
         can also open the task to change it.
       </p>
-      <div className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-linear-to-b from-muted/20 to-background [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] md:snap-none">
+      <div
+        ref={autoScroll.canvas}
+        data-testid="board-canvas"
+        {...autoScroll.handlers}
+        className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-linear-to-b from-muted/20 to-background [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] md:snap-none"
+      >
         <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
           {TASK_STATUSES.map((status) =>
             all ? (
@@ -193,7 +201,10 @@ const Column = memo(function Column({
         <h2 className="text-sm font-medium">{label}</h2>
         <CountBadge>{tasks.length}</CountBadge>
       </header>
-      <ul className="flex min-h-12 flex-1 flex-col gap-2 overflow-y-auto p-2 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]">
+      <ul
+        data-column-body
+        className="flex min-h-12 flex-1 flex-col gap-2 overflow-y-auto p-2 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]"
+      >
         {tasks.map((task) => (
           <DraggableCard key={task.id} task={task} onOpen={onOpen} onMoveBy={onMoveBy} />
         ))}
@@ -230,21 +241,23 @@ const DraggableCard = memo(function DraggableCard({
 
   return (
     // Key handling is delegated from the card button inside.
-    <li
-      data-task-id={task.id}
-      draggable
-      onKeyDown={onKeyDown}
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", task.id)
-        e.dataTransfer.effectAllowed = "move"
-        e.currentTarget.dataset.dragging = ""
-      }}
-      onDragEnd={(e) => {
-        delete e.currentTarget.dataset.dragging
-      }}
-      className="rounded-lg data-[dragging]:shadow-2xl data-[dragging]:ring-1 data-[dragging]:ring-black/5"
-    >
-      <TaskCard task={task} onOpen={onOpen} describedBy={DRAG_HINT_ID} />
-    </li>
+    <TaskContextMenu task={task}>
+      <li
+        data-task-id={task.id}
+        draggable
+        onKeyDown={onKeyDown}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", task.id)
+          e.dataTransfer.effectAllowed = "move"
+          e.currentTarget.dataset.dragging = ""
+        }}
+        onDragEnd={(e) => {
+          delete e.currentTarget.dataset.dragging
+        }}
+        className="rounded-lg data-[dragging]:shadow-2xl data-[dragging]:ring-1 data-[dragging]:ring-black/5"
+      >
+        <TaskCard task={task} onOpen={onOpen} describedBy={DRAG_HINT_ID} />
+      </li>
+    </TaskContextMenu>
   )
 })

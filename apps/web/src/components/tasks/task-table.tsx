@@ -12,6 +12,7 @@ import {
   StatusPicker,
 } from "./properties"
 import { TagDot } from "./tag-chip"
+import { TaskContextMenu } from "./task-context-menu"
 
 export type TableTask = TaskSummary & { project?: { id: string; name: string; key: string } }
 export type TableColumn = "task" | "project" | "status" | "priority" | "assignees" | "tags" | "due"
@@ -227,16 +228,19 @@ const Row = memo(function Row({
   }
 
   return (
-    <tr
-      onClick={(e) => {
-        // Menus render in a portal but still bubble through React; only plain cell clicks open the task.
-        const t = e.target as HTMLElement
-        if (e.currentTarget.contains(t) && !t.closest("button,input,[role^=menuitem]")) onOpen(task)
-      }}
-      className="group/row cursor-pointer transition-colors hover:bg-muted/40"
-    >
-      {columns.map(renderCell)}
-    </tr>
+    <TaskContextMenu task={task}>
+      <tr
+        onClick={(e) => {
+          // Menus render in a portal but still bubble through React; only plain cell clicks open the task.
+          const t = e.target as HTMLElement
+          if (e.currentTarget.contains(t) && !t.closest("button,input,[role^=menuitem]"))
+            onOpen(task)
+        }}
+        className="group/row cursor-pointer transition-colors hover:bg-muted/40"
+      >
+        {columns.map(renderCell)}
+      </tr>
+    </TaskContextMenu>
   )
 })
 
