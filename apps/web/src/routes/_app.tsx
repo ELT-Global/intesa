@@ -1,5 +1,7 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
+import { useEffect } from "react"
 import { ApiError } from "@/lib/api"
+import { preloadEditorWhenIdle } from "@/lib/preload-editor"
 import { meQuery } from "@/lib/queries"
 
 // Everything behind sign-in hangs off this pathless layout.
@@ -14,5 +16,10 @@ export const Route = createFileRoute("/_app")({
       throw err
     }
   },
-  component: Outlet,
+  component: AppLayout,
 })
+
+function AppLayout() {
+  useEffect(preloadEditorWhenIdle, [])
+  return <Outlet />
+}

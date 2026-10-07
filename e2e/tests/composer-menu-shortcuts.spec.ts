@@ -37,10 +37,10 @@ test("c opens a composer with a borderless focused title and the full property r
   expect(ring.outlineStyle === "none" || ring.outlineWidth === "0px").toBe(true)
   expect(ring.boxShadow).toBe("none")
 
-  await expect(dialog.getByLabel("Description")).toHaveAttribute(
-    "placeholder",
-    "Add a description.",
-  )
+  await expect(dialog.locator(".cm-placeholder, textarea[placeholder]")).toHaveCount(1)
+  await expect(
+    dialog.getByText("Add a description.").or(dialog.getByPlaceholder("Add a description.")),
+  ).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Change status" })).toContainText("Todo")
   await expect(dialog.getByRole("button", { name: "Change priority" })).toContainText("No priority")
   await expect(dialog.getByRole("button", { name: "Change assignees" })).toContainText("Assign")

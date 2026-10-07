@@ -246,10 +246,9 @@ test("opening a card shows the task sheet docked right with the full property st
     await style(sheet.getByRole("textbox", { name: "Description" }), "font-size"),
   )
   expect(titleSize).toBeGreaterThan(descSize * 1.5)
-  await expect(sheet.getByRole("textbox", { name: "Description" })).toHaveAttribute(
-    "placeholder",
-    "Add a description.",
-  )
+  await expect(
+    sheet.getByText("Add a description.").or(sheet.getByPlaceholder("Add a description.")),
+  ).toBeVisible()
   await expect(sheet.getByRole("button", { name: "History" })).toHaveAttribute(
     "aria-expanded",
     "false",

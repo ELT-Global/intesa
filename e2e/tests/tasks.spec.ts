@@ -84,7 +84,7 @@ test("title, body, status, priority and due date persist after reload", async ({
   await expect(reloaded.getByRole("textbox", { name: "Task title" })).toHaveValue(
     "Publish launch notes",
   )
-  await expect(reloaded.getByRole("textbox", { name: "Description" })).toHaveValue(
+  await expect(reloaded.getByRole("textbox", { name: "Description" })).toHaveText(
     "Cover pricing, the migration guide and known limits.",
   )
   await expect(reloaded.getByRole("button", { name: "Change status" })).toContainText("In progress")

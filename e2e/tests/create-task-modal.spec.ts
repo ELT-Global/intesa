@@ -54,7 +54,7 @@ test("the composer creates a task with every property in one go", async ({ page 
 
   await card.click()
   const sheet = page.getByRole("dialog", { name: /-1$/ })
-  await expect(sheet.getByRole("textbox", { name: "Description" })).toHaveValue(
+  await expect(sheet.getByRole("textbox", { name: "Description" })).toHaveText(
     "Everything is set before the task exists.",
   )
   await expect(sheet.getByRole("button", { name: "Change assignees" })).toContainText("Ada")
@@ -72,7 +72,7 @@ test("Create more keeps the composer open and clears the text", async ({ page })
   await expect(dialog.getByRole("status")).toContainText(/Created .*-1\./)
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel("Title")).toHaveValue("")
-  await expect(dialog.getByLabel("Description")).toHaveValue("")
+  await expect(dialog.locator(".cm-placeholder")).toBeVisible()
   await expect(dialog.getByLabel("Title")).toBeFocused()
 
   await dialog.getByLabel("Title").fill("Second of two")

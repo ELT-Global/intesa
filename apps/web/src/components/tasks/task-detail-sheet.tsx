@@ -1,3 +1,4 @@
+import { MarkdownEditor } from "@intesa/markdown-editor"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Trash2, X } from "lucide-react"
 import { type ReactNode, useEffect, useRef, useState } from "react"
@@ -174,13 +175,9 @@ function SheetBody({
             onCommit={(title, revert) => patch({ title }, revert)}
             className="text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]"
           />
-          <EditableText
-            label="Description"
+          <DescriptionField
             value={task.body ?? ""}
-            multiline
-            placeholder="Add a description."
             onCommit={(body, revert) => patch({ body: body || null }, revert)}
-            className="min-h-32 text-[15px] leading-[1.7]"
           />
           {sections?.(task)}
           <HistorySection taskId={task.id} />
@@ -225,12 +222,11 @@ function DeleteTaskButton({ task, onDeleted }: { task: TaskDetail; onDeleted: ()
   )
 }
 
-/** Plain text field that saves on blur (and on Enter for single-line). Escape reverts. */
+/** Single-line text field that saves on blur or Enter. Escape reverts. */
 function EditableText({
   label,
   value,
   onCommit,
-  multiline,
   required,
   placeholder,
   className,
@@ -238,7 +234,6 @@ function EditableText({
   label: string
   value: string
   onCommit: (value: string, revert: () => void) => void
-  multiline?: boolean
   required?: boolean
   placeholder?: string
   className?: string
@@ -279,14 +274,14 @@ function EditableText({
       rows={1}
       value={draft}
       placeholder={placeholder}
-      maxLength={multiline ? 20000 : 200}
+      maxLength={200}
       onFocus={() => {
         focused.current = true
       }}
-      onChange={(e) => setDraft(multiline ? e.target.value : e.target.value.replace(/\n/g, " "))}
+      onChange={(e) => setDraft(e.target.value.replace(/\n/g, " "))}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !multiline) {
+        if (e.key === "Enter") {
           e.preventDefault()
           e.currentTarget.blur()
         }
@@ -298,9 +293,59 @@ function EditableText({
       className={cn(
         "-mx-2 w-[calc(100%+1rem)] resize-none rounded-lg border border-transparent bg-transparent px-2 py-1 outline-none transition-colors",
         "placeholder:text-muted-foreground hover:bg-muted/40 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/24 dark:focus-visible:ring-ring/48",
-        !multiline && "overflow-hidden",
+        "overflow-hidden",
         className,
       )}
+    />
+  )
+}
+
+/** Markdown description that saves on blur. Escape reverts an unsaved edit. */
+function DescriptionField({
+  value,
+  onCommit,
+}: {
+  value: string
+  onCommit: (value: string, revert: () => void) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const focused = useRef(false)
+
+  // Adopt server changes unless the user is mid-edit.
+  useEffect(() => {
+    if (!focused.current) setDraft(value)
+  }, [value])
+
+  function commit() {
+    focused.current = false
+    const next = draft.trim()
+    if (next === value) {
+      setDraft(value)
+      return
+    }
+    setDraft(next)
+    onCommit(next, () => setDraft(value))
+  }
+
+  return (
+    <MarkdownEditor
+      label="Description"
+      placeholder="Add a description."
+      maxLength={20000}
+      value={draft}
+      onChange={setDraft}
+      keepsEscape={draft !== value}
+      onFocus={() => {
+        focused.current = true
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && draft !== value) {
+          e.stopPropagation()
+          setDraft(value)
+        }
+      }}
+      className="-mx-2 min-h-32 w-[calc(100%+1rem)] rounded-lg border border-transparent px-2 py-1 transition-colors hover:bg-muted/40 focus-within:border-ring focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/24 dark:focus-within:ring-ring/48"
     />
   )
 }

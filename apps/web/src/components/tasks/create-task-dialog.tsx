@@ -1,6 +1,7 @@
+import { MarkdownEditor } from "@intesa/markdown-editor"
 import { useQuery } from "@tanstack/react-query"
 import { X } from "lucide-react"
-import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
+import { type FormEvent, type KeyboardEvent, useId, useRef, useState } from "react"
 import { Kbd } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -165,7 +166,11 @@ function CreateTaskForm({
           autoFocus
           className="w-full bg-transparent text-xl font-semibold tracking-[-0.02em] outline-none placeholder:text-muted-foreground"
         />
-        <GrowingTextarea
+        <MarkdownEditor
+          label="Description"
+          placeholder="Add a description."
+          maxLength={20000}
+          className="max-h-64 min-h-[5.5rem] overflow-y-auto"
           value={body}
           onChange={(v) => {
             setBody(v)
@@ -216,28 +221,5 @@ function CreateTaskForm({
         </Button>
       </DialogFooter>
     </form>
-  )
-}
-
-function GrowingTextarea({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the value drives the height
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${el.scrollHeight}px`
-  }, [value])
-  return (
-    <textarea
-      ref={ref}
-      aria-label="Description"
-      placeholder="Add a description."
-      rows={3}
-      value={value}
-      maxLength={20000}
-      onChange={(e) => onChange(e.target.value)}
-      className="max-h-64 w-full resize-none bg-transparent text-[15px] leading-[1.7] outline-none placeholder:text-muted-foreground"
-    />
   )
 }

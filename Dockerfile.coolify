@@ -15,10 +15,12 @@ WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY packages/markdown-editor/package.json packages/markdown-editor/
 COPY e2e/package.json e2e/
-RUN bun install --frozen-lockfile --filter @intesa/api --filter @intesa/web
+RUN bun install --frozen-lockfile --filter @intesa/api --filter @intesa/web --filter @intesa/markdown-editor
 
 COPY apps ./apps
+COPY packages ./packages
 RUN bun run --cwd apps/web build \
  && bun build --target=bun --minify apps/api/src/index.ts --outfile /out/server.js
 
