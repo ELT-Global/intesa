@@ -1,10 +1,11 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router"
-import { Columns3, Ellipsis, Plus, Table2 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { Columns3, Ellipsis, Keyboard, Plus, Table2 } from "lucide-react"
+import { useRef, useState } from "react"
 import { ErrorState, Message, PageTitle } from "@/components/page"
 import { CustomFieldsDialog } from "@/components/projects/custom-fields-dialog"
 import { ProjectSettingsDialog } from "@/components/projects/project-settings-dialog"
+import { helpShortcutLabel, ShortcutHelpDialog } from "@/components/projects/shortcut-help-dialog"
 import { TopBarActions } from "@/components/shell/app-shell"
 import { PageSkeleton } from "@/components/skeleton"
 import { AssigneePicker } from "@/components/tasks/assignee-picker"
@@ -23,7 +24,7 @@ import {
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { ApiError } from "@/lib/api"
 import { projectQuery, workspacesQuery } from "@/lib/queries"
-import { isPlainShortcut } from "@/lib/shortcuts"
+import { isModShortcut, isPlainShortcut, useIsMac, useShortcut } from "@/lib/shortcuts"
 import { projectTasksQuery } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/projects/$projectId")({
@@ -40,19 +41,6 @@ export const Route = createFileRoute("/_app/w/$slug/projects/$projectId")({
 
 type View = "board" | "table"
 
-/** Pressing "c" outside inputs and dialogs opens the new-task dialog. */
-function useNewTaskShortcut(open: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!isPlainShortcut(e, "c")) return
-      e.preventDefault()
-      open()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open])
-}
-
 function ProjectLayout() {
   const { slug, projectId } = Route.useParams()
   const navigate = useNavigate()
@@ -65,8 +53,36 @@ function ProjectLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [fieldsOpen, setFieldsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const mac = useIsMac()
   const optionsRef = useRef<HTMLButtonElement>(null)
-  useNewTaskShortcut(() => setCreateOpen(true))
+  useShortcut(
+    (e) => isPlainShortcut(e, "n") || isPlainShortcut(e, "c"),
+    () => setCreateOpen(true),
+  )
+  useShortcut(
+    (e) => isPlainShortcut(e, "b"),
+    () => goToView("board"),
+  )
+  useShortcut(
+    (e) => isPlainShortcut(e, "t"),
+    () => goToView("table"),
+  )
+  // Works while typing, but not on top of another dialog (the help dialog itself toggles off).
+  useShortcut(
+    (e) => isModShortcut(e, "/") && (helpOpen || !document.querySelector("[role=dialog]")),
+    () => setHelpOpen((open) => !open),
+  )
+
+  function goToView(next: View) {
+    void navigate({
+      to:
+        next === "board"
+          ? "/w/$slug/projects/$projectId/board"
+          : "/w/$slug/projects/$projectId/table",
+      params: { slug, projectId },
+    })
+  }
 
   if (project.isError && !(project.error instanceof ApiError && project.error.status < 500)) {
     return <ErrorState error={project.error} onRetry={() => void project.refetch()} />
@@ -93,15 +109,7 @@ function ProjectLayout() {
     <SegmentedControl<View>
       label="View"
       value={view}
-      onChange={(next) =>
-        void navigate({
-          to:
-            next === "board"
-              ? "/w/$slug/projects/$projectId/board"
-              : "/w/$slug/projects/$projectId/table",
-          params: { slug, projectId },
-        })
-      }
+      onChange={goToView}
       segments={[
         { value: "board", label: "Board", icon: <Columns3 /> },
         { value: "table", label: "Table", icon: <Table2 /> },
@@ -118,6 +126,13 @@ function ProjectLayout() {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Project settings</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setFieldsOpen(true)}>Custom fields…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setHelpOpen(true)}>
+          <Keyboard />
+          Keyboard shortcuts
+          <span className="ml-auto pl-4 text-xs text-muted-foreground">
+            {helpShortcutLabel(mac)}
+          </span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -128,7 +143,13 @@ function ProjectLayout() {
         <div className="hidden lg:block">{viewSwitcher}</div>
         <div className="ml-auto flex items-center gap-2">
           <div className="hidden lg:block">{optionsMenu}</div>
-          <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+          <Button
+            variant="primary"
+            size="sm"
+            title="New task (N)"
+            aria-keyshortcuts="N"
+            onClick={() => setCreateOpen(true)}
+          >
             <Plus />
             <span className="max-sm:sr-only">New task</span>
           </Button>
@@ -141,6 +162,7 @@ function ProjectLayout() {
         {optionsMenu}
       </div>
       <Outlet />
+      <ShortcutHelpDialog open={helpOpen} onOpenChange={setHelpOpen} showBoard={view === "board"} />
       <CreateTaskDialog projectId={projectId} open={createOpen} onOpenChange={setCreateOpen} />
       <TaskDetailSheet
         sections={(task) => (

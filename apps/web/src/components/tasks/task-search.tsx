@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { isPlainShortcut, useShortcut } from "@/lib/shortcuts"
 import { applySuggestion, suggest } from "@/lib/task-search"
 import type { TaskSummary } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
@@ -31,6 +32,15 @@ export function TaskSearch({
   useEffect(() => {
     if (open) input.current?.focus()
   }, [open])
+
+  // F opens the field, or focuses it when it is already open.
+  useShortcut(
+    (e) => isPlainShortcut(e, "f"),
+    () => {
+      setOpen(true)
+      input.current?.focus()
+    },
+  )
 
   // Put the caret after an accepted suggestion once React has written the new value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs after every query change
@@ -69,6 +79,8 @@ export function TaskSearch({
         size="sm"
         icon
         aria-label="Search tasks"
+        title="Search tasks (F)"
+        aria-keyshortcuts="F"
         onClick={() => setOpen(true)}
       >
         <Search />

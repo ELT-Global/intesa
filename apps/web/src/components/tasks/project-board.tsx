@@ -14,8 +14,10 @@ import { ErrorState } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { assigneeViews, stepAssigneeView } from "@/lib/assignee-views"
 import { getBacklogExpanded, setBacklogExpanded } from "@/lib/preferences"
-import { projectQuery } from "@/lib/queries"
+import { membersQuery, projectQuery } from "@/lib/queries"
+import { isPlainShortcut, useShortcut } from "@/lib/shortcuts"
 import { compileSearch } from "@/lib/task-search"
 import {
   type Placement,
@@ -57,6 +59,25 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     meId,
     select: setPicked,
   } = useBoardAssigneeFilter(projectId, workspaceId)
+  const members = useQuery({ ...membersQuery(workspaceId ?? ""), enabled: !!workspaceId })
+  // Shift+Arrow steps through the assignee views, once the filter and the members are known.
+  const stepView = (delta: -1 | 1) => {
+    if (!filterReady || !members.data) return
+    const views = assigneeViews(
+      meId,
+      members.data.map((m) => m.userId),
+      UNASSIGNED,
+    )
+    setPicked(stepAssigneeView(views, assigneeIds, delta))
+  }
+  useShortcut(
+    (e) => isPlainShortcut(e, "ArrowLeft", { shift: true }),
+    () => stepView(-1),
+  )
+  useShortcut(
+    (e) => isPlainShortcut(e, "ArrowRight", { shift: true }),
+    () => stepView(1),
+  )
   const [query, setQuery] = useState("")
   const matchesQuery = useMemo(() => compileSearch(query, { meId }), [query, meId])
   const shown = useCallback(
@@ -171,12 +192,14 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         can also open the task to change its status.
       </p>
       <div className="mb-2 flex items-center gap-2">
-        <AssigneeFilter
-          workspaceId={workspaceId}
-          selected={assigneeIds}
-          meId={meId}
-          onChange={setPicked}
-        />
+        <div title="Switch assignee view (Shift + ← / →)">
+          <AssigneeFilter
+            workspaceId={workspaceId}
+            selected={assigneeIds}
+            meId={meId}
+            onChange={setPicked}
+          />
+        </div>
         <TaskSearch query={query} onChange={setQuery} tasks={all ?? []} />
       </div>
       <div
