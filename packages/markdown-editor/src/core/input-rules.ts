@@ -1,6 +1,8 @@
 import { EditorSelection, EditorState } from "@codemirror/state"
 import type { EditorView } from "@codemirror/view"
 
+import { inCode } from "./shared/code"
+
 // ---------------------------------------------------------------------------
 // Input rule definitions
 // ---------------------------------------------------------------------------
@@ -33,6 +35,8 @@ export const inputRules = EditorState.transactionFilter.of((tr) => {
   for (const range of state.selection.ranges) {
     if (!range.empty) continue
     const cursor = range.from
+    // `--` or `->` in code is code, not typography.
+    if (inCode(state, cursor)) continue
     const lookback = state.doc.sliceString(Math.max(0, cursor - 4), cursor)
     for (const rule of INPUT_RULES) {
       const match = lookback.match(rule.pattern)
@@ -47,6 +51,7 @@ export const inputRules = EditorState.transactionFilter.of((tr) => {
   for (const range of state.selection.ranges) {
     if (!range.empty) continue
     const cursor = range.from
+    if (inCode(state, cursor)) continue
     const line = state.doc.lineAt(cursor)
     if (line.text === "\u2014-" || line.text === "\u2014\u2014-") {
       replacements.push({ from: line.from, to: line.to, insert: "---" })

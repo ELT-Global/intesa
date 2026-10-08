@@ -1,62 +1,26 @@
 import { defaultKeymap, history, historyKeymap, redo } from "@codemirror/commands"
 import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state"
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view"
-import { type RefObject, useEffect, useRef } from "react"
+import { useEffect, useRef } from "react"
 import { createMarkdownEditorExtensions } from "./core"
-import type { Handoff, MarkdownEditorProps } from "./types"
+import type { EditorViewProps } from "./types"
 
+/** Marks the transactions that copy the `value` prop into the document, so they are not echoed. */
 const external = Annotation.define<boolean>()
+
+/** Holds the content attributes so `label` and `keepsEscape` can change after creation. */
 const attrs = new Compartment()
 
-// Mod-Enter belongs to the surrounding form ("submit"); the default keymap would
-// insert a blank line instead.
+// Mod-Enter belongs to the surrounding form ("submit"); the default keymap would insert a
+// blank line instead.
 const baseKeymap = defaultKeymap.filter((b) => b.key !== "Mod-Enter")
 
-export const contentAttrs = (label: string, keepsEscape?: boolean) =>
+const contentAttrs = (label: string, keepsEscape?: boolean) =>
   EditorView.contentAttributes.of({
     "aria-label": label,
     "aria-multiline": "true",
     ...(keepsEscape ? { "data-keeps-escape": "" } : {}),
   })
-
-export interface EditorStateOptions {
-  doc: string
-  label: string
-  placeholder?: string
-  maxLength?: number
-  keepsEscape?: boolean
-  onChange: (value: string) => void
-}
-
-export function createEditorState({
-  doc,
-  label,
-  placeholder,
-  maxLength,
-  keepsEscape,
-  onChange,
-}: EditorStateOptions) {
-  return EditorState.create({
-    doc,
-    extensions: [
-      history(),
-      keymap.of([
-        { key: "Mod-Shift-z", run: redo, preventDefault: true },
-        ...baseKeymap,
-        ...historyKeymap,
-      ]),
-      ...createMarkdownEditorExtensions(),
-      attrs.of(contentAttrs(label, keepsEscape)),
-      placeholder ? placeholderExt(placeholder) : [],
-      maxLength ? EditorState.changeFilter.of((tr) => tr.newDoc.length <= maxLength) : [],
-      EditorView.updateListener.of((u) => {
-        if (u.docChanged && !u.transactions.some((t) => t.annotation(external))) {
-          onChange(u.state.doc.toString())
-        }
-      }),
-    ],
-  })
-}
 
 export default function MarkdownEditorView({
   value,
@@ -66,8 +30,8 @@ export default function MarkdownEditorView({
   maxLength,
   autoFocus,
   keepsEscape,
-  handoff,
-}: MarkdownEditorProps & { handoff: RefObject<Handoff> }) {
+  restore,
+}: EditorViewProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -82,27 +46,37 @@ export default function MarkdownEditorView({
     if (!parent) return
     const v = new EditorView({
       parent,
-      state: createEditorState({
+      state: EditorState.create({
         doc: value,
-        label,
-        placeholder,
-        maxLength,
-        keepsEscape,
-        onChange: (next) => {
-          synced.current = next
-          onChangeRef.current(next)
-        },
+        extensions: [
+          history(),
+          keymap.of([
+            { key: "Mod-Shift-z", run: redo, preventDefault: true },
+            ...baseKeymap,
+            ...historyKeymap,
+          ]),
+          ...createMarkdownEditorExtensions(),
+          attrs.of(contentAttrs(label, keepsEscape)),
+          placeholder ? placeholderExt(placeholder) : [],
+          maxLength ? EditorState.changeFilter.of((tr) => tr.newDoc.length <= maxLength) : [],
+          EditorView.updateListener.of((u) => {
+            if (!u.docChanged || u.transactions.some((t) => t.annotation(external))) return
+            synced.current = u.state.doc.toString()
+            onChangeRef.current(synced.current)
+          }),
+        ],
       }),
     })
     view.current = v
-    const { focused, from, to } = handoff.current
-    if (focused || autoFocus) {
-      const len = v.state.doc.length
+
+    if (restore) {
+      const end = v.state.doc.length
       v.dispatch({
-        selection: focused
-          ? EditorSelection.range(Math.min(from, len), Math.min(to, len))
-          : EditorSelection.cursor(len),
+        selection: EditorSelection.range(Math.min(restore.from, end), Math.min(restore.to, end)),
       })
+      v.focus()
+    } else if (autoFocus) {
+      v.dispatch({ selection: EditorSelection.cursor(v.state.doc.length) })
       v.focus()
     }
     return () => {

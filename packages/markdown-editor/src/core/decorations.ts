@@ -9,6 +9,7 @@ import {
 } from "@codemirror/view"
 
 import { AlertBadgeWidget } from "./blockquotes"
+import { decorateCodeBlock } from "./code-blocks/decorate"
 import { BulletWidget, CheckboxWidget, formatOrderedMarker, OrderedMarkerWidget } from "./lists"
 import { cursorOnLine, cursorTouches } from "./shared/cursor"
 
@@ -193,6 +194,11 @@ export function buildDecorations(view: EditorView): DecorationSet {
           ranges.push(Decoration.line({ class: "cm-lp-hr" }).range(from))
           ranges.push(Decoration.replace({}).range(from, to))
         }
+        return false
+      }
+
+      if (name === "FencedCode" || name === "CodeBlock") {
+        decorateCodeBlock(view, node.node, ranges)
         return false
       }
 

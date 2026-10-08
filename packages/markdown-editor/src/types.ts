@@ -16,9 +16,13 @@ export interface MarkdownEditorProps {
   onBlur?: () => void
 }
 
-/** What the instant textarea hands to the real editor when it replaces it. */
-export interface Handoff {
-  focused: boolean
+/** The caret the editor takes over from the textarea it replaces; absent when that was unfocused. */
+export interface Restore {
   from: number
   to: number
+}
+
+/** Props of the lazily loaded CodeMirror view. */
+export interface EditorViewProps extends MarkdownEditorProps {
+  restore: Restore | null
 }

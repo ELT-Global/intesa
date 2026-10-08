@@ -10,6 +10,7 @@ import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/she
 import { ApiError } from "@/lib/api"
 import {
   relativeTime,
+  TASK_BODY_MAX_LENGTH,
   type TaskDetail,
   taskHistoryQuery,
   taskQuery,
@@ -333,7 +334,7 @@ function DescriptionField({
     <MarkdownEditor
       label="Description"
       placeholder="Add a description."
-      maxLength={20000}
+      maxLength={TASK_BODY_MAX_LENGTH}
       value={draft}
       onChange={setDraft}
       keepsEscape={draft !== value}

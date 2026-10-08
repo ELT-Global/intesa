@@ -1,9 +1,9 @@
-import { type RefObject, useEffect, useLayoutEffect, useRef } from "react"
-import type { Handoff, MarkdownEditorProps } from "./types"
+import { useEffect, useLayoutEffect, useRef } from "react"
+import type { MarkdownEditorProps } from "./types"
 
 /**
  * A textarea styled like the editor. It is interactive on the first paint, before the
- * CodeMirror chunk has arrived, and reports its focus and caret so the swap is invisible.
+ * CodeMirror chunk has arrived; `MarkdownEditor` reads its focus and caret when swapping.
  */
 export function PlainEditor({
   value,
@@ -13,8 +13,7 @@ export function PlainEditor({
   maxLength,
   autoFocus,
   keepsEscape,
-  handoff,
-}: MarkdownEditorProps & { handoff: RefObject<Handoff> }) {
+}: MarkdownEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the value drives the height
@@ -29,16 +28,6 @@ export function PlainEditor({
     if (autoFocus) ref.current?.focus()
   }, [autoFocus])
 
-  const remember = () => {
-    const el = ref.current
-    if (!el) return
-    handoff.current = {
-      focused: document.activeElement === el,
-      from: el.selectionStart,
-      to: el.selectionEnd,
-    }
-  }
-
   return (
     <textarea
       ref={ref}
@@ -49,12 +38,7 @@ export function PlainEditor({
       rows={1}
       value={value}
       data-keeps-escape={keepsEscape ? "" : undefined}
-      onChange={(e) => {
-        onChange(e.target.value)
-        remember()
-      }}
-      onSelect={remember}
-      onFocus={remember}
+      onChange={(e) => onChange(e.target.value)}
     />
   )
 }

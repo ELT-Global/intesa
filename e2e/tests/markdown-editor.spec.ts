@@ -105,6 +105,69 @@ test.describe("composer description", () => {
     await expect(editor).toContainText("--")
   })
 
+  test("code blocks: fence auto-close, literal typing, hidden fences and raw markdown", async ({
+    page,
+  }) => {
+    await openBoard(page)
+    const dialog = await openComposer(page)
+    await dialog.getByLabel("Title").fill("Code block")
+    await expect(editorHost(dialog)).toHaveAttribute("data-editor", "ready")
+    const editor = description(dialog)
+    await editor.click()
+
+    // Enter after an opening fence supplies the closing one and lands between them.
+    await page.keyboard.type("```ts")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("a -> b -- c")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("  - not a list")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("next")
+    // Typography rules and list continuation stay out of code.
+    await expect(editor).toContainText("a -> b -- c")
+    await expect(editor).not.toContainText("→")
+    await expect(editor.locator(".cm-lp-codefence")).toHaveCount(2)
+
+    // Leave the block: the fences disappear and the lines keep the code styling.
+    await page.keyboard.press("ControlOrMeta+End")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("after")
+    await expect(editor.locator(".cm-lp-codefence-hidden")).toHaveCount(2)
+    await expect(editor.locator(".cm-lp-codeblock")).toHaveCount(5)
+    await expect(editor).not.toContainText("```")
+    await expect(editor.locator(".cm-lp-bullet")).toHaveCount(0)
+    const family = await editor
+      .locator(".cm-lp-codeblock")
+      .nth(1)
+      .evaluate((el) => getComputedStyle(el).fontFamily)
+    expect(family).toMatch(/mono/i)
+
+    // Back inside the block the fences return.
+    await editor.getByText("next").click()
+    await expect(editor.locator(".cm-lp-codefence")).toHaveCount(2)
+    await expect(editor).toContainText("```ts")
+
+    const created = page.waitForRequest(isCreate)
+    await page.keyboard.press("ControlOrMeta+Enter")
+    expect((await created).postDataJSON().body).toBe(
+      ["```ts", "a -> b -- c", "  - not a list", "  next", "```", "after"].join("\n"),
+    )
+  })
+
+  test("code blocks: Backspace on an empty block removes it", async ({ page }) => {
+    await openBoard(page)
+    const dialog = await openComposer(page)
+    await expect(editorHost(dialog)).toHaveAttribute("data-editor", "ready")
+    const editor = description(dialog)
+    await editor.click()
+    await page.keyboard.type("```")
+    await page.keyboard.press("Enter")
+    await expect(editor).toContainText("```")
+    await page.keyboard.press("Backspace")
+    await expect(editor.locator(".cm-placeholder")).toBeVisible()
+    await expect(editor.locator(".cm-lp-codeblock")).toHaveCount(0)
+  })
+
   test("undo and redo work", async ({ page }) => {
     await openBoard(page)
     const dialog = await openComposer(page)
@@ -229,6 +292,16 @@ test.describe("sheet description", () => {
     await page.goto(`${url}?task=${task.id}`)
     const reloaded = page.getByRole("dialog", { name: task.key })
     await expect(description(reloaded).locator(".cm-lp-h2:not(.cm-lp-syntax)")).toHaveText("Plan")
+  })
+
+  test("a stored code block renders styled with its fences hidden", async ({ page }) => {
+    const body = ["intro", "```sh", "bun test", "```", "outro"].join("\n")
+    const { sheet } = await openSheet(page, body)
+    const editor = description(sheet)
+    await expect(editor.locator(".cm-lp-codeblock")).toHaveCount(3)
+    await expect(editor.locator(".cm-lp-codefence-hidden")).toHaveCount(2)
+    await expect(editor).toContainText("bun test")
+    await expect(editor).not.toContainText("```")
   })
 
   test("Escape reverts an unsaved edit and keeps the sheet open", async ({ page }) => {

@@ -84,14 +84,28 @@ export function toAlpha(n: number): string {
   return result
 }
 
+const ROMAN_NUMERALS: [number, string][] = [
+  [1000, "m"],
+  [900, "cm"],
+  [500, "d"],
+  [400, "cd"],
+  [100, "c"],
+  [90, "xc"],
+  [50, "l"],
+  [40, "xl"],
+  [10, "x"],
+  [9, "ix"],
+  [5, "v"],
+  [4, "iv"],
+  [1, "i"],
+]
+
 export function toRoman(n: number): string {
-  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
-  const syms = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"]
   let result = ""
-  for (let i = 0; i < vals.length; i++) {
-    while (n >= vals[i]!) {
-      result += syms[i]
-      n -= vals[i]!
+  for (const [value, symbol] of ROMAN_NUMERALS) {
+    while (n >= value) {
+      result += symbol
+      n -= value
     }
   }
   return result

@@ -4,6 +4,7 @@ import { Prec } from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 
 import { blockquoteKeymap } from "./blockquotes"
+import { codeBlockKeymap } from "./code-blocks"
 import { livePreviewPlugin } from "./decorations"
 import { formattingKeymap } from "./formatting"
 import { inputRules } from "./input-rules"
@@ -17,6 +18,7 @@ export function createMarkdownEditorExtensions() {
     new LanguageSupport(markdownLanguage),
     livePreviewPlugin,
     inputRules,
+    Prec.highest(codeBlockKeymap),
     Prec.highest(blockquoteKeymap),
     Prec.high(listKeymap),
     formattingKeymap,
@@ -35,11 +37,15 @@ export {
   isAlertTitleLine,
   isInBlockquote,
 } from "./blockquotes"
-
+export {
+  codeBlockBackspace,
+  codeBlockDedent,
+  codeBlockEnter,
+  codeBlockIndent,
+  codeBlockKeymap,
+} from "./code-blocks"
 export { formattingKeymap, insertLink, wrapSelection } from "./formatting"
-
 export { backspaceUndoInputRule, INPUT_RULES } from "./input-rules"
-
 export {
   BulletWidget,
   CheckboxWidget,
@@ -52,7 +58,6 @@ export {
   toggleCheckbox,
   toRoman,
 } from "./lists"
-
+export { codeBlockAt, inCode } from "./shared/code"
 export { cursorOnLine, cursorTouches } from "./shared/cursor"
-
 export { editorTheme } from "./theme"

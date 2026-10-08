@@ -19,6 +19,7 @@ import { ApiError } from "@/lib/api"
 import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
 import {
+  TASK_BODY_MAX_LENGTH,
   type TaskPriority,
   type TaskStatus,
   type TaskSummary,
@@ -185,7 +186,7 @@ function CreateTaskForm({
         <MarkdownEditor
           label="Description"
           placeholder="Add a description."
-          maxLength={20000}
+          maxLength={TASK_BODY_MAX_LENGTH}
           className="max-h-64 min-h-[5.5rem] overflow-y-auto"
           value={body}
           onChange={(v) => {

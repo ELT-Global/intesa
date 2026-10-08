@@ -8,7 +8,6 @@ import {
   createMarkdownEditorExtensions,
   dedentListItem,
   formatOrderedMarker,
-  INPUT_RULES,
   indentListItem,
   insertLink,
   toAlpha,
@@ -439,15 +438,6 @@ describe("markdown-editor-core input rules — replacements", () => {
     expect(view.state.doc.toString()).toBe("->")
     destroy()
   })
-
-  it("covers every rule in INPUT_RULES (exhaustive)", () => {
-    for (const rule of INPUT_RULES) {
-      const { view, destroy } = createTestView("")
-      typeText(view, rule.original)
-      expect(view.state.doc.toString()).toBe(rule.replacement)
-      destroy()
-    }
-  })
 })
 
 describe("markdown-editor-core input rules — horizontal rule", () => {
@@ -501,15 +491,21 @@ describe("markdown-editor-core input rules — backspace undo", () => {
     destroy()
   })
 
-  it("restores the original for every rule in INPUT_RULES (exhaustive)", () => {
-    for (const rule of INPUT_RULES) {
-      const { view, destroy } = createTestView("")
-      typeText(view, rule.original)
-      expect(backspaceUndoInputRule(view)).toBe(true)
-      expect(view.state.doc.toString()).toBe(rule.original)
-      expect(view.state.selection.main.from).toBe(rule.original.length)
-      destroy()
-    }
+  it.each([
+    ["--", "—"],
+    ["->", "→"],
+    ["<-", "←"],
+    ["=>", "⇒"],
+    ["<=", "⇐"],
+    ["!=", "≠"],
+  ])("backspace after %s typed as %s restores the original", (original, replacement) => {
+    const { view, destroy } = createTestView("")
+    typeText(view, original)
+    expect(view.state.doc.toString()).toBe(replacement)
+    expect(backspaceUndoInputRule(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe(original)
+    expect(view.state.selection.main.from).toBe(original.length)
+    destroy()
   })
 
   it("returns false and leaves doc unchanged for a normal character", () => {
@@ -1034,27 +1030,32 @@ describe("markdown-editor-core list edge cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("toAlpha", () => {
-  it("converts 1 to a", () => expect(toAlpha(1)).toBe("a"))
-  it("converts 2 to b", () => expect(toAlpha(2)).toBe("b"))
-  it("converts 26 to z", () => expect(toAlpha(26)).toBe("z"))
-  it("converts 27 to aa", () => expect(toAlpha(27)).toBe("aa"))
-  it("converts 28 to ab", () => expect(toAlpha(28)).toBe("ab"))
-  it("converts 52 to az", () => expect(toAlpha(52)).toBe("az"))
-  it("converts 53 to ba", () => expect(toAlpha(53)).toBe("ba"))
+  it.each([
+    [1, "a"],
+    [2, "b"],
+    [26, "z"],
+    [27, "aa"],
+    [28, "ab"],
+    [52, "az"],
+    [53, "ba"],
+  ])("converts %d to %s", (n, expected) => expect(toAlpha(n)).toBe(expected))
 })
 
 describe("toRoman", () => {
-  it("converts 1 to i", () => expect(toRoman(1)).toBe("i"))
-  it("converts 2 to ii", () => expect(toRoman(2)).toBe("ii"))
-  it("converts 3 to iii", () => expect(toRoman(3)).toBe("iii"))
-  it("converts 4 to iv", () => expect(toRoman(4)).toBe("iv"))
-  it("converts 5 to v", () => expect(toRoman(5)).toBe("v"))
-  it("converts 9 to ix", () => expect(toRoman(9)).toBe("ix"))
-  it("converts 10 to x", () => expect(toRoman(10)).toBe("x"))
-  it("converts 14 to xiv", () => expect(toRoman(14)).toBe("xiv"))
-  it("converts 40 to xl", () => expect(toRoman(40)).toBe("xl"))
-  it("converts 50 to l", () => expect(toRoman(50)).toBe("l"))
-  it("converts 100 to c", () => expect(toRoman(100)).toBe("c"))
+  it.each([
+    [1, "i"],
+    [2, "ii"],
+    [3, "iii"],
+    [4, "iv"],
+    [5, "v"],
+    [9, "ix"],
+    [10, "x"],
+    [14, "xiv"],
+    [40, "xl"],
+    [50, "l"],
+    [100, "c"],
+    [1994, "mcmxciv"],
+  ])("converts %d to %s", (n, expected) => expect(toRoman(n)).toBe(expected))
 })
 
 describe("formatOrderedMarker", () => {

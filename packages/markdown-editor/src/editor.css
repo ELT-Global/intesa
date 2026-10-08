@@ -213,6 +213,37 @@
     margin-bottom: 0;
   }
 
+  /* ── Code blocks ──────────────────────────────────────────────────────── */
+  /* Every line of the block carries the band; hidden fence lines collapse to a thin cap so the
+     block keeps its padding without showing the backticks. */
+
+  .cm-doc-editor .cm-lp-codeblock {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    line-height: 1.6;
+    background: var(--muted);
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    tab-size: 2;
+  }
+
+  .cm-doc-editor .cm-lp-codeblock-first {
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+  }
+
+  .cm-doc-editor .cm-lp-codeblock-last {
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+  }
+
+  .cm-doc-editor .cm-lp-codefence-hidden {
+    height: 0.5rem;
+    overflow: hidden;
+    font-size: 0 !important;
+    line-height: 0 !important;
+  }
+
   /* ── Lists ────────────────────────────────────────────────────────────── */
 
   .cm-doc-editor .cm-lp-bullet {

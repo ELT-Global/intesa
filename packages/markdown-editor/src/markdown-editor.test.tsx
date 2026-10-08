@@ -70,9 +70,6 @@ function Controlled({ initial = "", ...rest }: { initial?: string } & Record<str
     <>
       <MarkdownEditor label="Description" value={value} onChange={setValue} {...rest} />
       <output data-testid="out">{value}</output>
-      <button type="button" onClick={() => setValue("replaced from outside")}>
-        reset
-      </button>
     </>
   )
 }
@@ -277,7 +274,7 @@ describe("MarkdownEditor once loaded", () => {
     expect(view().state.selection.main.head).toBe(3)
   })
 
-  it("renders live-preview decoration for markdown", async () => {
+  it("wires in the markdown live preview", async () => {
     await mount(<Controlled initial={"# Heading\n\ntext"} />)
     await act(async () => view().dispatch({ selection: { anchor: view().state.doc.length } }))
     expect(document.querySelector(".cm-lp-h1")?.textContent).toBe("Heading")
@@ -290,5 +287,102 @@ describe("MarkdownEditor once loaded", () => {
     await act(async () => root?.unmount())
     expect(mountedHost.querySelector(".cm-editor")).toBeNull()
     root = createRoot(document.createElement("div"))
+  })
+})
+
+const key = (el: Element, init: KeyboardEventInit) =>
+  el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }))
+
+describe("MarkdownEditor — textarea stage details", () => {
+  beforeEach(resetMarkdownEditorForTests)
+
+  it("applies maxLength and the escape marker to the textarea", () => {
+    mountSync(<Controlled maxLength={12} keepsEscape />)
+    expect(textarea()?.maxLength).toBe(12)
+    expect(textarea()?.hasAttribute("data-keeps-escape")).toBe(true)
+  })
+
+  it("focuses the textarea with autoFocus and keeps the focus through the swap", async () => {
+    mountSync(<Controlled initial="abc" autoFocus />)
+    expect(document.activeElement).toBe(textarea())
+    textarea()?.setSelectionRange(1, 1)
+
+    await settle()
+
+    expect(content()).not.toBeNull()
+    expect(document.activeElement).toBe(content())
+    expect(view().state.selection.main.head).toBe(1)
+  })
+
+  it("carries text typed during the textarea stage into the editor", async () => {
+    mountSync(<Controlled initial="a" />)
+    await act(async () => typeInto(textarea() as HTMLTextAreaElement, "a then more"))
+    await settle()
+    expect(view().state.doc.toString()).toBe("a then more")
+  })
+
+  it("forwards key presses from the textarea", () => {
+    const seen: string[] = []
+    mountSync(<Controlled onKeyDown={(e: React.KeyboardEvent) => seen.push(e.key)} />)
+    act(() => void key(textarea() as HTMLTextAreaElement, { key: "Escape" }))
+    expect(seen).toEqual(["Escape"])
+  })
+})
+
+describe("MarkdownEditor — live prop changes", () => {
+  beforeEach(settle)
+
+  it("forwards key presses from the editor", async () => {
+    const seen: string[] = []
+    await mount(<Controlled onKeyDown={(e: React.KeyboardEvent) => seen.push(e.key)} />)
+    await act(async () => void key(content() as HTMLElement, { key: "Escape" }))
+    expect(seen).toEqual(["Escape"])
+  })
+
+  it("adds and removes the escape marker as keepsEscape changes", async () => {
+    function Toggle() {
+      const [on, setOn] = useState(false)
+      return (
+        <>
+          <MarkdownEditor label="d" value="" onChange={() => {}} keepsEscape={on} />
+          <button type="button" onClick={() => setOn((v) => !v)}>
+            toggle
+          </button>
+        </>
+      )
+    }
+    await mount(<Toggle />)
+    const toggle = () => act(async () => void document.querySelector("button")?.click())
+    expect(content()?.hasAttribute("data-keeps-escape")).toBe(false)
+    await toggle()
+    expect(content()?.hasAttribute("data-keeps-escape")).toBe(true)
+    await toggle()
+    expect(content()?.hasAttribute("data-keeps-escape")).toBe(false)
+  })
+
+  it("updates the accessible name when the label changes", async () => {
+    await mount(<MarkdownEditor label="First" value="" onChange={() => {}} />)
+    expect(content()?.getAttribute("aria-label")).toBe("First")
+    await act(async () =>
+      root?.render(<MarkdownEditor label="Second" value="" onChange={() => {}} />),
+    )
+    expect(content()?.getAttribute("aria-label")).toBe("Second")
+  })
+
+  it("does not touch the document when the same value is passed again", async () => {
+    const onChange = mock((_: string) => {})
+    await mount(<MarkdownEditor label="d" value="same" onChange={onChange} />)
+    await act(async () => view().dispatch({ selection: { anchor: 2 } }))
+    await act(async () =>
+      root?.render(<MarkdownEditor label="d" value="same" onChange={onChange} />),
+    )
+    expect(view().state.selection.main.head).toBe(2)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})
+
+describe("preloadMarkdownEditor", () => {
+  it("returns the same promise on repeated calls", () => {
+    expect(preloadMarkdownEditor()).toBe(preloadMarkdownEditor())
   })
 })

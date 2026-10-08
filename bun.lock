@@ -74,6 +74,7 @@
         "@codemirror/language": "^6.12.4",
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.13",
+        "@lezer/common": "^1.2.0",
       },
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.0.0",

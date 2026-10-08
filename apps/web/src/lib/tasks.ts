@@ -32,6 +32,8 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   "complete",
 ]
 export const TASK_PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high", "urgent"]
+/** Longest description the API accepts (apps/api/src/tasks/schemas.ts). */
+export const TASK_BODY_MAX_LENGTH = 20000
 
 export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"]
 export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]

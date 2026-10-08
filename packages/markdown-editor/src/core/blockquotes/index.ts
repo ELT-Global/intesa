@@ -41,8 +41,9 @@ export class AlertBadgeWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const meta = ALERT_META[this.alertType] ?? ALERT_META.note!
+    const meta = ALERT_META[this.alertType]
     const wrapper = document.createElement("span")
+    if (!meta) return wrapper
     wrapper.className = `cm-lp-alert-badge cm-lp-alert-badge-${this.alertType}`
     wrapper.innerHTML = `${meta.icon}<span class="cm-lp-alert-badge-label">${meta.label}</span>`
     return wrapper
