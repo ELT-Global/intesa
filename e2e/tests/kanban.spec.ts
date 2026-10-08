@@ -169,3 +169,138 @@ test("a failed task load shows an error and Try again recovers", async ({ page }
   await page.getByRole("button", { name: "Try again" }).click()
   await expect(column(page, "Todo").getByRole("button", { name: /Write spec/ })).toBeVisible()
 })
+
+// Card titles in a column, top to bottom.
+const cards = (page: Page, name: string) => column(page, name).locator("li[data-task-id]")
+
+test("new cards go to the top of their column", async ({ page }) => {
+  await setup(page, [{ title: "First" }, { title: "Second" }, { title: "Third" }])
+  await expect(cards(page, "Todo")).toContainText(["Third", "Second", "First"])
+})
+
+test("dragging a card within its column reorders it and persists", async ({ page }) => {
+  await setup(page, [{ title: "A" }, { title: "B" }, { title: "C" }])
+  await expect(cards(page, "Todo")).toContainText(["C", "B", "A"])
+
+  // Drop on the upper half of C: A goes above it.
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
+  await cards(page, "Todo")
+    .getByRole("button", { name: /\bA\b/ })
+    .dragTo(cards(page, "Todo").getByRole("button", { name: /\bC\b/ }), {
+      targetPosition: { x: 40, y: 4 },
+    })
+  await expect(cards(page, "Todo")).toContainText(["A", "C", "B"])
+  await saved
+
+  await page.reload()
+  await expect(cards(page, "Todo")).toContainText(["A", "C", "B"])
+})
+
+test("dropping below the last card of a column moves the card to the end", async ({ page }) => {
+  await setup(page, [{ title: "A" }, { title: "B" }, { title: "C" }])
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
+  const body = column(page, "Todo").locator("[data-column-body]")
+  const box = await body.boundingBox()
+  if (!box) throw new Error("column has no box")
+  await cards(page, "Todo")
+    .getByRole("button", { name: /\bC\b/ })
+    .dragTo(body, { targetPosition: { x: box.width / 2, y: box.height - 4 } })
+  await expect(cards(page, "Todo")).toContainText(["B", "A", "C"])
+  await saved
+  await page.reload()
+  await expect(cards(page, "Todo")).toContainText(["B", "A", "C"])
+})
+
+test("dropping a card between two cards of another column places it there", async ({ page }) => {
+  await setup(page, [
+    { title: "Mover" },
+    { title: "Low", status: "review" },
+    { title: "High", status: "review" },
+  ])
+  await expect(cards(page, "Review")).toContainText(["High", "Low"])
+
+  const saved = page.waitForResponse((r) => r.request().method() === "PATCH" && r.ok())
+  await cards(page, "Todo")
+    .getByRole("button", { name: /Mover/ })
+    .dragTo(cards(page, "Review").getByRole("button", { name: /Low/ }), {
+      targetPosition: { x: 40, y: 4 },
+    })
+  await expect(cards(page, "Review")).toContainText(["High", "Mover", "Low"])
+  await expect(cards(page, "Todo")).toHaveCount(0)
+  await saved
+
+  await page.reload()
+  await expect(cards(page, "Review")).toContainText(["High", "Mover", "Low"])
+})
+
+test("a failed reorder puts the card back", async ({ page }) => {
+  await setup(page, [{ title: "A" }, { title: "B" }, { title: "C" }])
+  await page.route("**/api/tasks/*", (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } })
+      : route.continue(),
+  )
+  await cards(page, "Todo")
+    .getByRole("button", { name: /\bA\b/ })
+    .dragTo(cards(page, "Todo").getByRole("button", { name: /\bC\b/ }), {
+      targetPosition: { x: 40, y: 4 },
+    })
+  await expect(page.getByRole("alert")).toContainText("Could not save the task.")
+  await expect(cards(page, "Todo")).toContainText(["C", "B", "A"])
+})
+
+test("Alt+Up and Alt+Down reorder a focused card within its column and keep focus", async ({
+  page,
+}) => {
+  await setup(page, [{ title: "A" }, { title: "B" }, { title: "C" }])
+  await expect(cards(page, "Todo")).toContainText(["C", "B", "A"])
+  let saved = 0
+  page.on("response", (r) => {
+    if (r.request().method() === "PATCH" && r.ok()) saved++
+  })
+  const b = column(page, "Todo").getByRole("button", { name: /\bB\b/ })
+  await b.focus()
+
+  await page.keyboard.press("Alt+ArrowUp")
+  await expect(cards(page, "Todo")).toContainText(["B", "C", "A"])
+  await expect(b).toBeFocused()
+  await expect(page.getByRole("status").filter({ hasText: "position 1 of 3" })).toBeVisible()
+
+  // Already first: nothing to do, and the card is still focused.
+  await page.keyboard.press("Alt+ArrowUp")
+  await expect(page.getByRole("status").filter({ hasText: "already the first card" })).toBeVisible()
+  await expect(b).toBeFocused()
+
+  await page.keyboard.press("Alt+ArrowDown")
+  await expect(cards(page, "Todo")).toContainText(["C", "B", "A"])
+  await expect(b).toBeFocused()
+  await page.keyboard.press("Alt+ArrowDown")
+  await expect(cards(page, "Todo")).toContainText(["C", "A", "B"])
+  await expect(b).toBeFocused()
+
+  await page.keyboard.press("Alt+ArrowDown")
+  await expect(page.getByRole("status").filter({ hasText: "already the last card" })).toBeVisible()
+  // One save per move; the presses at either end sent nothing.
+  await expect.poll(() => saved).toBe(3)
+  await page.reload()
+  await expect(cards(page, "Todo")).toContainText(["C", "A", "B"])
+})
+
+test("dropping a card where it already is sends nothing", async ({ page }) => {
+  await setup(page, [{ title: "A" }, { title: "B" }, { title: "C" }])
+  let patches = 0
+  await page.route("**/api/tasks/*", (route) => {
+    if (route.request().method() === "PATCH") patches++
+    return route.continue()
+  })
+  // B sits between C and A; dropping it on the top half of A leaves it exactly there.
+  await cards(page, "Todo")
+    .getByRole("button", { name: /\bB\b/ })
+    .dragTo(cards(page, "Todo").getByRole("button", { name: /\bA\b/ }), {
+      targetPosition: { x: 40, y: 4 },
+    })
+  await expect(cards(page, "Todo")).toContainText(["C", "B", "A"])
+  // A round trip after the drop: anything it had sent is counted by now.
+  await page.evaluate(() => fetch("/api/health"))
+  expect(patches).toBe(0)
+})

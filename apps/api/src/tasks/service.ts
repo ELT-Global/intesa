@@ -5,6 +5,7 @@ import { ApiError } from "../lib/errors"
 import type { ProjectRow } from "../projects/service"
 import type { Role } from "../workspaces/membership"
 import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
+import { byBoardOrder, positionFor } from "./order"
 import { loadRelationships } from "./relationships"
 import type { CreateTaskInput, PatchTaskInput, Priority, Status } from "./schemas"
 
@@ -99,8 +100,9 @@ const scopedIds = (db: Db, scope: TaskScope) => {
 }
 
 // Builds summaries with a fixed number of queries (tasks, assignees, tags, subtask counts).
-// By ids the result keeps the order of the ids; by project it is newest first (highest number);
-// assigned work is most recently updated first and due work is soonest due first.
+// By ids the result keeps the order of the ids; by project it is in board order (each status
+// column reads top to bottom); assigned work is most recently updated first and due work is
+// soonest due first.
 // Later features add data here, not new round trips.
 async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
@@ -118,6 +120,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
         "tasks.priority",
         "tasks.dueAt",
         "tasks.parentTaskId",
+        "tasks.position",
         "tasks.createdAt",
         "tasks.updatedAt",
         "projects.key as projectKey",
@@ -156,6 +159,9 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       .groupBy("parentTaskId")
       .execute(),
   ])
+
+  // Not in SQL: see tasks/order.ts.
+  if ("projectId" in scope) tasks.sort(byBoardOrder)
 
   const assigneesByTask = groupBy(assignees, (a) => a.taskId)
   const tagsByTask = groupBy(tags, (t) => t.taskId)
@@ -370,6 +376,13 @@ export async function createTask(
       .returning("taskCounter")
       .executeTakeFirstOrThrow()
 
+    // New tasks go to the top of their column.
+    const position = await positionFor(
+      trx,
+      { projectId: project.id, parentTaskId: input.parentTaskId ?? null, status: input.status },
+      "first",
+    )
+
     const id = newId()
     const ts = now()
     await trx
@@ -385,6 +398,7 @@ export async function createTask(
         status: input.status,
         priority: input.priority ?? null,
         dueAt: input.dueAt ?? null,
+        position,
         createdBy: userId,
         createdAt: ts,
         updatedAt: ts,
@@ -451,7 +465,8 @@ export async function changeTaskStatus(
 }
 
 // Applies every field of the patch in one transaction, writing the task row (and its
-// updatedAt) once at the end; a rejected value rolls everything back.
+// updatedAt) once at the end; a rejected value rolls everything back. Moving a card within
+// its column changes only its position, which is not an edit and leaves updatedAt alone.
 export async function updateTask(
   db: Db,
   userId: string,
@@ -463,6 +478,7 @@ export async function updateTask(
     if (patch.tagIds) await assertTags(trx, task.workspaceId, unique(patch.tagIds))
 
     const ts = now()
+    const { placement } = patch
     const set: Updateable<TaskTable> = {
       ...(patch.title !== undefined && { title: patch.title }),
       ...(patch.body !== undefined && { body: patch.body }),
@@ -475,26 +491,33 @@ export async function updateTask(
       patch.tagIds !== undefined ||
       patch.customFields !== undefined
 
-    if (patch.status !== undefined) {
+    let moved = false
+    if (patch.status !== undefined || placement !== undefined) {
       const current = await trx
         .selectFrom("tasks")
         .select("status")
         .where("id", "=", task.id)
         .executeTakeFirstOrThrow()
-      if (current.status !== patch.status) {
-        set.status = patch.status
-        await insertHistory(trx, task.id, current.status, patch.status, userId, ts)
+      const status = patch.status ?? (current.status as Status)
+      const column = { projectId: task.projectId, parentTaskId: task.parentTaskId, status }
+      if (current.status !== status) {
+        set.status = status
+        await insertHistory(trx, task.id, current.status, status, userId, ts)
         changed = true
+        set.position = await positionFor(trx, column, placement ?? "first", task.id)
+      } else if (placement !== undefined) {
+        set.position = await positionFor(trx, column, placement, task.id)
+        moved = true
       }
     }
 
     if (patch.assigneeIds) await replaceAssignees(trx, task.id, unique(patch.assigneeIds))
     if (patch.tagIds) await replaceTags(trx, task.id, unique(patch.tagIds))
     if (patch.customFields) await applyCustomFields(trx, task, patch.customFields)
-    if (changed) {
+    if (changed || moved) {
       await trx
         .updateTable("tasks")
-        .set({ ...set, updatedAt: ts })
+        .set(changed ? { ...set, updatedAt: ts } : set)
         .where("id", "=", task.id)
         .execute()
     }

@@ -57,6 +57,8 @@ export type TaskTable = {
   status: string
   priority: string | null
   dueAt: string | null
+  // Fractional-index key ordering the task within its board column; see tasks/order.ts.
+  position: string
   createdBy: string
   createdAt: string
   updatedAt: string

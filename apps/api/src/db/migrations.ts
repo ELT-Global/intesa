@@ -1,3 +1,4 @@
+import { generateNKeysBetween } from "fractional-indexing"
 import { type ColumnDefinitionBuilder, type Kysely, sql } from "kysely"
 import type { Migration } from "kysely/migration"
 
@@ -267,8 +268,60 @@ const customFieldNamesAndRelated: Migration = {
   },
 }
 
+// Kysely wraps a migration in a transaction only where the dialect has transactional DDL
+// (Postgres). SQLite's DDL is transactional too, but Kysely does not rely on it, so a
+// migration that needs to be all-or-nothing there opens its own transaction.
+const atomically = <T>(db: Kysely<any>, fn: (trx: Kysely<any>) => Promise<T>) =>
+  db.isTransaction ? fn(db) : db.transaction().execute(fn)
+
+// Tasks get a fractional-index `position` so cards can be reordered within a column by
+// writing one row. The column is ordered by (project, status, parent); existing tasks keep the
+// order they were shown in, newest (highest number) first.
+//
+// The default exists only because SQLite cannot add a NOT NULL column without one; every row
+// is given a real key below, and the app always writes one. Keys are compared as plain strings
+// in application code, never with SQL ORDER BY: Postgres would use the database collation
+// (which is not byte order), SQLite would not, and the two would disagree.
+const taskPosition: Migration = {
+  async up(db: Kysely<any>) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .alterTable("tasks")
+        .addColumn("position", text, (c) => c.notNull().defaultTo(""))
+        .execute()
+
+      const rows = await trx
+        .selectFrom("tasks")
+        .select(["id", "projectId", "status", "parentTaskId"])
+        .orderBy("projectId")
+        .orderBy("status")
+        .orderBy("parentTaskId")
+        .orderBy("number", "desc")
+        .execute()
+      const columns = new Map<string, string[]>()
+      for (const row of rows) {
+        const scope = JSON.stringify([row.projectId, row.status, row.parentTaskId])
+        const ids = columns.get(scope)
+        if (ids) ids.push(row.id)
+        else columns.set(scope, [row.id])
+      }
+      for (const ids of columns.values()) {
+        const keys = generateNKeysBetween(null, null, ids.length)
+        for (const [i, id] of ids.entries()) {
+          await trx
+            .updateTable("tasks")
+            .set({ position: keys[i] as string })
+            .where("id", "=", id)
+            .execute()
+        }
+      }
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
   "0003_custom_field_names_related_order": customFieldNamesAndRelated,
+  "0004_task_position": taskPosition,
 }

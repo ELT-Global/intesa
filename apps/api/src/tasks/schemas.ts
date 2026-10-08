@@ -37,10 +37,20 @@ export const createTaskBody = z.object({
   tagIds: ids.optional(),
 })
 
+// Where to put the task among the others in its column (the one it is in after this patch):
+// next to another task of that column, or at either end.
+const placement = z.union([
+  z.strictObject({ before: z.string().min(1) }),
+  z.strictObject({ after: z.string().min(1) }),
+  z.enum(["first", "last"]),
+])
+
 export const patchTaskBody = z.object({
   title: title.optional(),
   body: body.nullable().optional(),
   status: status.optional(),
+  // Without it a task whose status changes goes to the top of the new column.
+  placement: placement.optional(),
   priority: priority.nullable().optional(),
   dueAt: dueAt.nullable().optional(),
   assigneeIds: ids.optional(),

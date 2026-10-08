@@ -2,7 +2,7 @@
 
 A small project management tool in the style of Linear, meant for one team of around eight developers who host it themselves. Workspaces contain projects, projects contain tasks (with one level of subtasks), and tasks carry a status, priority, due date, assignees, tags, blocking and related links, a status history and per-project custom fields. Sign-in is Google only (plus optional TOTP two-factor); there are no passwords.
 
-What it deliberately does not do: no email or notifications, no comments or file attachments, no real-time updates (a second browser sees changes on its next fetch), no manual ordering inside a board column, no billing, no audit log beyond task status history, and no sign-in methods other than Google. It is one service, one database, and has not been load tested beyond a few thousand tasks per workspace.
+What it deliberately does not do: no email or notifications, no comments or file attachments, no real-time updates (a second browser sees changes on its next fetch), no reordering of board cards on touch screens (drag and drop or Alt+ArrowUp/Down only), no billing, no audit log beyond task status history, and no sign-in methods other than Google. It is one service, one database, and has not been load tested beyond a few thousand tasks per workspace.
 
 Stack: Bun, Hono, Kysely (SQLite by default, PostgreSQL supported), a TanStack Start single-page client built with Vite, Playwright for end-to-end tests.
 

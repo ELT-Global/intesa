@@ -35,6 +35,40 @@ export const TASK_PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high"
 
 export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"]
 export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]
+/** Where a card goes in its column: next to another card, or at either end. */
+export type Placement = NonNullable<TaskPatch["placement"]>
+
+/**
+ * `list` with `taskId` placed as the server will place it. The list is in board order, so a
+ * column reads top to bottom in list order. Unchanged when the column has nothing to place the
+ * task next to (an empty column: any spot in it is the same).
+ */
+export function placeTask(list: TaskSummary[], taskId: string, placement: Placement) {
+  const task = list.find((t) => t.id === taskId)
+  if (!task) return list
+  const others = list.filter((t) => t.id !== taskId)
+  const inColumn = (t: TaskSummary) => t.status === task.status && !t.parentTaskId
+
+  let at = -1
+  if (placement === "first") at = others.findIndex(inColumn)
+  else if (placement === "last") {
+    const last = others.findLastIndex(inColumn)
+    at = last < 0 ? -1 : last + 1
+  } else {
+    const anchor = "before" in placement ? placement.before : placement.after
+    const found = others.findIndex((t) => t.id === anchor && inColumn(t))
+    at = found < 0 ? -1 : found + ("after" in placement ? 1 : 0)
+  }
+  return at < 0 ? list : [...others.slice(0, at), task, ...others.slice(at)]
+}
+
+/** The list with `taskId` moved back to `index`. */
+const moveToIndex = (list: TaskSummary[], taskId: string, index: number) => {
+  const task = list.find((t) => t.id === taskId)
+  if (!task) return list
+  const others = list.filter((t) => t.id !== taskId)
+  return [...others.slice(0, index), task, ...others.slice(index)]
+}
 
 /** Resolved people/tags matching a patch's id sets, so the cache can update before the server answers. */
 export type TaskPatchView = { assignees?: UserRef[]; tags?: TagRef[] }
@@ -152,6 +186,8 @@ type Rollback = {
   customFields?: Record<string, { had: boolean; value: unknown }>
   /** Previous values of the changed fields, in the parent's copy of this subtask. */
   parent?: Record<string, unknown>
+  /** Where the task sat in the project's list, when the edit moved it. */
+  index?: number
 }
 
 function pick(row: object | undefined, keys: string[]) {
@@ -172,9 +208,8 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
         qc.cancelQueries({ queryKey: taskKeys.list(projectId) }),
         qc.cancelQueries({ queryKey: taskKeys.detail(taskId), exact: true }),
       ])
-      const row = qc
-        .getQueryData<TaskSummary[]>(taskKeys.list(projectId))
-        ?.find((t) => t.id === taskId)
+      const listBefore = qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId))
+      const row = listBefore?.find((t) => t.id === taskId)
       const detail = qc.getQueryData<TaskDetail>(taskKeys.detail(taskId))
       const current = detail ?? row
       const resolved =
@@ -197,9 +232,15 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
           )
         : undefined
 
-      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
-        old?.map((t) => (t.id === taskId ? { ...t, ...summaryChanges } : t)),
-      )
+      // The server puts a task whose status changes at the top of its new column unless told
+      // where; a card moved within its column stays put without a placement.
+      const placement =
+        patch.placement ??
+        (row && patch.status !== undefined && patch.status !== row.status ? "first" : undefined)
+      qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) => {
+        const edited = old?.map((t) => (t.id === taskId ? { ...t, ...summaryChanges } : t))
+        return edited && placement ? placeTask(edited, taskId, placement) : edited
+      })
       qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) => {
         if (!old) return old
         const customFields = { ...(old.customFields as Record<string, unknown>) }
@@ -214,15 +255,22 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
         detail: pick(detail, Object.keys(detailChanges)),
         customFields: previousFields,
         parent: parentTaskId ? editSubtask(qc, parentTaskId, taskId, summaryChanges) : undefined,
+        index: placement ? listBefore?.findIndex((t) => t.id === taskId) : undefined,
       }
     },
     onError: (_error: Error, _vars: UpdateVars, rollback: Rollback | undefined) => {
       onFailed?.()
       if (!rollback) return
-      const { summary, detail, customFields } = rollback
+      const { summary, detail, customFields, index } = rollback
       if (summary) {
         qc.setQueryData<TaskSummary[]>(taskKeys.list(projectId), (old) =>
           old?.map((t) => (t.id === taskId ? { ...t, ...summary } : t)),
+        )
+      }
+      if (index !== undefined && index >= 0) {
+        qc.setQueryData<TaskSummary[]>(
+          taskKeys.list(projectId),
+          (old) => old && moveToIndex(old, taskId, index),
         )
       }
       qc.setQueryData<TaskDetail>(taskKeys.detail(taskId), (old) => {
