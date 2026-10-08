@@ -26,12 +26,14 @@ import {
   type TaskStatus,
   type TaskSummary,
   taskKeys,
+  taskQuery,
   useUpdateTask,
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { AssigneeFilter, UNASSIGNED } from "./assignee-filter"
 import { CreateTaskDialog } from "./create-task-dialog"
 import { STATUS_LABELS, StatusIcon } from "./properties"
+import { type SubtaskSync, SubtaskSyncDialog } from "./subtask-sync-dialog"
 import { TaskCard } from "./task-card"
 import { TaskContextMenu } from "./task-context-menu"
 import { useTaskParam } from "./task-param"
@@ -118,6 +120,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     () => qc.getQueryData<TaskSummary[]>(taskKeys.list(projectId)),
     [qc, projectId],
   )
+  const [sync, setSync] = useState<SubtaskSync | null>(null)
   const shownRef = useRef(shown)
   shownRef.current = shown
   const move = useCallback(
@@ -131,8 +134,19 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         return
       }
       mutate({ taskId, projectId, patch: { status, ...(placement && { placement }) } })
+      // The card has moved; offer to bring its subtasks along.
+      if (task.subtaskCount > 0) {
+        qc.fetchQuery(taskQuery(taskId))
+          .then((detail) => {
+            // Skipped if the card has been moved on again while the subtasks loaded.
+            if (currentTasks()?.find((t) => t.id === taskId)?.status !== status) return
+            const { subtasks } = detail
+            if (subtasks.some((s) => s.status !== status)) setSync({ task, status, subtasks })
+          })
+          .catch(() => {})
+      }
     },
-    [mutate, projectId, currentTasks],
+    [mutate, projectId, currentTasks, qc],
   )
   const [announcement, setAnnouncement] = useState("")
   const moveBy = useCallback(
@@ -237,6 +251,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           })}
         </div>
       </div>
+      <SubtaskSyncDialog sync={sync} onClose={() => setSync(null)} />
       <CreateTaskDialog
         projectId={projectId}
         open={createStatus !== null}
