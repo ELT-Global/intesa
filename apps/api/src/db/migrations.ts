@@ -1,5 +1,5 @@
 import { generateNKeysBetween } from "fractional-indexing"
-import { type ColumnDefinitionBuilder, type Kysely, sql } from "kysely"
+import { type ColumnDefinitionBuilder, type Kysely, SqliteAdapter, sql } from "kysely"
 import type { Migration } from "kysely/migration"
 
 const text = "text" as const
@@ -319,9 +319,28 @@ const taskPosition: Migration = {
   },
 }
 
+const artifacts: Migration = {
+  async up(db) {
+    const binary = db.getExecutor().adapter instanceof SqliteAdapter ? sql`blob` : sql`bytea`
+    await db.schema
+      .createTable("artifacts")
+      .addColumn("id", text, (c) => c.primaryKey())
+      .addColumn("task_id", text, (c) => c.notNull().references("tasks.id").onDelete("cascade"))
+      .addColumn("name", text, notNull)
+      .addColumn("mime_type", text, notNull)
+      .addColumn("size", "integer", notNull)
+      .addColumn("content", binary, notNull)
+      .addColumn("created_at", text, notNull)
+      .addColumn("updated_at", text, notNull)
+      .execute()
+    await db.schema.createIndex("artifacts_task_id").on("artifacts").column("task_id").execute()
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
   "0003_custom_field_names_related_order": customFieldNamesAndRelated,
   "0004_task_position": taskPosition,
+  "0005_artifacts": artifacts,
 }

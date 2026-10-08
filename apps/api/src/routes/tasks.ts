@@ -12,6 +12,7 @@ import {
   requireTask,
   updateTask,
 } from "../tasks/service"
+import { artifactRoutes } from "./artifacts"
 
 const relationBody = z.object({ type: z.enum(RELATION_TYPES), taskId: z.string().min(1) })
 
@@ -52,4 +53,5 @@ export function taskRoutes({ db }: Deps) {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
       return c.json({ history: await listHistory(db, task.id) })
     })
+    .route("/", artifactRoutes({ db }))
 }

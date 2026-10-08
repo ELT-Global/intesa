@@ -111,6 +111,16 @@ export type TaskCustomFieldValueTable = {
 }
 
 export type Database = {
+  artifacts: {
+    id: string
+    taskId: string
+    name: string
+    mimeType: string
+    size: number
+    content: Uint8Array
+    createdAt: string
+    updatedAt: string
+  }
   users: UserTable
   sessions: SessionTable
   workspaces: WorkspaceTable

@@ -59,6 +59,19 @@ UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE email = 'person@exam
 
 Set `DATABASE_URL=postgres://user:password@host:5432/dbname`. Migrations run at startup. The `pg` driver is loaded only when a Postgres URL is used. Run Intesa with a role that may create tables in its schema; there is no separate migration command.
 
+## Task artifacts
+
+Task sheets include an Artifacts section before Subtasks and Relationships. Use
+Upload artifacts or drop files onto the section. Each file can be up to 5 MiB;
+supported extensions are `.html`, `.htm`, `.pdf`, `.md`, `.markdown`, `.doc`,
+`.docx`, `.odt`, `.ods`, `.odp` and `.odg`. Files are stored in the database and
+removed when their task is deleted. Access follows the task's workspace membership.
+
+Markdown opens in an editable modal; Save artifact replaces the original file,
+while Cancel discards edits. Other files open through a new-tab link (Word and
+OpenDocument files may download when the browser has no viewer). Uploaded HTML is
+sandboxed, with scripts, forms and external resource requests disabled.
+
 ## Tests
 
 ```sh

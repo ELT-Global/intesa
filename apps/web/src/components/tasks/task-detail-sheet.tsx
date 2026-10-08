@@ -18,6 +18,7 @@ import {
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { DuePicker, PriorityPicker, STATUS_LABELS, StatusIcon, StatusPicker } from "./properties"
+import { TaskArtifacts } from "./task-artifacts"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
 
@@ -179,6 +180,7 @@ function SheetBody({
             value={task.body ?? ""}
             onCommit={(body, revert) => patch({ body: body || null }, revert)}
           />
+          <TaskArtifacts key={task.id} taskId={task.id} />
           {sections?.(task)}
           <HistorySection taskId={task.id} />
         </div>
