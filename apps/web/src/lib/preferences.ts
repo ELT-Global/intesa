@@ -14,6 +14,8 @@ const MAX_PROJECTS = 200
 type Stored = {
   /** Selected assignee ids per project board. `[]` means everyone; absent means the default. */
   boardAssignees: Record<string, string[]>
+  /** Whether the board's Backlog column is open. Absent means collapsed into a rail. */
+  backlogExpanded: boolean
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -38,13 +40,16 @@ function sanitizeBoardAssignees(v: unknown): Record<string, string[]> {
 }
 
 function read(): Stored {
-  const empty: Stored = { boardAssignees: {} }
+  const empty: Stored = { boardAssignees: {}, backlogExpanded: false }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return empty
     const parsed: unknown = JSON.parse(raw)
     if (!isRecord(parsed) || parsed.v !== VERSION) return empty
-    return { boardAssignees: sanitizeBoardAssignees(parsed.boardAssignees) }
+    return {
+      boardAssignees: sanitizeBoardAssignees(parsed.boardAssignees),
+      backlogExpanded: parsed.backlogExpanded === true,
+    }
   } catch {
     return empty
   }
@@ -69,4 +74,13 @@ export function setBoardAssignees(projectId: string, ids: string[] | null) {
   const { [projectId]: _dropped, ...rest } = current.boardAssignees
   const clean = ids && sanitizeIds(ids)
   write({ ...current, boardAssignees: clean ? { ...rest, [projectId]: clean } : rest })
+}
+
+/** Whether the Backlog column is shown in full; it is a collapsed rail until the user opens it. */
+export function getBacklogExpanded(): boolean {
+  return read().backlogExpanded
+}
+
+export function setBacklogExpanded(expanded: boolean) {
+  write({ ...read(), backlogExpanded: expanded })
 }

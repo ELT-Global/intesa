@@ -21,6 +21,8 @@ export type TaskSummary = {
   number: number
   key: string
   title: string
+  /** The markdown description. */
+  body: string | null
   status: Status
   priority: Priority | null
   dueAt: string | null
@@ -34,7 +36,6 @@ export type TaskSummary = {
 }
 
 export type TaskDetail = TaskSummary & {
-  body: string | null
   project: { id: string; name: string; key: string }
   parent: TaskRef | null
   subtasks: TaskSummary[]
@@ -116,6 +117,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
         "tasks.projectId",
         "tasks.number",
         "tasks.title",
+        "tasks.body",
         "tasks.status",
         "tasks.priority",
         "tasks.dueAt",
@@ -175,6 +177,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       number: t.number,
       key: `${t.projectKey}-${t.number}`,
       title: t.title,
+      body: t.body,
       status: t.status as Status,
       priority: t.priority as Priority | null,
       dueAt: t.dueAt,
@@ -223,7 +226,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
 
   const task = await db
     .selectFrom("tasks")
-    .select(["body", "workspaceId"])
+    .select("workspaceId")
     .where("id", "=", taskId)
     .executeTakeFirstOrThrow()
 
@@ -253,7 +256,6 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
 
   return {
     ...summary,
-    body: task.body,
     project,
     parent: parent
       ? {

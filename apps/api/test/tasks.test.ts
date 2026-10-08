@@ -365,3 +365,16 @@ describe("task authorization", () => {
     expect(anon.status).toBe(401)
   })
 })
+
+describe("project task list", () => {
+  test("includes each task's description so the board can search it", async () => {
+    const { owner, project, create } = await setup()
+    await create({ title: "With notes", body: "Cover the API" })
+    await create({ title: "Without notes" })
+    const res = await owner.call("GET", `/api/projects/${project.id}/tasks`)
+    const bodies = Object.fromEntries(
+      res.body.tasks.map((t: { title: string; body: string | null }) => [t.title, t.body]),
+    )
+    expect(bodies).toEqual({ "With notes": "Cover the API", "Without notes": null })
+  })
+})

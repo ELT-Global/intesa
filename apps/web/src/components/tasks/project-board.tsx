@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
+import { ChevronsLeft, Plus } from "lucide-react"
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -14,7 +14,9 @@ import { ErrorState } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { getBacklogExpanded, setBacklogExpanded } from "@/lib/preferences"
 import { projectQuery } from "@/lib/queries"
+import { compileSearch } from "@/lib/task-search"
 import {
   type Placement,
   projectTasksQuery,
@@ -31,6 +33,7 @@ import { STATUS_LABELS, StatusIcon } from "./properties"
 import { TaskCard } from "./task-card"
 import { TaskContextMenu } from "./task-context-menu"
 import { useTaskParam } from "./task-param"
+import { TaskSearch } from "./task-search"
 import { useBoardAssigneeFilter } from "./use-board-assignee-filter"
 import { CARD_DRAG_TYPE, useDragAutoScroll } from "./use-drag-auto-scroll"
 
@@ -54,14 +57,23 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     meId,
     select: setPicked,
   } = useBoardAssigneeFilter(projectId, workspaceId)
+  const [query, setQuery] = useState("")
+  const matchesQuery = useMemo(() => compileSearch(query, { meId }), [query, meId])
   const shown = useCallback(
     (t: TaskSummary) =>
-      assigneeIds.length === 0 ||
-      (t.assignees.length === 0
-        ? assigneeIds.includes(UNASSIGNED)
-        : t.assignees.some((a) => assigneeIds.includes(a.id))),
-    [assigneeIds],
+      (assigneeIds.length === 0 ||
+        (t.assignees.length === 0
+          ? assigneeIds.includes(UNASSIGNED)
+          : t.assignees.some((a) => assigneeIds.includes(a.id)))) &&
+      (!matchesQuery || matchesQuery(t)),
+    [assigneeIds, matchesQuery],
   )
+  // Backlog is out of the way until asked for; the choice is remembered across visits.
+  const [backlogOpen, setBacklogOpen] = useState(getBacklogExpanded)
+  const toggleBacklog = useCallback((open: boolean) => {
+    setBacklogOpen(open)
+    setBacklogExpanded(open)
+  }, [])
   const byStatus = useMemo(() => {
     const groups = new Map<TaskStatus, TaskSummary[]>(TASK_STATUSES.map((s) => [s, []]))
     for (const t of all ?? []) if (shown(t)) groups.get(t.status)?.push(t)
@@ -165,6 +177,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           meId={meId}
           onChange={setPicked}
         />
+        <TaskSearch query={query} onChange={setQuery} tasks={all ?? []} />
       </div>
       <div
         ref={autoScroll.canvas}
@@ -173,22 +186,32 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         className="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-linear-to-b from-muted/20 to-background [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] md:snap-none"
       >
         <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
-          {TASK_STATUSES.map((status) =>
-            all && filterReady ? (
+          {TASK_STATUSES.map((status) => {
+            if (!all || !filterReady) return <ColumnShell key={status} status={status} />
+            const columnTasks = byStatus.get(status) ?? []
+            if (status === "backlog" && !backlogOpen) {
+              return (
+                <BacklogRail
+                  key={status}
+                  count={columnTasks.length}
+                  onExpand={() => toggleBacklog(true)}
+                />
+              )
+            }
+            return (
               <Column
                 key={status}
                 status={status}
-                tasks={byStatus.get(status) ?? []}
+                tasks={columnTasks}
                 onOpen={openTask}
                 onMove={move}
                 onMoveBy={moveBy}
                 onMoveWithin={moveWithin}
                 onAdd={addTo}
+                onCollapse={status === "backlog" ? () => toggleBacklog(false) : undefined}
               />
-            ) : (
-              <ColumnShell key={status} status={status} />
-            ),
-          )}
+            )
+          })}
         </div>
       </div>
       <CreateTaskDialog
@@ -240,6 +263,25 @@ function dropTarget(body: HTMLElement, clientY: number): { placement?: Placement
   return { placement, top }
 }
 
+/** The collapsed Backlog column: a slim rail that opens it again. */
+function BacklogRail({ count, onExpand }: { count: number; onExpand: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      aria-expanded={false}
+      aria-label={`Show Backlog, ${count} ${count === 1 ? "task" : "tasks"}`}
+      className="flex w-9 shrink-0 cursor-pointer flex-col items-center gap-2.5 rounded-xl border border-border/70 bg-muted/40 py-3 outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring dark:bg-card/90"
+    >
+      <StatusIcon status="backlog" />
+      <CountBadge>{count}</CountBadge>
+      <span className="text-[13px] font-medium [writing-mode:vertical-rl]">
+        {STATUS_LABELS.backlog}
+      </span>
+    </button>
+  )
+}
+
 /** Column placeholder shown while tasks load. */
 function ColumnShell({ status }: { status: TaskStatus }) {
   const label = STATUS_LABELS[status]
@@ -269,6 +311,7 @@ const Column = memo(function Column({
   onMoveBy,
   onMoveWithin,
   onAdd,
+  onCollapse,
 }: {
   status: TaskStatus
   tasks: TaskSummary[]
@@ -277,6 +320,8 @@ const Column = memo(function Column({
   onMoveBy: (taskId: string, delta: -1 | 1) => void
   onMoveWithin: (taskId: string, delta: -1 | 1) => void
   onAdd: (status: TaskStatus) => void
+  /** Set for a column that can fold away into a rail. */
+  onCollapse?: () => void
 }) {
   const [over, setOver] = useState(false)
   // Offset of the drop line inside the card list while a card is dragged over the column.
@@ -320,6 +365,18 @@ const Column = memo(function Column({
         <StatusIcon status={status} />
         <h2 className="text-sm font-medium">{label}</h2>
         <CountBadge>{tasks.length}</CountBadge>
+        {onCollapse && (
+          <Button
+            variant="ghost"
+            size="xs"
+            icon
+            aria-label={`Hide ${label}`}
+            onClick={onCollapse}
+            className="ml-auto"
+          >
+            <ChevronsLeft />
+          </Button>
+        )}
       </header>
       <ul
         ref={body}

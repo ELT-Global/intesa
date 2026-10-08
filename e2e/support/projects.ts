@@ -32,15 +32,37 @@ export async function seedBoardAssignees(page: Page, projectId: string, ids: str
 }
 
 /**
+ * Opens the Backlog column before the app loads (it is collapsed to a chip by default), in the
+ * same format the app writes. Never overwrites a choice the page has since saved itself.
+ */
+export async function seedBacklogExpanded(page: Page, expanded = true) {
+  await page.addInitScript(
+    ([key, value]) => {
+      try {
+        const raw = localStorage.getItem(key as string)
+        const prefs = raw ? JSON.parse(raw) : { v: 1, boardAssignees: {} }
+        if ("backlogExpanded" in prefs) return
+        prefs.backlogExpanded = value
+        localStorage.setItem(key as string, JSON.stringify(prefs))
+      } catch {}
+    },
+    [PREFERENCES_KEY, expanded] as const,
+  )
+}
+
+/**
  * Creates a project through the API and returns its id and key. The board starts on
  * "everyone" so tasks made without an assignee are visible; pass `defaultFilter` to get
- * the app's real default (Me) instead.
+ * the app's real default (Me) instead. Backlog starts open; pass `collapsedBacklog` for the real default.
  */
 export async function createProject(
   page: Page,
   workspaceId: string,
   name: string,
-  { defaultFilter = false }: { defaultFilter?: boolean } = {},
+  {
+    defaultFilter = false,
+    collapsedBacklog = false,
+  }: { defaultFilter?: boolean; collapsedBacklog?: boolean } = {},
 ): Promise<{ id: string; key: string }> {
   const res = await page.request.post(`/api/workspaces/${workspaceId}/projects`, {
     data: { name },
@@ -48,6 +70,7 @@ export async function createProject(
   expect(res.status()).toBe(201)
   const { project } = (await res.json()) as { project: { id: string; key: string } }
   if (!defaultFilter) await seedBoardAssignees(page, project.id, [])
+  if (!collapsedBacklog) await seedBacklogExpanded(page)
   return project
 }
 
