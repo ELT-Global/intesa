@@ -1,7 +1,7 @@
 import { MarkdownEditor } from "@intesa/markdown-editor"
 import { useQuery } from "@tanstack/react-query"
 import { X } from "lucide-react"
-import { type FormEvent, type KeyboardEvent, useId, useRef, useState } from "react"
+import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
 import { Kbd } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { FormError } from "@/components/ui/field"
 import { ApiError } from "@/lib/api"
-import { projectQuery } from "@/lib/queries"
+import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
 import {
   type TaskPriority,
@@ -29,6 +29,7 @@ import { AssigneePicker } from "./assignee-picker"
 import { DuePicker, PriorityPicker, StatusPicker } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TagPicker } from "./tag-picker"
+import { newTaskAssigneeIds } from "./use-board-assignee-filter"
 
 export function CreateTaskDialog({
   projectId,
@@ -106,6 +107,21 @@ function CreateTaskForm({
     setDueAt(next)
   }
   const [assignees, setAssignees] = useState<UserRef[]>([])
+  // Pre-select the assignee implied by the board filter once the member list is known, unless the
+  // person has already picked someone themselves.
+  const members = useQuery({ ...membersQuery(workspaceId ?? ""), enabled: !!workspaceId }).data
+  const meId = useQuery(meQuery).data?.id
+  const assigneeSeeded = useRef(false)
+  useEffect(() => {
+    if (assigneeSeeded.current || !members || !meId) return
+    assigneeSeeded.current = true
+    const ids = newTaskAssigneeIds(projectId, meId, new Set(members.map((m) => m.userId)))
+    setAssignees(
+      members
+        .filter((m) => ids.includes(m.userId))
+        .map((m) => ({ id: m.userId, name: m.name, avatarUrl: m.avatarUrl })),
+    )
+  }, [members, meId, projectId])
   const [tags, setTags] = useState<Tag[]>([])
   const [createMore, setCreateMore] = useState(false)
   const [created, setCreated] = useState<string | null>(null)
@@ -182,7 +198,14 @@ function CreateTaskForm({
         <StatusPicker value={status} onChange={setStatus} />
         <PriorityPicker value={priority} onChange={setPriority} />
         {workspaceId && (
-          <AssigneePicker workspaceId={workspaceId} value={assignees} onChange={setAssignees} />
+          <AssigneePicker
+            workspaceId={workspaceId}
+            value={assignees}
+            onChange={(next) => {
+              assigneeSeeded.current = true
+              setAssignees(next)
+            }}
+          />
         )}
         <DuePicker value={dueAt} status={status} onChange={changeDue} />
         {workspaceId && <TagPicker workspaceId={workspaceId} value={tags} onChange={setTags} />}

@@ -25,10 +25,8 @@ test("the composer creates a task with every property in one go", async ({ page 
   await dialog.getByRole("button", { name: "Change priority" }).click()
   await page.getByRole("menuitemradio", { name: "High" }).click()
 
-  await dialog.getByRole("button", { name: "Change assignees" }).click()
-  await page.getByRole("option", { name: "Assign to me" }).click()
-  await page.keyboard.press("Escape")
-  await expect(page.getByRole("dialog", { name: "Assignees" })).toBeHidden()
+  // The creator is pre-selected, so there is nothing to pick.
+  await expect(dialog.getByRole("button", { name: "Change assignees" })).toContainText("Ada")
 
   await dialog.getByRole("button", { name: "Add tag" }).click()
   await page.getByRole("combobox", { name: "Filter tags" }).fill("composer")

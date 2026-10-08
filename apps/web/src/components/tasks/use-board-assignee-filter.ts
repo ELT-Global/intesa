@@ -50,3 +50,17 @@ export function useBoardAssigneeFilter(projectId: string, workspaceId: string | 
 
   return { selected, ready, meId, select }
 }
+
+/**
+ * Who a new task starts assigned to: the one person the board is filtered to, nobody when it is
+ * filtered to Unassigned, otherwise (several people, or everyone) the creator.
+ */
+export function newTaskAssigneeIds(
+  projectId: string,
+  meId: string | undefined,
+  memberIds: ReadonlySet<string>,
+): string[] {
+  const kept = getBoardAssignees(projectId)?.filter((id) => id === UNASSIGNED || memberIds.has(id))
+  if (kept?.length === 1) return kept[0] === UNASSIGNED ? [] : [kept[0] as string]
+  return meId && memberIds.has(meId) ? [meId] : []
+}

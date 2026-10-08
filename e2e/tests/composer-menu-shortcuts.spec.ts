@@ -43,7 +43,7 @@ test("c opens a composer with a borderless focused title and the full property r
   ).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Change status" })).toContainText("Todo")
   await expect(dialog.getByRole("button", { name: "Change priority" })).toContainText("No priority")
-  await expect(dialog.getByRole("button", { name: "Change assignees" })).toContainText("Assign")
+  await expect(dialog.getByRole("button", { name: "Change assignees" })).toContainText("Ada")
   await expect(dialog.getByLabel("Due date", { exact: true })).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Add tag" })).toBeVisible()
 

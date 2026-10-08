@@ -265,3 +265,132 @@ test("the board still works when localStorage throws", async ({ page }) => {
   await expectTitles(page, ["Mine", "Bobs", "Shared", "Nobody"])
   expect(errors).toEqual([])
 })
+
+test.describe("new tasks are pre-assigned from the filter", () => {
+  const composer = (page: Page) => page.getByRole("dialog", { name: "New task" })
+  const assigneeButton = (page: Page) =>
+    composer(page).getByRole("button", { name: "Change assignees" })
+
+  async function assigneesOf(page: Page, projectId: string, title: string) {
+    const res = await page.request.get(`/api/projects/${projectId}/tasks`)
+    const { tasks } = (await res.json()) as {
+      tasks: { title: string; assignees: { id: string }[] }[]
+    }
+    const task = tasks.find((t) => t.title === title)
+    expect(task, `task ${title} exists`).toBeTruthy()
+    return (task?.assignees ?? []).map((a) => a.id).sort()
+  }
+
+  async function create(page: Page, title: string) {
+    await composer(page).getByLabel("Title").fill(title)
+    await composer(page).getByRole("button", { name: "Create task" }).click()
+    await expect(composer(page)).toBeHidden()
+  }
+
+  test("with the default filter the creator is pre-selected and the card stays visible", async ({
+    page,
+  }) => {
+    const { url, olive, project } = await setup(page)
+    await page.goto(url)
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText("Olive Owner")
+    await create(page, "Fresh")
+
+    await expectTitles(page, ["Mine", "Shared", "Fresh"])
+    expect(await assigneesOf(page, project.id, "Fresh")).toEqual([olive.userId])
+  })
+
+  test("with one other person selected, that person is pre-selected, not the creator", async ({
+    page,
+  }) => {
+    const { url, olive, bob, project } = await setup(page)
+    await page.goto(url)
+    await toggle(page, new RegExp(bob.email))
+    await toggle(page, /Olive Owner/)
+    await expectTitles(page, ["Bobs", "Shared"])
+
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText(bob.name)
+    await expect(assigneeButton(page)).not.toContainText("Olive")
+    await create(page, "For Bob")
+
+    await expectTitles(page, ["Bobs", "Shared", "For Bob"])
+    expect(await assigneesOf(page, project.id, "For Bob")).toEqual([bob.userId])
+    expect(await assigneesOf(page, project.id, "For Bob")).not.toContain(olive.userId)
+  })
+
+  test("with several people selected, the creator is pre-selected", async ({ page }) => {
+    const { url, olive, bob, project } = await setup(page)
+    await page.goto(url)
+    await toggle(page, new RegExp(bob.email))
+    await toggle(page, /Olive Owner/)
+    await toggle(page, "Unassigned") // Bob + Unassigned: two entries, creator is neither
+
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText("Olive Owner")
+    await create(page, "Multi")
+    expect(await assigneesOf(page, project.id, "Multi")).toEqual([olive.userId])
+  })
+
+  test("with only Unassigned selected the new task starts unassigned", async ({ page }) => {
+    const { url, project } = await setup(page)
+    await page.goto(url)
+    await toggle(page, "Unassigned")
+    await toggle(page, /Olive Owner/)
+    await expectTitles(page, ["Nobody"])
+
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText("Assign")
+    await expect(assigneeButton(page)).not.toContainText("Olive")
+    await create(page, "Orphan")
+    await expectTitles(page, ["Nobody", "Orphan"])
+    expect(await assigneesOf(page, project.id, "Orphan")).toEqual([])
+  })
+
+  test("with Everyone selected the creator is pre-selected", async ({ page }) => {
+    const { url, olive, project } = await setup(page)
+    await page.goto(url)
+    await page.getByRole("button", { name: "Clear assignee filter" }).click()
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText("Olive Owner")
+    await create(page, "Everyone's")
+    expect(await assigneesOf(page, project.id, "Everyone's")).toEqual([olive.userId])
+  })
+
+  test("a column's Add task button is pre-selected too, and the choice can be changed", async ({
+    page,
+  }) => {
+    const { url, bob, project } = await setup(page)
+    await page.goto(url)
+    await toggle(page, new RegExp(bob.email))
+    await toggle(page, /Olive Owner/)
+    await page
+      .getByRole("region", { name: "Review", exact: true })
+      .getByRole("button", { name: "Add task" })
+      .click()
+    await expect(assigneeButton(page)).toContainText(bob.name)
+
+    // Un-assigning in the composer is respected rather than re-applied.
+    await assigneeButton(page).click()
+    await page.getByRole("dialog", { name: "Assignees" }).getByRole("option", { name: new RegExp(bob.email) }).click()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Assignees" })).toBeHidden()
+    await expect(assigneeButton(page)).toContainText("Assign")
+    await create(page, "Nobody's review")
+    expect(await assigneesOf(page, project.id, "Nobody's review")).toEqual([])
+  })
+
+  test("a saved person who is no longer a member is ignored", async ({ page }) => {
+    const { url, olive, project } = await setup(page)
+    await page.goto("/")
+    await page.evaluate(
+      ([k, v]) => localStorage.setItem(k as string, v as string),
+      [PREFERENCES_KEY, JSON.stringify({ v: 1, boardAssignees: { [project.id]: ["ghost-id"] } })],
+    )
+    await page.goto(url)
+    await page.getByRole("button", { name: "New task" }).click()
+    await expect(assigneeButton(page)).toContainText("Olive Owner")
+    await create(page, "After ghost")
+    expect(await assigneesOf(page, project.id, "After ghost")).toEqual([olive.userId])
+  })
+})

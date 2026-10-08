@@ -150,7 +150,8 @@ test("the composer creates a task from a phone, with its popover on screen", asy
   await dialog.getByRole("button", { name: "Change assignees" }).tap()
   const people = page.getByRole("dialog", { name: "Assignees" })
   await expectInsideViewport(people, "assignee popover")
-  await page.getByRole("option", { name: "Assign to me" }).tap()
+  // The creator is already assigned, so the picker shows them selected.
+  await expect(people.getByRole("option", { name: /Ada/, selected: true })).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(people).toBeHidden()
   await expect(dialog.getByRole("button", { name: "Change assignees" })).toContainText("AL")
