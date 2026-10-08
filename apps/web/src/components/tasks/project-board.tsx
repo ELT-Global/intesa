@@ -14,6 +14,7 @@ import { ErrorState } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { projectQuery } from "@/lib/queries"
 import {
   projectTasksQuery,
   TASK_STATUSES,
@@ -22,11 +23,13 @@ import {
   useUpdateTask,
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
+import { AssigneeFilter, UNASSIGNED } from "./assignee-filter"
 import { CreateTaskDialog } from "./create-task-dialog"
 import { STATUS_LABELS, StatusIcon } from "./properties"
 import { TaskCard } from "./task-card"
 import { TaskContextMenu } from "./task-context-menu"
 import { useTaskParam } from "./task-param"
+import { useBoardAssigneeFilter } from "./use-board-assignee-filter"
 import { CARD_DRAG_TYPE, useDragAutoScroll } from "./use-drag-auto-scroll"
 
 const DRAG_HINT_ID = "kanban-drag-hint"
@@ -39,11 +42,27 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const autoScroll = useDragAutoScroll()
   const [createStatus, setCreateStatus] = useState<TaskStatus | null>(null)
   const all = tasks.data
+  const workspaceId = useQuery(projectQuery(projectId)).data?.workspaceId
+  const {
+    selected: assigneeIds,
+    ready: filterReady,
+    meId,
+    select: setPicked,
+  } = useBoardAssigneeFilter(projectId, workspaceId)
   const byStatus = useMemo(() => {
     const groups = new Map<TaskStatus, TaskSummary[]>(TASK_STATUSES.map((s) => [s, []]))
-    for (const t of all ?? []) groups.get(t.status)?.push(t)
+    for (const t of all ?? []) {
+      if (assigneeIds.length > 0) {
+        const match =
+          t.assignees.length === 0
+            ? assigneeIds.includes(UNASSIGNED)
+            : t.assignees.some((a) => assigneeIds.includes(a.id))
+        if (!match) continue
+      }
+      groups.get(t.status)?.push(t)
+    }
     return groups
-  }, [all])
+  }, [all, assigneeIds])
 
   // Moving a card re-parents its element, so focus is put back once the new column renders.
   const focusAfterMove = useRef<string | null>(null)
@@ -98,6 +117,14 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         Drag to another column, or press Alt with the left or right arrow key, to change status. You
         can also open the task to change it.
       </p>
+      <div className="mb-2 flex items-center gap-2">
+        <AssigneeFilter
+          workspaceId={workspaceId}
+          selected={assigneeIds}
+          meId={meId}
+          onChange={setPicked}
+        />
+      </div>
       <div
         ref={autoScroll.canvas}
         data-testid="board-canvas"
@@ -106,7 +133,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       >
         <div className="flex h-full w-max min-w-full items-stretch gap-3 p-3">
           {TASK_STATUSES.map((status) =>
-            all ? (
+            all && filterReady ? (
               <Column
                 key={status}
                 status={status}
