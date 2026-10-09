@@ -203,4 +203,12 @@ process.on("SIGINT", () => {
   process.exit(3)
 })
 
+// The reader of a pipe quit early (`intesa schema | head`): stop quietly with success, like gh.
+// What was asked for was delivered as far as anyone wanted it, and a failing exit would fail
+// pipelines under `set -o pipefail`.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EPIPE") process.exit(0)
+  throw err
+})
+
 process.exitCode = await main(process.argv.slice(2), process.env)
