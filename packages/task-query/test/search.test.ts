@@ -1,25 +1,20 @@
 import { describe, expect, test } from "bun:test"
-import { applySuggestion, compileSearch, parseTerms, suggest } from "../src/lib/task-search"
-import type { TaskSummary } from "../src/lib/tasks"
+import { applySuggestion, compileSearch, parseTerms, type SearchableTask, suggest } from "../src"
 
-function task(overrides: Partial<TaskSummary> = {}): TaskSummary {
+type TestTask = SearchableTask & { id: string }
+
+function task(overrides: Partial<TestTask> = {}): TestTask {
   return {
     id: "t1",
-    projectId: "p1",
-    number: 1,
     key: "AB-1",
     title: "Write the spec",
     body: null,
     status: "todo",
     priority: null,
     dueAt: null,
-    parentTaskId: null,
     assignees: [],
     tags: [],
     subtaskCount: 0,
-    subtaskDoneCount: 0,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   }
 }
@@ -27,10 +22,11 @@ function task(overrides: Partial<TaskSummary> = {}): TaskSummary {
 const olive = { id: "u1", name: "Olive Owner", avatarUrl: null }
 const bob = { id: "u2", name: "Bob", avatarUrl: null }
 const bug = { id: "g1", name: "bug", color: "red" }
+const ui = { id: "g2", name: "ui", color: "blue" }
 const NOW = new Date(2026, 5, 15)
 
 /** Titles of the tasks a query keeps. */
-function run(query: string, tasks: TaskSummary[], ctx = {}) {
+function run(query: string, tasks: TestTask[], ctx = {}) {
   const matches = compileSearch(query, { now: NOW, ...ctx })
   return tasks.filter((t) => !matches || matches(t)).map((t) => t.title)
 }
@@ -170,7 +166,7 @@ describe("compileSearch", () => {
 describe("suggest", () => {
   const tasks = [
     task({ assignees: [olive], tags: [bug] }),
-    task({ assignees: [bob, olive], tags: [{ id: "g2", name: "ui", color: "blue" }] }),
+    task({ assignees: [bob, olive], tags: [ui] }),
   ]
   const labels = (query: string, caret = query.length) =>
     suggest(query, caret, tasks).suggestions.map((s) => s.label)

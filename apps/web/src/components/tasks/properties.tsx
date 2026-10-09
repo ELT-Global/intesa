@@ -1,4 +1,15 @@
 import {
+  type DueState,
+  dueState,
+  formatDay,
+  PRIORITY_LABELS,
+  STATUS_LABELS,
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  type TaskPriority,
+  type TaskStatus,
+} from "@intesa/task-query"
+import {
   CalendarDays,
   ChevronDown,
   ChevronsUp,
@@ -18,31 +29,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  type DueState,
-  dueState,
-  formatDay,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  type TaskPriority,
-  type TaskStatus,
-} from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-
-export const STATUS_LABELS: Record<TaskStatus, string> = {
-  backlog: "Backlog",
-  todo: "Todo",
-  in_progress: "In progress",
-  review: "Review",
-  complete: "Complete",
-}
-
-export const PRIORITY_LABELS: Record<TaskPriority, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  urgent: "Urgent",
-}
 
 // Only "in progress" is a signal; the other statuses are told apart by shape.
 const STATUS_COLOR: Record<TaskStatus, string> = {

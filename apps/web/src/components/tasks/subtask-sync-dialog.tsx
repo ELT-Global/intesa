@@ -1,3 +1,4 @@
+import { STATUS_LABELS, type TaskStatus } from "@intesa/task-query"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
@@ -8,9 +9,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { type TaskStatus, type TaskSummary, useUpdateTask } from "@/lib/tasks"
+import { type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import { STATUS_LABELS, StatusIcon, StatusOptions } from "./properties"
+import { StatusIcon, StatusOptions } from "./properties"
 import { TaskKey } from "./task-key"
 
 export type SubtaskSync = {

@@ -1,4 +1,18 @@
-import { dueState, TASK_PRIORITIES, TASK_STATUSES, type TaskSummary } from "./tasks"
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "./constants"
+import { dayFromToday, dueState } from "./dates"
+
+/** What the search reads from a task. Both the web's and the CLI's task objects satisfy it. */
+export type SearchableTask = {
+  key: string
+  title: string
+  body?: string | null
+  status: TaskStatus
+  priority: TaskPriority | null
+  dueAt: string | null
+  subtaskCount: number
+  assignees: readonly { id: string; name: string }[]
+  tags: readonly { name: string }[]
+}
 
 /**
  * Discord-style task search. A query is a list of space separated terms, all of which must match:
@@ -100,7 +114,7 @@ export type SearchContext = {
 
 const normalise = (s: string) => s.toLowerCase().replace(/[\s-]+/g, "_")
 
-function matchesValue(task: TaskSummary, field: SearchField, value: string, ctx: SearchContext) {
+function matchesValue(task: SearchableTask, field: SearchField, value: string, ctx: SearchContext) {
   switch (field) {
     case "status":
       return normalise(task.status).startsWith(normalise(value))
@@ -117,7 +131,7 @@ function matchesValue(task: TaskSummary, field: SearchField, value: string, ctx:
       if (!task.dueAt) return false
       if (value === "overdue") return dueState(task.dueAt, task.status, ctx.now) === "overdue"
       if (value === "soon") return dueState(task.dueAt, task.status, ctx.now) === "soon"
-      if (value === "today") return task.dueAt === localDay(ctx.now ?? new Date())
+      if (value === "today") return task.dueAt === dayFromToday(0, ctx.now)
       return task.dueAt.startsWith(value)
     case "has":
     case "no":
@@ -125,7 +139,7 @@ function matchesValue(task: TaskSummary, field: SearchField, value: string, ctx:
   }
 }
 
-function hasProperty(task: TaskSummary, what: string) {
+function hasProperty(task: SearchableTask, what: string) {
   switch (what) {
     case "due":
       return task.dueAt !== null
@@ -145,12 +159,7 @@ function hasProperty(task: TaskSummary, what: string) {
   }
 }
 
-function localDay(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function matchesTerm(task: TaskSummary, term: Term, ctx: SearchContext): boolean {
+function matchesTerm(task: SearchableTask, term: Term, ctx: SearchContext): boolean {
   if (!term.field) {
     if (!term.value) return true
     return (
@@ -172,7 +181,7 @@ function matchesTerm(task: TaskSummary, term: Term, ctx: SearchContext): boolean
 export function compileSearch(
   query: string,
   ctx: SearchContext = {},
-): ((task: TaskSummary) => boolean) | null {
+): ((task: SearchableTask) => boolean) | null {
   const terms = parseTerms(query).filter((t) => t.value !== "")
   if (terms.length === 0) return null
   return (task) => terms.every((t) => matchesTerm(task, t, ctx) !== t.negated)
@@ -194,7 +203,10 @@ const MAX_SUGGESTIONS = 8
 const distinctSorted = (names: Iterable<string>) => [...new Set(names)].sort()
 const quoteIfNeeded = (v: string) => (/\s/.test(v) ? `"${v}"` : v)
 
-function valueCandidates(field: SearchField, tasks: readonly TaskSummary[]): string[] {
+function valueCandidates(
+  field: SearchField,
+  tasks: readonly Pick<SearchableTask, "assignees" | "tags">[],
+): string[] {
   switch (field) {
     case "status":
       return [...TASK_STATUSES]
@@ -223,7 +235,7 @@ function valueCandidates(field: SearchField, tasks: readonly TaskSummary[]): str
 export function suggest(
   query: string,
   caret: number,
-  tasks: readonly TaskSummary[],
+  tasks: readonly Pick<SearchableTask, "assignees" | "tags">[],
 ): { suggestions: Suggestion[]; start: number; end: number } {
   const none = { suggestions: [], start: caret, end: caret }
   const term = parseTerms(query).find((t) => caret >= t.start && caret <= t.end)

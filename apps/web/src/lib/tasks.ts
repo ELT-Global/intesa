@@ -1,3 +1,4 @@
+import { placeTask } from "@intesa/task-query"
 import {
   keepPreviousData,
   type QueryClient,
@@ -22,47 +23,11 @@ export type RelationType = InferRequestType<
 export type UserRef = TaskSummary["assignees"][number]
 export type TagRef = TaskSummary["tags"][number]
 
-export type TaskStatus = TaskSummary["status"]
-export type TaskPriority = NonNullable<TaskSummary["priority"]>
-export const TASK_STATUSES: readonly TaskStatus[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "review",
-  "complete",
-]
-export const TASK_PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high", "urgent"]
 /** Longest description the API accepts (apps/api/src/tasks/schemas.ts). */
 export const TASK_BODY_MAX_LENGTH = 20000
 
 export type CreateTaskInput = InferRequestType<typeof projectTasks.$post>["json"]
 export type TaskPatch = InferRequestType<(typeof taskById)["$patch"]>["json"]
-/** Where a card goes in its column: next to another card, or at either end. */
-export type Placement = NonNullable<TaskPatch["placement"]>
-
-/**
- * `list` with `taskId` placed as the server will place it. The list is in board order, so a
- * column reads top to bottom in list order. Unchanged when the column has nothing to place the
- * task next to (an empty column: any spot in it is the same).
- */
-export function placeTask(list: TaskSummary[], taskId: string, placement: Placement) {
-  const task = list.find((t) => t.id === taskId)
-  if (!task) return list
-  const others = list.filter((t) => t.id !== taskId)
-  const inColumn = (t: TaskSummary) => t.status === task.status && !t.parentTaskId
-
-  let at = -1
-  if (placement === "first") at = others.findIndex(inColumn)
-  else if (placement === "last") {
-    const last = others.findLastIndex(inColumn)
-    at = last < 0 ? -1 : last + 1
-  } else {
-    const anchor = "before" in placement ? placement.before : placement.after
-    const found = others.findIndex((t) => t.id === anchor && inColumn(t))
-    at = found < 0 ? -1 : found + ("after" in placement ? 1 : 0)
-  }
-  return at < 0 ? list : [...others.slice(0, at), task, ...others.slice(at)]
-}
 
 /** The list with `taskId` moved back to `index`. */
 const moveToIndex = (list: TaskSummary[], taskId: string, index: number) => {
@@ -428,55 +393,6 @@ export function useChangeRelationship(taskId: string) {
         : taskApi.removeRelation(taskId, type, otherId),
     onSettled: () => settleTaskMutation(qc),
   })
-}
-
-// Due dates are calendar days (YYYY-MM-DD) with no time zone, so compare them as local days.
-function parseDay(day: string): Date {
-  const [y, m, d] = day.split("-").map(Number) as [number, number, number]
-  return new Date(y, m - 1, d)
-}
-
-export type DueState = "neutral" | "soon" | "overdue"
-
-export function dueState(dueAt: string, status: TaskStatus, now = new Date()): DueState {
-  if (status === "complete") return "neutral"
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = Math.round((parseDay(dueAt).getTime() - today.getTime()) / 86_400_000)
-  if (days < 0) return "overdue"
-  return days <= 2 ? "soon" : "neutral"
-}
-
-/** The calendar day `offset` days from `now`, as YYYY-MM-DD. */
-export function dayFromToday(offset: number, now = new Date()): string {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-export function formatDay(day: string, now = new Date()): string {
-  const date = parseDay(day)
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  })
-}
-
-const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
-const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ["year", 31_536_000],
-  ["month", 2_592_000],
-  ["day", 86_400],
-  ["hour", 3_600],
-  ["minute", 60],
-]
-
-export function relativeTime(iso: string, now = Date.now()): string {
-  const seconds = Math.round((new Date(iso).getTime() - now) / 1000)
-  for (const [unit, size] of UNITS) {
-    if (Math.abs(seconds) >= size) return rtf.format(Math.round(seconds / size), unit)
-  }
-  return rtf.format(0, "second")
 }
 
 const myTasksApi = client.api.workspaces[":workspaceId"]["my-tasks"]

@@ -1,3 +1,4 @@
+import type { TaskPriority, TaskStatus } from "@intesa/task-query"
 import { Ellipsis } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -10,14 +11,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  type TaskDetail,
-  type TaskPriority,
-  type TaskStatus,
-  type TaskSummary,
-  useDeleteTask,
-  useUpdateTask,
-} from "@/lib/tasks"
+import { type TaskDetail, type TaskSummary, useDeleteTask, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { AssigneePicker } from "./assignee-picker"
 import {

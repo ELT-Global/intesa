@@ -1,4 +1,5 @@
 import { MarkdownEditor } from "@intesa/markdown-editor"
+import { relativeTime, STATUS_LABELS } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronRight, Trash2, X } from "lucide-react"
 import { type ReactNode, useEffect, useRef, useState } from "react"
@@ -9,7 +10,6 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { ApiError } from "@/lib/api"
 import {
-  relativeTime,
   TASK_BODY_MAX_LENGTH,
   type TaskDetail,
   taskHistoryQuery,
@@ -18,7 +18,7 @@ import {
   useUpdateTask,
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import { DuePicker, PriorityPicker, STATUS_LABELS, StatusIcon, StatusPicker } from "./properties"
+import { DuePicker, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
 import { TaskArtifacts } from "./task-artifacts"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"

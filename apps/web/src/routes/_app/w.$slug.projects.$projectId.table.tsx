@@ -1,3 +1,4 @@
+import { compileSearch } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useMemo, useState } from "react"
@@ -8,7 +9,6 @@ import { TaskSearch } from "@/components/tasks/task-search"
 import { TaskTable } from "@/components/tasks/task-table"
 import { Panel } from "@/components/ui/panel"
 import { meQuery } from "@/lib/queries"
-import { compileSearch } from "@/lib/task-search"
 import { projectTasksQuery } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/projects/$projectId/table")({

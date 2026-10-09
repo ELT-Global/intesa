@@ -1,4 +1,5 @@
 import { MarkdownEditor } from "@intesa/markdown-editor"
+import type { TaskPriority, TaskStatus } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { X } from "lucide-react"
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
@@ -18,14 +19,7 @@ import { FormError } from "@/components/ui/field"
 import { ApiError } from "@/lib/api"
 import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
-import {
-  TASK_BODY_MAX_LENGTH,
-  type TaskPriority,
-  type TaskStatus,
-  type TaskSummary,
-  type UserRef,
-  useCreateTask,
-} from "@/lib/tasks"
+import { TASK_BODY_MAX_LENGTH, type TaskSummary, type UserRef, useCreateTask } from "@/lib/tasks"
 import { AssigneePicker } from "./assignee-picker"
 import { DuePicker, PriorityPicker, StatusPicker } from "./properties"
 import { TagDot } from "./tag-chip"

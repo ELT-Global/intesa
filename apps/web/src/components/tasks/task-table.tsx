@@ -1,16 +1,10 @@
+import { PRIORITY_RANK, STATUS_LABELS, TASK_STATUSES } from "@intesa/task-query"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
-import { TASK_STATUSES, type TaskPriority, type TaskSummary, useUpdateTask } from "@/lib/tasks"
+import { type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import {
-  DueDateChip,
-  PriorityChip,
-  PriorityPicker,
-  STATUS_LABELS,
-  StatusIcon,
-  StatusPicker,
-} from "./properties"
+import { DueDateChip, PriorityChip, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TaskContextMenu } from "./task-context-menu"
 
@@ -32,7 +26,6 @@ const HEADERS: Record<TableColumn, string> = {
   due: "Due",
 }
 const SORTABLE: TableColumn[] = ["task", "status", "priority", "due"]
-const PRIORITY_RANK: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
 /** Missing values always sort last, whichever direction is active. */
 function compareBy(sort: Sort): (a: TableTask, b: TableTask) => number {

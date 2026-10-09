@@ -1,8 +1,8 @@
+import { applySuggestion, suggest } from "@intesa/task-query"
 import { Search, X } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { isPlainShortcut, useShortcut } from "@/lib/shortcuts"
-import { applySuggestion, suggest } from "@/lib/task-search"
 import type { TaskSummary } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 

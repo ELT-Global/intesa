@@ -1,3 +1,4 @@
+import { dayFromToday, type TaskStatus } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react"
@@ -17,13 +18,7 @@ import {
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { meQuery } from "@/lib/queries"
-import {
-  dayFromToday,
-  type TaskStatus,
-  type TaskSummary,
-  useDeleteTask,
-  useUpdateTask,
-} from "@/lib/tasks"
+import { type TaskSummary, useDeleteTask, useUpdateTask } from "@/lib/tasks"
 import { NO_PRIORITY, PriorityOptions, priorityFromValue, StatusOptions } from "./properties"
 import { useTaskParam } from "./task-param"
 

@@ -1,3 +1,10 @@
+import {
+  compileSearch,
+  type Placement,
+  STATUS_LABELS,
+  TASK_STATUSES,
+  type TaskStatus,
+} from "@intesa/task-query"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronsLeft, Plus } from "lucide-react"
 import {
@@ -18,12 +25,8 @@ import { assigneeViews, stepAssigneeView } from "@/lib/assignee-views"
 import { getBacklogExpanded, setBacklogExpanded } from "@/lib/preferences"
 import { membersQuery, projectQuery } from "@/lib/queries"
 import { isPlainShortcut, useShortcut } from "@/lib/shortcuts"
-import { compileSearch } from "@/lib/task-search"
 import {
-  type Placement,
   projectTasksQuery,
-  TASK_STATUSES,
-  type TaskStatus,
   type TaskSummary,
   taskKeys,
   taskQuery,
@@ -32,7 +35,7 @@ import {
 import { cn } from "@/lib/utils"
 import { AssigneeFilter, UNASSIGNED } from "./assignee-filter"
 import { CreateTaskDialog } from "./create-task-dialog"
-import { STATUS_LABELS, StatusIcon } from "./properties"
+import { StatusIcon } from "./properties"
 import { type SubtaskSync, SubtaskSyncDialog } from "./subtask-sync-dialog"
 import { TaskCard } from "./task-card"
 import { TaskContextMenu } from "./task-context-menu"
