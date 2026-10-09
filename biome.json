@@ -16,5 +16,27 @@
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },
   "css": { "parser": { "tailwindDirectives": true } },
-  "linter": { "enabled": true }
+  "linter": { "enabled": true },
+  "overrides": [
+    {
+      "includes": ["apps/api/src/schemas.ts", "apps/api/src/tasks/schemas.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**", "!zod", "!./tasks/schemas"],
+                    "message": "Clients import these schemas, so only zod (and the schema modules re-exported here) may be imported."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

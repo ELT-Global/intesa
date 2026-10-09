@@ -2,13 +2,12 @@ import type { Context } from "hono"
 import { deleteCookie, getCookie, setCookie } from "hono/cookie"
 import type { Selectable } from "kysely"
 import type { Config } from "../config"
-import { type Db, now } from "../db"
+import { DAY_MS, type Db, now } from "../db"
 import type { UserTable } from "../db/schema"
 import type { TokenScope } from "../schemas"
 
 export const SESSION_COOKIE = "intesa_session"
 const SESSION_DAYS = 30
-const DAY_MS = 24 * 60 * 60 * 1000
 
 export type User = Selectable<UserTable>
 // How the request is signed in: a browser session cookie or an API token (Authorization:
@@ -56,7 +55,7 @@ export function setSessionCookie(c: Context, token: string, config: Config) {
     sameSite: "Lax",
     secure: config.secureCookies,
     path: "/",
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
+    maxAge: (SESSION_DAYS * DAY_MS) / 1000,
   })
 }
 

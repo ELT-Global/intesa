@@ -33,6 +33,11 @@ export function createAttemptLimiter(
     reset(key: string) {
       entries.delete(key)
     },
+    // Gives back one try, keeping the others: for a check that turned out not to be a guess.
+    refund(key: string) {
+      const entry = entries.get(key)
+      if (entry && --entry.tries <= 0) entries.delete(key)
+    },
     size: () => entries.size,
   }
 }

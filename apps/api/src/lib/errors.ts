@@ -37,10 +37,11 @@ export const onError: ErrorHandler = (err, c) => {
   if (err instanceof ApiError) {
     return c.json({ code: err.code, message: err.message }, err.status)
   }
-  // Framework-raised errors (e.g. malformed JSON body) carry a safe status.
+  // Framework-raised errors (e.g. malformed JSON body, a cross-site write) carry a safe status.
   if (err instanceof HTTPException && err.status < 500) {
-    const code: ErrorCode = err.status === 404 ? "NOT_FOUND" : "VALIDATION_ERROR"
-    return c.json({ code, message: err.message }, err.status)
+    const code: ErrorCode =
+      err.status === 404 ? "NOT_FOUND" : err.status === 403 ? "FORBIDDEN" : "VALIDATION_ERROR"
+    return c.json({ code, message: err.message || "Request refused" }, err.status)
   }
   // Stack and details stay in server logs only.
   console.error(JSON.stringify({ level: "error", msg: "unhandled", error: String(err) }))

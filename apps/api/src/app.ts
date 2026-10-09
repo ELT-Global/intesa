@@ -1,7 +1,10 @@
 import { Hono } from "hono"
+import { csrf } from "hono/csrf"
+import { createMiddleware } from "hono/factory"
 import { sql } from "kysely"
 import { version } from "../package.json"
 import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "./auth/attempts"
+import { bearerToken } from "./auth/tokens"
 import type { Config } from "./config"
 import type { Db } from "./db"
 import { compressJson } from "./lib/compress-json"
@@ -59,7 +62,19 @@ export function createApp({ db, config, webDist }: AppDeps) {
     throw new ApiError("NOT_FOUND", "Not found")
   })
 
-  const app = new Hono().use(requestLog).use("/api/*", compressJson).route("/api", api)
+  // Refuses writes that a cross-site page can send with the session cookie (forms, and
+  // body-less or multipart requests), unless the browser says they came from the app itself.
+  // Bearer requests carry no ambient credentials, and the CLI sends neither header.
+  const crossSite = csrf({ origin: config.publicUrl })
+  const noCrossSiteWrites = createMiddleware((c, next) =>
+    bearerToken(c) === undefined ? crossSite(c, next) : next(),
+  )
+
+  const app = new Hono()
+    .use(requestLog)
+    .use("/api/*", compressJson)
+    .use("/api/*", noCrossSiteWrites)
+    .route("/api", api)
   app.onError(onError)
 
   if (webDist) serveSpa(app, webDist)

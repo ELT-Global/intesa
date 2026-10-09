@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { expect, type Page } from "@playwright/test"
+import { sameOrigin } from "./auth"
 
 export type DeviceRequest = { deviceCode: string; userCode: string; clientName: string }
 
@@ -26,7 +27,10 @@ export async function pollDeviceToken(page: Page, deviceCode: string): Promise<D
 
 /** Approves through the API as the page's signed-in user and returns the CLI token. */
 export async function approveDeviceRequest(page: Page, request: DeviceRequest): Promise<string> {
-  const approve = await page.request.post(`/api/auth/device/${request.userCode}/approve`)
+  const approve = await page.request.post(
+    `/api/auth/device/${request.userCode}/approve`,
+    sameOrigin,
+  )
   expect(approve.status()).toBe(204)
   const poll = await pollDeviceToken(page, request.deviceCode)
   if (poll.status !== "approved") throw new Error(`Expected approved, got ${poll.status}`)

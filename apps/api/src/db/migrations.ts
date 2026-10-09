@@ -367,6 +367,12 @@ const apiTokensAndDeviceAuth: Migration = {
       .addColumn("expires_at", text, notNull)
       .addColumn("last_polled_at", text)
       .execute()
+    // Every new request sweeps out the expired rows.
+    await db.schema
+      .createIndex("device_authorizations_expires_at")
+      .on("device_authorizations")
+      .column("expires_at")
+      .execute()
   },
 }
 

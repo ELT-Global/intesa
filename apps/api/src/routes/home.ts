@@ -1,14 +1,13 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
+import { DAY_MS } from "../db"
 import type { Deps } from "../deps"
 import { validate } from "../lib/validate"
 import { toProjectJson } from "../projects/service"
 import { isRealDate } from "../tasks/schemas"
 import { listAssignedTaskSummaries, listDueTaskSummaries, withProjects } from "../tasks/service"
 import { requireMembership } from "../workspaces/membership"
-
-const DAY_MS = 24 * 60 * 60 * 1000
 
 // The client's local date, so "due soon" matches the day the person is looking at.
 const homeQuery = z.object({

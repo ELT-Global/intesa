@@ -27,6 +27,17 @@ describe("attempt limiter", () => {
     expect([limiter.take("u"), limiter.take("u")]).toEqual(["ok", "last"])
   })
 
+  test("refund gives back one try without clearing the others", () => {
+    const limiter = createAttemptLimiter(3, 1000, () => 0)
+    limiter.take("u")
+    limiter.take("u")
+    limiter.refund("u")
+    expect([limiter.take("u"), limiter.take("u")]).toEqual(["ok", "last"])
+    expect(limiter.take("u")).toBe("locked")
+    limiter.refund("fresh")
+    expect(limiter.size()).toBe(1)
+  })
+
   test("expired entries are pruned so the map cannot grow without bound", () => {
     let time = 0
     const limiter = createAttemptLimiter(5, 1000, () => time)

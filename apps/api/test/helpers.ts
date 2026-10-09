@@ -82,12 +82,18 @@ export function clientWithToken(app: TestApp["app"], token: string, cookie = "")
   })
 }
 
+// Requests carry the Sec-Fetch-Site header a browser sends from the app itself, so body-less
+// and multipart writes pass the cross-site check like they do from the web client.
 function clientWithHeaders(app: TestApp["app"], extra: Record<string, string>): Client {
   const cookie = extra.cookie ?? ""
   const request: Client["request"] = async (path, init = {}) =>
     app.request(path, {
       ...init,
-      headers: { ...(init.headers as Record<string, string>), ...extra },
+      headers: {
+        "sec-fetch-site": "same-origin",
+        ...(init.headers as Record<string, string>),
+        ...extra,
+      },
     })
   const call: Client["call"] = async (method, path, body) => {
     const res = await request(path, {

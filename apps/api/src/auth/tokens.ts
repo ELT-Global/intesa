@@ -1,11 +1,10 @@
 import type { Context } from "hono"
 import type { Selectable } from "kysely"
-import { type Db, newId, now } from "../db"
+import { DAY_MS, type Db, newId, now } from "../db"
 import type { ApiTokenTable } from "../db/schema"
 import type { TokenKind, TokenScope } from "../schemas"
 import { hashToken, randomToken, type TokenSession, type User } from "./session"
 
-const DAY_MS = 24 * 60 * 60 * 1000
 // CLI sign-ins slide like browser sessions, so a CLI in regular use never has to sign in again.
 const CLI_TOKEN_DAYS = 90
 

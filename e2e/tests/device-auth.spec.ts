@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { signIn, uniqueEmail } from "../support/auth"
+import { sameOrigin, signIn, uniqueEmail } from "../support/auth"
 import { pollDeviceToken, startDeviceRequest } from "../support/device"
 import { totp } from "../support/totp"
 
@@ -94,11 +94,11 @@ test("a signed-out visit goes through sign-in and comes back with the code", asy
 test("the code survives the two-factor step too", async ({ page }) => {
   const email = uniqueEmail("late2fa")
   await signIn(page, { email })
-  const setup = await page.request.post("/api/me/2fa/setup")
+  const setup = await page.request.post("/api/me/2fa/setup", sameOrigin)
   const { secret } = (await setup.json()) as { secret: string }
   const enable = await page.request.post("/api/me/2fa/enable", { data: { code: totp(secret) } })
   expect(enable.ok()).toBe(true)
-  await page.request.post("/api/auth/logout")
+  await page.request.post("/api/auth/logout", sameOrigin)
 
   const device = await startDeviceRequest(page)
   await page.goto(`/device?code=${device.userCode}`)
@@ -127,3 +127,16 @@ for (const target of ["//evil.example/steal", "https://evil.example/steal"]) {
     expect(await page.evaluate(() => sessionStorage.getItem("intesa-return-to"))).toBeNull()
   })
 }
+
+test("a remembered destination is forgotten once a signed-in page has loaded", async ({ page }) => {
+  await signIn(page, { email: uniqueEmail("stale") })
+  await page.goto("/settings")
+  await page.evaluate(() => sessionStorage.setItem("intesa-return-to", "/device"))
+  await page.reload()
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("intesa-return-to")))
+    .toBeNull()
+
+  await page.goto("/")
+  await expect(page).toHaveURL(/\/new-workspace$/)
+})

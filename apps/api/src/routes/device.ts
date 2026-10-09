@@ -15,6 +15,9 @@ import { validate } from "../lib/validate"
 
 const EXPIRES_IN_S = 10 * 60
 const INTERVAL_S = 5
+// Starting a request needs no sign-in, so the table is capped. Far more than real use: each
+// request lives ten minutes.
+const MAX_PENDING = 1000
 // Consonants only (RFC 8628's suggestion): no vowels to spell words, no 0/O or 1/I mix-ups.
 const ALPHABET = "BCDFGHJKLMNPQRSTVWXZ"
 const USER_CODE = new RegExp(`^[${ALPHABET}]{8}$`)
@@ -37,14 +40,17 @@ function normalizeUserCode(input: string): string | null {
   return USER_CODE.test(letters) ? `${letters.slice(0, 4)}-${letters.slice(4)}` : null
 }
 
-const startBody = z.object({ clientName: z.string().trim().min(1).max(200) })
+// The client name becomes the token name, so it has the same limit as personal token names.
+const startBody = z.object({ clientName: z.string().trim().min(1).max(100) })
 const pollBody = z.object({ deviceCode: z.string().min(1).max(200) })
 
 export function deviceRoutes({ db, config, attempts }: Deps) {
   const verificationUri = `${config.publicUrl}/device`
 
   // User codes are short enough to guess, so misses draw on the same kind of per-user budget
-  // as 2FA codes (under their own key, so a typo here cannot lock someone out of 2FA).
+  // as 2FA codes (under their own key, so a typo here cannot lock someone out of 2FA). A hit
+  // hands its try back rather than clearing the misses: anyone can start a request and hold
+  // a valid code, which would otherwise buy unlimited guesses.
   const findPending = async (userId: string, input: string) => {
     const key = `device:${userId}`
     if (attempts.take(key) === "locked") {
@@ -61,7 +67,7 @@ export function deviceRoutes({ db, config, attempts }: Deps) {
         .where("expiresAt", ">", new Date().toISOString())
         .executeTakeFirst())
     if (!row) throw new ApiError("NOT_FOUND", "Code not found or expired")
-    attempts.reset(key)
+    attempts.refund(key)
     return row
   }
 
@@ -89,6 +95,16 @@ export function deviceRoutes({ db, config, attempts }: Deps) {
         // Swept here so the table only holds the last few minutes of requests and user codes
         // free up again.
         await db.deleteFrom("deviceAuthorizations").where("expiresAt", "<=", createdAt).execute()
+        const { pending } = await db
+          .selectFrom("deviceAuthorizations")
+          .select((eb) => eb.fn.countAll<number>().as("pending"))
+          .executeTakeFirstOrThrow()
+        if (Number(pending) >= MAX_PENDING) {
+          throw new ApiError(
+            "RATE_LIMITED",
+            "Too many sign-in requests in progress, try again later",
+          )
+        }
         for (let attempt = 1; ; attempt++) {
           const userCode = randomUserCode()
           try {

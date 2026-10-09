@@ -9,6 +9,12 @@ export function uniqueName(prefix = "Team"): string {
   return `${prefix} ${randomUUID().slice(0, 6)}`
 }
 
+/**
+ * The header a browser adds to the app's own requests. Cookie-authenticated API calls without
+ * a JSON body need it, or the server refuses them as cross-site.
+ */
+export const sameOrigin = { headers: { "sec-fetch-site": "same-origin" } }
+
 /** Signs in through the API; the session cookie lands in the page's context. */
 export async function signIn(page: Page, { email, name }: { email: string; name?: string }) {
   const res = await page.request.post("/api/auth/dev-login", { data: { email, name } })

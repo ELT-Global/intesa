@@ -2,12 +2,11 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { createApiToken, toApiTokenJson } from "../auth/tokens"
+import { DAY_MS } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
 import { TOKEN_SCOPES } from "../schemas"
-
-const DAY_MS = 24 * 60 * 60 * 1000
 
 const createBody = z.object({
   name: z.string().trim().min(1).max(100),

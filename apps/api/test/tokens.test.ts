@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { hashToken } from "../src/auth/session"
 import { totpCode } from "../src/auth/totp"
+import { DAY_MS } from "../src/db"
 import {
   type Client,
   clientWithCookie,
@@ -11,8 +12,6 @@ import {
   signIn,
   type TestApp,
 } from "./helpers"
-
-const DAY_MS = 24 * 60 * 60 * 1000
 
 async function createToken(client: Client, body: Record<string, unknown> = { name: "laptop" }) {
   const res = await client.call("POST", "/api/me/tokens", body)
@@ -175,6 +174,36 @@ describe("bearer authentication", () => {
     const verify = await cli.call("POST", "/api/auth/2fa", { code: "123456" })
     expect(verify.status).toBe(400)
     expect(verify.body.code).toBe("VALIDATION_ERROR")
+  })
+
+  test("a token cannot set up two-factor, but can turn it off with a valid code", async () => {
+    const t = await createTestApp()
+    const me = await signIn(t.app, "twofa-token@example.com")
+    const cli = clientWithToken(t.app, (await createToken(me)).token)
+
+    for (const [path, body] of [
+      ["/api/me/2fa/setup", undefined],
+      ["/api/me/2fa/enable", { code: "123456" }],
+    ] as const) {
+      const res = await cli.call("POST", path, body)
+      expect([path, res.status]).toEqual([path, 403])
+      expect(res.body).toEqual({
+        code: "FORBIDDEN",
+        message: "Two-factor setup must be done in the web app",
+      })
+    }
+    const row = await t.db
+      .selectFrom("users")
+      .select("totpSecret")
+      .where("email", "=", "twofa-token@example.com")
+      .executeTakeFirstOrThrow()
+    expect(row.totpSecret).toBeNull()
+
+    const { body } = await me.call("POST", "/api/me/2fa/setup")
+    await me.call("POST", "/api/me/2fa/enable", { code: await totpCode(body.secret) })
+    const off = await cli.call("POST", "/api/me/2fa/disable", { code: await totpCode(body.secret) })
+    expect(off.status).toBe(200)
+    expect(off.body.user.totpEnabled).toBe(false)
   })
 })
 

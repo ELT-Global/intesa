@@ -68,7 +68,7 @@ function DevicePage() {
       >
         <p className="text-sm text-muted-foreground">
           It will sign in as {me.email} and can read and change your data until you revoke it in
-          Settings.
+          Settings. It also signs out by itself after 90 days without use.
         </p>
         <FormError message={decide.error && codeError(decide.error)} />
         <div className="flex gap-2">

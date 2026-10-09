@@ -67,10 +67,45 @@ describe("starting a device sign-in", () => {
     expect(row).toMatchObject({ userCode: started.userCode, clientName: CLIENT, status: "pending" })
   })
 
-  test("a client name is required", async () => {
+  test("a client name is required and at most 100 characters", async () => {
     const t = await createTestApp()
-    const res = await t.app.request("/api/auth/device", post({ clientName: " " }))
-    expect(res.status).toBe(400)
+    for (const clientName of [" ", "x".repeat(101)]) {
+      const res = await t.app.request("/api/auth/device", post({ clientName }))
+      expect([clientName, res.status]).toEqual([clientName, 400])
+    }
+  })
+
+  test("new requests are refused while too many are waiting", async () => {
+    const t = await createTestApp()
+    const expiresAt = new Date(Date.now() + 60_000).toISOString()
+    for (let batch = 0; batch < 10; batch++) {
+      await t.db
+        .insertInto("deviceAuthorizations")
+        .values(
+          Array.from({ length: 100 }, (_, i) => ({
+            deviceCodeHash: `hash-${batch}-${i}`,
+            userCode: `CODE-${batch}-${i}`,
+            clientName: CLIENT,
+            status: "pending" as const,
+            userId: null,
+            createdAt: new Date().toISOString(),
+            expiresAt,
+            lastPolledAt: null,
+          })),
+        )
+        .execute()
+    }
+    const res = await t.app.request("/api/auth/device", post({ clientName: CLIENT }))
+    expect(res.status).toBe(429)
+    expect(((await res.json()) as { code: string }).code).toBe("RATE_LIMITED")
+
+    // Expired requests do not count against the cap.
+    await t.db
+      .updateTable("deviceAuthorizations")
+      .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where("userCode", "like", "CODE-0-%")
+      .execute()
+    await start(t)
   })
 })
 
@@ -156,6 +191,23 @@ describe("device sign-in flow", () => {
     expect((await me.call("GET", "/api/me/tokens")).body.tokens).toEqual([])
   })
 
+  test("simultaneous polls after approval hand out exactly one token", async () => {
+    const t = await createTestApp()
+    const { deviceCode, userCode } = await start(t)
+    const me = await signIn(t.app, "race@example.com")
+    await me.call("POST", `/api/auth/device/${userCode}/approve`)
+
+    const polls = await Promise.all(Array.from({ length: 5 }, () => poll(t, deviceCode)))
+    expect(polls.map((p) => p.status).sort()).toEqual([
+      "approved",
+      "expired",
+      "expired",
+      "expired",
+      "expired",
+    ])
+    expect(await t.db.selectFrom("apiTokens").selectAll().execute()).toHaveLength(1)
+  })
+
   test("an unknown device code polls as expired", async () => {
     const t = await createTestApp()
     expect(await poll(t, "not-a-real-device-code")).toEqual({ status: "expired" })
@@ -221,18 +273,80 @@ describe("user code guessing", () => {
     expect((await me.call("POST", `/api/auth/device/${userCode}/approve`)).status).toBe(429)
   })
 
-  test("a successful lookup resets the count, and malformed codes count as misses", async () => {
+  test("a lookup that finds a code neither resets the misses nor counts as one", async () => {
     const t = await createTestApp()
     const { userCode } = await start(t)
     const me = await signIn(t.app, "typo@example.com")
 
+    // Malformed codes count as misses too.
     for (let i = 0; i < 4; i++) {
       expect((await me.call("GET", "/api/auth/device/AEIO-U123")).status).toBe(404)
     }
-    expect((await me.call("GET", `/api/auth/device/${userCode}`)).status).toBe(200)
-    for (let i = 0; i < 4; i++) {
-      expect((await me.call("GET", "/api/auth/device/AEIO-U123")).status).toBe(404)
+    // Someone holding a valid code of their own cannot use it to clear their misses.
+    for (let i = 0; i < 3; i++) {
+      expect((await me.call("GET", `/api/auth/device/${userCode}`)).status).toBe(200)
     }
-    expect((await me.call("POST", `/api/auth/device/${userCode}/approve`)).status).toBe(204)
+    expect((await me.call("GET", "/api/auth/device/AEIO-U123")).status).toBe(404)
+    expect((await me.call("GET", `/api/auth/device/${userCode}`)).status).toBe(429)
+  })
+
+  test("misses here do not use up the two-factor code budget", async () => {
+    const t = await createTestApp()
+    const me = await signIn(t.app, "budgets@example.com")
+    const { body } = await me.call("POST", "/api/me/2fa/setup")
+    await me.call("POST", "/api/me/2fa/enable", { code: await totpCode(body.secret) })
+
+    for (let i = 0; i < 5; i++) await me.call("GET", "/api/auth/device/BBBB-BBBB")
+    expect((await me.call("GET", "/api/auth/device/BBBB-BBBB")).status).toBe(429)
+
+    const off = await me.call("POST", "/api/me/2fa/disable", { code: await totpCode(body.secret) })
+    expect(off.status).toBe(200)
+  })
+})
+
+describe("cross-site requests", () => {
+  test("a cross-site form post cannot approve with the browser session", async () => {
+    const t = await createTestApp()
+    const { deviceCode, userCode } = await start(t)
+    const me = await signIn(t.app, "csrf@example.com")
+
+    const forged = await t.app.request(`/api/auth/device/${userCode}/approve`, {
+      method: "POST",
+      headers: {
+        cookie: me.cookie,
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: "x=1",
+    })
+    expect(forged.status).toBe(403)
+    expect(((await forged.json()) as { code: string }).code).toBe("FORBIDDEN")
+    expect(await poll(t, deviceCode)).toEqual({ status: "pending" })
+
+    // Same-origin JSON goes through.
+    const ok = await t.app.request(`/api/auth/device/${userCode}/approve`, {
+      method: "POST",
+      headers: {
+        cookie: me.cookie,
+        origin: t.config.publicUrl,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    })
+    expect(ok.status).toBe(204)
+  })
+
+  test("a body-less post, as the web app sends, is judged by its origin", async () => {
+    const t = await createTestApp()
+    const { userCode } = await start(t)
+    const me = await signIn(t.app, "csrf-origin@example.com")
+    const deny = (origin: string) =>
+      t.app.request(`/api/auth/device/${userCode}/deny`, {
+        method: "POST",
+        headers: { cookie: me.cookie, origin },
+      })
+    expect((await deny("https://evil.example")).status).toBe(403)
+    expect((await deny(t.config.publicUrl)).status).toBe(204)
   })
 })

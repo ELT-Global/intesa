@@ -47,6 +47,7 @@ export const now = () => {
   return new Date(lastMs).toISOString()
 }
 export const newId = () => crypto.randomUUID()
+export const DAY_MS = 24 * 60 * 60 * 1000
 
 // Runs fn inside a transaction, joining the caller's transaction when there is one.
 export function inTransaction<T>(db: Db, fn: (trx: Db) => Promise<T>): Promise<T> {
