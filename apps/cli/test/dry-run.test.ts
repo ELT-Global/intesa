@@ -23,6 +23,7 @@ const READS = [
   "intesa project view",
   "intesa task list",
   "intesa task view",
+  "intesa board",
   "intesa member list",
   "intesa tag list",
   "intesa field list",

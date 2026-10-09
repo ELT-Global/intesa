@@ -35,6 +35,11 @@ export const nouns: NounEntry[] = [
     load: () => import("./task").then((m) => m.default),
   },
   {
+    name: "board",
+    summary: "Open a project's board full screen",
+    load: () => import("./board").then((m) => m.default),
+  },
+  {
     name: "member",
     summary: "List, add and manage workspace members",
     load: () => import("./member").then((m) => m.default),
