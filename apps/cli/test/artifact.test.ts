@@ -212,6 +212,16 @@ describe("artifact list", () => {
     ])
   })
 
+  test("a terminal shows when it was updated relative to now; piped keeps ISO", async () => {
+    const { box, task } = await setup()
+    await box.run(["artifact", "upload", task.key, fixture("brief.pdf")])
+    const ISO = /\d{4}-\d{2}-\d{2}T\d{2}:/
+    const tty = await box.run(["artifact", "list", task.key], { env: { INTESA_FORCE_TTY: "120" } })
+    expect(tty.stdout.split("\n")[1]).toMatch(/\bbrief\.pdf\b.*\bnow\b/)
+    expect(tty.stdout).not.toMatch(ISO)
+    expect((await box.run(["artifact", "list", task.key])).stdout).toMatch(ISO)
+  })
+
   test("an unknown task exits 5", async () => {
     const { box } = await setup()
     expect((await box.run(["artifact", "list", "ZZ-99"])).exitCode).toBe(5)

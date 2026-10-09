@@ -6,6 +6,7 @@ import { readConfig, readHosts } from "./config/config"
 import { configDir } from "./config/paths"
 import { readToken } from "./config/secrets"
 import { editing } from "./io/editor"
+import { page, paging } from "./io/pager"
 import { CliError, formatError, usageError } from "./output/errors"
 import { selectFields, toJson } from "./output/json"
 import { detectMode, type Env } from "./output/mode"
@@ -178,7 +179,12 @@ async function main(argv: string[], env: Env, io: Io = processIo): Promise<numbe
 
     const ctx = createCtx(globals, env, io)
     show = async (data) => {
-      if (data !== undefined) stdout(await present(ctx, cmd, data, flags))
+      if (data === undefined) return
+      const text = await present(ctx, cmd, data, flags)
+      // Only a view's human format goes through the pager: not data, and not output that
+      // `intesa mcp` captures.
+      const human = !globals.json && !globals.quiet && globals.fields === undefined
+      if (!(cmd.paged && human && io === processIo && (await page(ctx, text)))) stdout(text)
     }
     await show(await cmd.run(ctx, args as never, flags))
     return 0
@@ -201,9 +207,9 @@ async function main(argv: string[], env: Env, io: Io = processIo): Promise<numbe
 
 // Ctrl+C: exit 3 (cancelled). The exit waits a turn so later SIGINT listeners (OpenTUI's,
 // which restores the terminal) still run; while an editor has the terminal, Ctrl+C is the
-// editor's, as in git, and editText cleans up when it returns.
+// editor's (or pager's), as in git, and editText cleans up when it returns.
 process.on("SIGINT", () => {
-  if (editing()) return
+  if (editing() || paging()) return
   processIo.stderr("\n")
   process.exitCode = 3
   setImmediate(() => process.exit(3))

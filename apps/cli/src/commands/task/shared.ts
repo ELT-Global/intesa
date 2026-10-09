@@ -1,5 +1,6 @@
 import { isRealDate } from "@intesa/api/schemas"
 import { relativeTime, STATUS_LABELS } from "@intesa/task-query"
+import { taskKeys } from "../../client/candidates"
 import { type Resolver, resolver } from "../../client/resolve"
 import { readInput, splitPair } from "../../io/input"
 import { CliError, usageError } from "../../output/errors"
@@ -23,19 +24,6 @@ export function showTasks(ctx: Ctx, data: TaskSummary | TaskSummary[]) {
   if (!ctx.mode.tty) return asTable(ctx.mode, list, "task")
   if (list.length === 0) ctx.stderr("No tasks found.\n")
   return formatTaskLines(list, lineStyle(ctx))
-}
-
-// Task keys of the current project (or the -p typed on the command line), for completion.
-export async function taskKeys(ctx: Ctx, { word }: { word: string }) {
-  const project = await resolver(ctx).project()
-  const { client } = await ctx.http()
-  const res = await client.api.projects[":projectId"].tasks.$get({
-    param: { projectId: project.id },
-  })
-  return (await res.json()).tasks
-    .sort((a, b) => a.number - b.number)
-    .map((t) => t.key)
-    .filter((k) => k.startsWith(word.toUpperCase()))
 }
 
 export const taskArg = {

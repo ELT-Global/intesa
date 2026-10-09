@@ -243,6 +243,100 @@ describe("__complete", () => {
       expect(lines(keys.stdout)).toEqual(["API"])
     })
 
+    test("flag values come from the same sources as arguments", async () => {
+      const w = await world(server)
+      await w.addTag("auth")
+      await w.addTag("billing")
+      await w.addTag("two words")
+      const mei = await w.addPerson("Mei Chen")
+      const bob = await w.addPerson("Bob")
+      await w.addField({ name: "Estimate", type: "number" })
+      await w.addField({ name: "Stage", type: "text" })
+      await w.addTask({ title: "One" })
+      await w.addTask({ title: "Two" })
+      const at = async (word: string, ...words: string[]) =>
+        lines((await complete(w.box, word, ...words)).stdout)
+
+      // -w and -p
+      expect(await at("", "task", "list", "-w")).toEqual([w.workspace.slug])
+      expect(await at("", "task", "list", "--project")).toEqual(["WEB"])
+      expect(await at("w", "task", "list", "-p")).toEqual(["WEB"])
+      expect(await at("--workspace=", "task", "list")).toEqual([`--workspace=${w.workspace.slug}`])
+
+      // tags: -t, --add-tag, --remove-tag (names with spaces cannot be offered)
+      for (const [flag, cmd] of [
+        ["-t", ["task", "create"]],
+        ["-t", ["task", "list"]],
+        ["--add-tag", ["task", "edit", "WEB-1"]],
+        ["--remove-tag", ["task", "edit", "WEB-1"]],
+      ] as const) {
+        expect(await at("", ...cmd, flag), flag).toEqual(["auth", "billing"])
+        expect(await at("b", ...cmd, flag), flag).toEqual(["billing"])
+      }
+      expect(await at("--tag=a", "task", "create")).toEqual(["--tag=auth"])
+      // A comma list completes its last item.
+      expect(await at("auth,b", "task", "create", "-t")).toEqual(["auth,billing"])
+
+      // people: @me, then emails and single-word names
+      for (const [flag, cmd] of [
+        ["-a", ["task", "create"]],
+        ["-a", ["task", "list"]],
+        ["--add-assignee", ["task", "edit", "WEB-1"]],
+        ["--remove-assignee", ["task", "edit", "WEB-1"]],
+      ] as const) {
+        const found = await at("", ...cmd, flag)
+        expect(found[0], flag).toBe("@me")
+        expect(found, flag).toEqual(expect.arrayContaining([w.email, mei.email, bob.email, "Bob"]))
+        expect(found, flag).not.toContain("Mei Chen")
+      }
+      expect(await at("@", "task", "create", "-a")).toEqual(["@me"])
+      expect(await at("bo", "task", "create", "-a")).toEqual([bob.email, "Bob"])
+
+      // task keys
+      expect(await at("", "-p", "WEB", "task", "create", "--parent")).toEqual(["WEB-1", "WEB-2"])
+      expect(await at("web-2", "-p", "WEB", "task", "list", "--parent")).toEqual(["WEB-2"])
+      expect(await at("", "-p", "WEB", "task", "move", "WEB-1", "todo", "--before")).toEqual([
+        "WEB-1",
+        "WEB-2",
+      ])
+      expect(await at("", "-p", "WEB", "task", "move", "WEB-1", "todo", "--after")).toEqual([
+        "WEB-1",
+        "WEB-2",
+      ])
+
+      // custom fields: --field wants NAME=, the others the bare name
+      expect(await at("", "-p", "WEB", "task", "create", "--field")).toEqual([
+        "Estimate=",
+        "Stage=",
+      ])
+      expect(await at("es", "-p", "WEB", "task", "edit", "WEB-1", "--field")).toEqual(["Estimate="])
+      expect(await at("Estimate=3", "-p", "WEB", "task", "edit", "WEB-1", "--field")).toEqual([])
+      expect(await at("", "-p", "WEB", "task", "edit", "WEB-1", "--clear-field")).toEqual([
+        "Estimate",
+        "Stage",
+      ])
+    })
+
+    test("flag values follow the -p on the line", async () => {
+      const w = await world(server)
+      const other = await w.addProject("Api", "API")
+      await w.addTask({ title: "Web one" })
+      await w.addTask({ title: "Api one" }, other.id)
+      await w.addField({ name: "OnlyWeb", type: "text" })
+      const at = async (word: string, ...words: string[]) =>
+        lines((await complete(w.box, word, ...words)).stdout)
+      expect(await at("", "-p", "API", "task", "create", "--parent")).toEqual(["API-1"])
+      expect(await at("", "task", "create", "-p", "API", "--field")).toEqual([])
+      expect(await at("", "task", "create", "-p", "WEB", "--field")).toEqual(["OnlyWeb="])
+    })
+
+    test("a flag source that fails offers nothing, quietly", async () => {
+      const r = await complete(sandbox(server.url), "", "task", "create", "-t")
+      expect(r.exitCode).toBe(0)
+      expect(r.stdout).toBe("")
+      expect(r.stderr).toBe("")
+    })
+
     test("a failing source (not signed in) prints nothing, quietly", async () => {
       const r = await complete(sandbox(server.url), "", "token", "revoke")
       expect(r.exitCode).toBe(0)

@@ -1,6 +1,7 @@
 import { isRealDate, PRIORITIES, STATUSES } from "@intesa/api/schemas"
 import { compileSearch, normalise, PRIORITY_RANK, parseTerms } from "@intesa/task-query"
 import { z } from "zod"
+import { people, tagNames, taskKeys } from "../../client/candidates"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
 import { usageError } from "../../output/errors"
@@ -126,7 +127,7 @@ export const list = defineCommand({
     parent: z
       .string()
       .optional()
-      .meta({ placeholder: "TASK", description: "Subtasks of this task" }),
+      .meta({ placeholder: "TASK", description: "Subtasks of this task", complete: taskKeys }),
     status: z
       .array(z.string())
       .optional()
@@ -139,11 +140,14 @@ export const list = defineCommand({
       short: "a",
       placeholder: "person",
       description: "Only tasks assigned to these people: me, unassigned, an email or a name",
+      complete: people,
     }),
-    tag: z
-      .array(z.string())
-      .optional()
-      .meta({ short: "t", placeholder: "tag", description: "Only tasks with one of these tags" }),
+    tag: z.array(z.string()).optional().meta({
+      short: "t",
+      placeholder: "tag",
+      description: "Only tasks with one of these tags",
+      complete: tagNames,
+    }),
     priority: z
       .array(z.string())
       .optional()

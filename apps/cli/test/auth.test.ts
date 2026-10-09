@@ -266,3 +266,103 @@ describe("auth token", () => {
     expect(r.stdout).toBe("")
   })
 })
+
+// The real server, except that /health reports `version` (or none).
+function serverReporting(version: string | undefined) {
+  const proxy = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (req) =>
+      new URL(req.url).pathname === "/api/health"
+        ? Response.json({ ok: true, ...(version && { version }) })
+        : server.app.fetch(req),
+  })
+  return { url: `http://127.0.0.1:${proxy.port}`, stop: () => proxy.stop(true) }
+}
+
+describe("server version", () => {
+  const mismatch = /intesa \d+\.x is talking to a 99\.x server; update with .*\/cli\/intesa\.js/
+
+  test("auth status warns on stderr when the major versions differ", async () => {
+    const proxy = serverReporting("99.1.0")
+    try {
+      const box = sandbox(proxy.url)
+      await loginAs(box, { ...server, url: proxy.url }, "version-status@example.com")
+      const r = await box.run(["auth", "status", "--json"])
+      expect(r.exitCode).toBe(0)
+      expect(r.stderr).toMatch(mismatch)
+      expect(r.json()).toMatchObject({ user: "version-status@example.com" })
+    } finally {
+      proxy.stop()
+    }
+  })
+
+  test("auth login warns too, once signed in", async () => {
+    const proxy = serverReporting("99.0.0")
+    try {
+      const session = await signIn(server.app, "version-login@example.com")
+      const { body } = await session.call("POST", "/api/me/tokens", { name: "ci" })
+      const r = await sandbox(proxy.url).run(["auth", "login", "--with-token"], {
+        stdin: `${body.token}\n`,
+      })
+      expect(r.exitCode).toBe(0)
+      expect(r.stderr).toContain("Logged in to")
+      expect(r.stderr).toMatch(mismatch)
+    } finally {
+      proxy.stop()
+    }
+  })
+
+  test("the same major, or no version at all, says nothing", async () => {
+    const box = sandbox(server.url)
+    await loginAs(box, server, "version-same@example.com")
+    expect((await box.run(["auth", "status"])).stderr).toBe("")
+
+    const minor = serverReporting("0.99.0")
+    try {
+      const other = sandbox(minor.url)
+      await loginAs(other, { ...server, url: minor.url }, "version-minor@example.com")
+      expect((await other.run(["auth", "status"])).stderr).toBe("")
+    } finally {
+      minor.stop()
+    }
+
+    const silent = serverReporting(undefined)
+    try {
+      const other = sandbox(silent.url)
+      await loginAs(other, { ...server, url: silent.url }, "version-none@example.com")
+      const r = await other.run(["auth", "status"])
+      expect(r.exitCode).toBe(0)
+      expect(r.stderr).toBe("")
+    } finally {
+      silent.stop()
+    }
+  })
+})
+
+describe("--insecure-storage", () => {
+  const login = async (email: string, env: Record<string, string | undefined>) => {
+    const session = await signIn(server.app, email)
+    const { body } = await session.call("POST", "/api/me/tokens", { name: "ci" })
+    const box = sandbox(server.url)
+    const r = await box.run(["auth", "login", "--with-token", "--insecure-storage"], {
+      stdin: `${body.token}\n`,
+      env,
+    })
+    return { box, r }
+  }
+
+  test("warns that the token sits in plain text in hosts.json", async () => {
+    // INTESA_SECRETS is what the harness sets; without it the keychain would be allowed.
+    const { box, r } = await login("insecure-warn@example.com", { INTESA_SECRETS: undefined })
+    expect(r.exitCode).toBe(0)
+    expect(r.stderr).toContain(`stored in plain text in ${join(box.configDir, "hosts.json")}`)
+    expect(readHosts(box.configDir)[server.url]).toMatchObject({ storage: "file" })
+  })
+
+  test("INTESA_SECRETS=file is a deliberate choice and stays quiet", async () => {
+    const { r } = await login("insecure-quiet@example.com", { INTESA_SECRETS: "file" })
+    expect(r.exitCode).toBe(0)
+    expect(r.stderr).not.toContain("plain text")
+  })
+})

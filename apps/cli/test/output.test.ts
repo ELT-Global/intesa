@@ -63,6 +63,30 @@ describe("formatTable", () => {
     expect(lines[1]).toEndWith("todo")
   })
 
+  test("timestamp columns read relative to now on a terminal, ISO when piped", () => {
+    const ago = new Date(Date.now() - 2 * 3_600_000).toISOString()
+    const ahead = new Date(Date.now() + 90 * 86_400_000).toISOString()
+    const columns = ["name", "createdAt", "lastUsedAt", "expiresAt", "dueAt"]
+    const row = {
+      name: "ci",
+      createdAt: ago,
+      lastUsedAt: null,
+      expiresAt: null,
+      dueAt: "2030-03-04",
+    }
+    const tty = (r: Record<string, unknown>) => formatTable([r], columns, { tty: true, width: 200 })
+    // A day such as a due date is not a timestamp and stays as it is.
+    expect(
+      tty(row)
+        .split("\n")[1]
+        ?.split(/\s{2,}/),
+    ).toEqual(["ci", "2 hours ago", "never", "no expiry", "2030-03-04"])
+    expect(tty({ ...row, expiresAt: ahead })).toContain("in 3 months")
+    expect(formatTable([row], columns, { tty: false, width: 200 })).toBe(
+      `ci\t${ago}\t\t\t2030-03-04\n`,
+    )
+  })
+
   test("no rows, no output", () => {
     expect(formatTable([], ["key"], { tty: true, width: 80 })).toBe("")
   })

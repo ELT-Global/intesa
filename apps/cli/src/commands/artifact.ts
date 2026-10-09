@@ -227,6 +227,7 @@ const view = defineCommand({
   }),
   context: ["workspace", "project"],
   output: "artifactView",
+  paged: true,
   examples: [
     "intesa artifact view WEB-12 notes.md",
     "intesa artifact view WEB-12 spec.pdf",

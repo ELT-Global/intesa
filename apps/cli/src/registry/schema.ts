@@ -4,10 +4,11 @@ import { FIELD_SETS } from "../output/render"
 import { VERSION } from "../version"
 import { type Command, globalFlags, kebab } from "./define"
 
-type Prop = { type?: string; default?: unknown }
+type Prop = { type?: string; default?: unknown; complete?: unknown }
 
 // JSON Schema for a flags object, keyed by the flags people type: `dry-run`, not `dryRun`,
-// and `no-color` for a boolean that is on by default, matching help.
+// and `no-color` for a boolean that is on by default, matching help. Completion sources in
+// the metadata are functions, not schema, and are left out.
 export function flagsSchema(flags: z.ZodObject | undefined) {
   const { $schema: _, ...schema } = z.toJSONSchema(flags ?? z.object({}), {
     io: "input",
@@ -15,7 +16,7 @@ export function flagsSchema(flags: z.ZodObject | undefined) {
   }) as { $schema?: string; properties?: Record<string, Prop>; required?: string[] }
   if (schema.properties) {
     schema.properties = Object.fromEntries(
-      Object.entries(schema.properties).map(([k, v]) =>
+      Object.entries(schema.properties).map(([k, { complete: _, ...v }]) =>
         v.type === "boolean" && v.default === true
           ? [`no-${kebab(k)}`, { ...v, default: false }]
           : [kebab(k), v],

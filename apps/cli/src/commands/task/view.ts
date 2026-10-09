@@ -118,6 +118,7 @@ export const view = defineCommand({
   }),
   context: ["workspace", "project"],
   output: "taskDetail",
+  paged: true,
   examples: [
     "intesa task view WEB-12",
     "intesa task view 12 -p WEB --history",

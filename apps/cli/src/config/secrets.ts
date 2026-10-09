@@ -1,3 +1,4 @@
+import { join } from "node:path"
 import type { Env } from "../output/mode"
 import { type HostEntry, readHosts, writeHosts } from "./config"
 
@@ -25,7 +26,9 @@ export async function readToken(
 }
 
 // Prefers the OS keychain. Falls back to hosts.json (0600) when the keychain is missing or
-// refused, e.g. headless Linux without a Secret Service, and says so on stderr.
+// refused, e.g. headless Linux without a Secret Service, and says so on stderr. Asking for the
+// file with `insecure` is warned about too, but INTESA_SECRETS=file is a deliberate setting
+// of the environment (CI, tests) and is not.
 export async function saveToken(
   dir: string,
   host: string,
@@ -41,6 +44,10 @@ export async function saveToken(
     } catch (err) {
       opts.warn?.(`could not use the system keychain (${String(err)}); storing the token in a file`)
     }
+  }
+  if (opts.insecure && keychainAllowed(opts.env)) {
+    const mode = process.platform === "win32" ? "" : " (mode 0600)"
+    opts.warn?.(`the token is stored in plain text in ${join(dir, "hosts.json")}${mode}`)
   }
   const hosts = readHosts(dir)
   const { token: _old, ...previous } = hosts[host] ?? {}

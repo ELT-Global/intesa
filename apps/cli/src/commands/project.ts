@@ -1,6 +1,7 @@
 import { STATUSES } from "@intesa/api/schemas"
 import { STATUS_LABELS } from "@intesa/task-query"
 import { z } from "zod"
+import { projectKeys } from "../client/candidates"
 import { saveDefault } from "../client/context"
 import { webLinks } from "../client/links"
 import { resolver } from "../client/resolve"
@@ -9,13 +10,10 @@ import { usageError } from "../output/errors"
 import { rows, section } from "../output/render"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
-const keys = async (ctx: Ctx, { word }: { word: string }) =>
-  (await resolver(ctx).projects()).map((p) => p.key).filter((k) => k.startsWith(word.toUpperCase()))
-
 const keyArg = {
   name: "key",
   description: "Project key, e.g. WEB (default: the current project)",
-  complete: keys,
+  complete: projectKeys,
 }
 
 const list = defineCommand({
@@ -70,6 +68,7 @@ const view = defineCommand({
   args: [keyArg],
   context: ["workspace", "project"],
   output: "projectView",
+  paged: true,
   examples: ["intesa project view WEB", "intesa p view --json --fields key,taskCounts"],
   async run(ctx, { key }) {
     const r = resolver(ctx)
@@ -151,7 +150,9 @@ const remove = defineCommand({
   description:
     "Delete a project together with its tasks, custom fields and artifacts (owners only).\n" +
     "Asks first on a terminal; otherwise --yes is required.",
-  args: [{ name: "key", required: true, description: "Project key, e.g. WEB", complete: keys }],
+  args: [
+    { name: "key", required: true, description: "Project key, e.g. WEB", complete: projectKeys },
+  ],
   context: ["workspace"],
   output: "deleted",
   examples: ["intesa project delete WEB", "intesa p delete WEB --yes"],
@@ -175,7 +176,9 @@ const use = defineCommand({
   description:
     "Make a project the default for later commands, in the user config. With --local it is\n" +
     "written to .intesa.json in the current directory instead.",
-  args: [{ name: "key", required: true, description: "Project key, e.g. WEB", complete: keys }],
+  args: [
+    { name: "key", required: true, description: "Project key, e.g. WEB", complete: projectKeys },
+  ],
   flags: z.object({
     local: z
       .boolean()

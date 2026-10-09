@@ -91,10 +91,25 @@ export async function completeWords(
   const matching = (candidates: readonly string[]) =>
     [...new Set(candidates)].filter((c) => c.startsWith(word))
 
-  if (state.pending) return matching(state.pending.choices ?? [])
+  // The values of a flag: its choices, else what its source offers. Sources match the word
+  // themselves; a repeatable flag also takes a comma list, so only the part after the last
+  // comma is completed.
+  const flagValues = async (spec: FlagSpec | undefined, typed: string) => {
+    if (spec?.choices) return [...new Set(spec.choices)].filter((c) => c.startsWith(typed))
+    if (!spec?.complete) return []
+    const source = spec.complete
+    const head = spec.multiple ? typed.slice(0, typed.lastIndexOf(",") + 1) : ""
+    const tail = typed.slice(head.length)
+    const found = await (async () => source(ctxFor(state.typed), { word: tail, words }))().catch(
+      () => [],
+    )
+    return [...new Set(found)].map((c) => head + c)
+  }
+  if (state.pending) return flagValues(state.pending, word)
   if (word.startsWith("--") && word.includes("=")) {
-    const name = word.slice(0, word.indexOf("="))
-    return matching((findFlag(name, state.cmd)?.choices ?? []).map((c) => `${name}=${c}`))
+    const at = word.indexOf("=")
+    const values = await flagValues(findFlag(word.slice(0, at), state.cmd), word.slice(at + 1))
+    return values.map((v) => `${word.slice(0, at)}=${v}`)
   }
   if (word.startsWith("-")) return matching(flagWords(state.cmd))
   if (!state.noun) return matching(namesOf(nouns))
@@ -123,8 +138,3 @@ export async function complete(argv: string[], ctxFor: (typed: Typed) => Ctx): P
   const found = await completeWords(words, flag?.slice("--word=".length) ?? "", ctxFor)
   return found.map((c) => `${c}\n`).join("")
 }
-
-// Completion candidates from names: single words only, since the shell would split the
-// others, matching what was typed in any case.
-export const wordsStarting = (names: string[], word: string) =>
-  names.filter((n) => !/\s/.test(n) && n.toLowerCase().startsWith(word.toLowerCase()))

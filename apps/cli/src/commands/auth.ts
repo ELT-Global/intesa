@@ -15,6 +15,7 @@ import { forgetToken, readToken, type Storage, saveToken } from "../config/secre
 import { openOrPrint } from "../io/browser"
 import { CliError, cliError, notLoggedIn, usageError } from "../output/errors"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
+import { VERSION } from "../version"
 
 const clientName = () =>
   `intesa-cli on ${hostname()} (${process.platform}-${process.arch})`.slice(0, 100)
@@ -31,6 +32,29 @@ const httpFor = (ctx: Ctx, host: string, token?: string) =>
     stderr: ctx.stderr,
     timeoutMs: timeoutMs(ctx.env),
   })
+
+const majorOf = (version: unknown) => {
+  const major = /^(\d+)\./.exec(String(version))?.[1]
+  return major === undefined ? undefined : Number(major)
+}
+
+// A server of another major version may have changed the API under this CLI. Asked on login
+// and status only, and never an error: an older server that does not say, or a failed
+// request, just means no warning.
+async function warnOnVersionMismatch(ctx: Ctx, host: string) {
+  try {
+    const { version } = await (await httpFor(ctx, host).client.api.health.$get()).json()
+    const [ours, theirs] = [majorOf(VERSION), majorOf(version)]
+    if (ours === undefined || theirs === undefined || ours === theirs) return
+    ctx.stderr(
+      `! intesa ${ours}.x is talking to a ${theirs}.x server; ${
+        theirs > ours
+          ? `update with \`curl -fsSL ${host}/cli/intesa.js -o intesa.js\``
+          : "this intesa is newer than the server, so some commands may fail"
+      }\n`,
+    )
+  } catch {}
+}
 
 const loggedOut = (host: string) => notLoggedIn(`not logged in to ${host}`)
 
@@ -241,6 +265,7 @@ const login = defineCommand({
     if (ctx.env.INTESA_TOKEN) {
       ctx.stderr("! INTESA_TOKEN is set, and is used instead of the stored token\n")
     }
+    await warnOnVersionMismatch(ctx, host)
     // The status costs two more requests, so only when it is asked for.
     if (ctx.globals.json || ctx.globals.fields !== undefined) {
       return describeLogin(ctx, host, issued.token, storage)
@@ -287,7 +312,9 @@ const status = defineCommand({
     const host = requireHost(ctx.context())
     const credentials = await readToken(ctx.configDir, host, ctx.env)
     if (!credentials) throw loggedOut(host)
-    return describeLogin(ctx, host, credentials.token, credentials.storage)
+    const described = await describeLogin(ctx, host, credentials.token, credentials.storage)
+    await warnOnVersionMismatch(ctx, host)
+    return described
   },
 })
 

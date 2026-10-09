@@ -1,14 +1,12 @@
 import { z } from "zod"
+import { workspaceSlugs } from "../client/candidates"
 import { saveDefault } from "../client/context"
 import { links } from "../client/links"
 import { resolver } from "../client/resolve"
-import { type Ctx, defineCommand, defineGroup } from "../registry/define"
+import { defineCommand, defineGroup } from "../registry/define"
 
 type Workspace = { id: string; name: string; slug: string; role: string }
 const withUrl = (host: string, w: Workspace) => ({ ...w, url: links.workspace(host, w.slug) })
-
-const slugs = async (ctx: Ctx, { word }: { word: string }) =>
-  (await resolver(ctx).workspaces()).map((w) => w.slug).filter((s) => s.startsWith(word))
 
 const list = defineCommand({
   name: "list",
@@ -30,7 +28,7 @@ const view = defineCommand({
     {
       name: "slug",
       description: "Workspace slug (default: the current workspace)",
-      complete: slugs,
+      complete: workspaceSlugs,
     },
   ],
   context: ["workspace"],
@@ -94,7 +92,7 @@ const use = defineCommand({
     "Make a workspace the default for later commands, in the user config. With --local it is\n" +
     "written to .intesa.json in the current directory instead, which applies to commands run\n" +
     "in this directory and below.",
-  args: [{ name: "slug", required: true, complete: slugs }],
+  args: [{ name: "slug", required: true, complete: workspaceSlugs }],
   flags: z.object({
     local: z
       .boolean()

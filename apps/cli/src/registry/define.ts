@@ -1,9 +1,17 @@
 import { z } from "zod"
+import { projectKeys, workspaceSlugs } from "../client/candidates"
 import type { ResolvedContext } from "../client/context"
 import type { Http } from "../client/http"
 import type { Config } from "../config/config"
 import type { Env, Mode } from "../output/mode"
 import type { OutputName } from "../output/render"
+
+// Candidates for shell completion: `word` is what has been typed of the value and `words`
+// everything typed before it. Errors are swallowed, so a source may just throw.
+export type Complete = (
+  ctx: Ctx,
+  input: { word: string; words: string[] },
+) => string[] | Promise<string[]>
 
 declare module "zod" {
   interface GlobalMeta {
@@ -11,6 +19,9 @@ declare module "zod" {
     short?: string
     // Value name shown in help, e.g. `--input file`.
     placeholder?: string
+    // A `Complete` source for the flag's values. Not typed as one: zod's metadata type is shared
+    // with the API, which must not end up depending on the CLI's `Ctx`.
+    complete?: unknown
   }
 }
 
@@ -50,9 +61,7 @@ export type Arg = {
   variadic?: boolean
   enum?: readonly string[]
   description?: string
-  // Candidates for shell completion: `word` is what has been typed of this argument and
-  // `words` everything typed before it. Errors are swallowed, so a source may just throw.
-  complete?: (ctx: Ctx, input: { word: string; words: string[] }) => string[] | Promise<string[]>
+  complete?: Complete
 }
 
 type ArgValues<A extends readonly Arg[]> = {
@@ -112,6 +121,8 @@ export type Command<
   // Field set for --fields, -q, table columns and `intesa schema`.
   output?: OutputName
   examples?: string[]
+  // A view: its human format goes through the pager when a person is at a terminal.
+  paged?: boolean
   // A returned value is printed according to --json / --fields / -q / the output field set.
   run: (ctx: Ctx, args: ArgValues<A>, flags: z.output<F>) => R
   // How the result reads without --json, -q or --fields, instead of the default table.
@@ -180,6 +191,7 @@ export type FlagSpec = {
   defaultValue?: unknown
   description?: string
   placeholder?: string
+  complete?: Complete
 }
 
 type Def = {
@@ -228,6 +240,7 @@ export function flagSpecs(schema: z.ZodObject | undefined): FlagSpec[] {
       defaultValue: outer.defaultValue,
       description: meta.description,
       placeholder: meta.placeholder,
+      complete: meta.complete as Complete | undefined,
     }
   })
 }
@@ -243,7 +256,16 @@ function spelled(s: FlagSpec, scope: "global" | "command") {
   return [`--${s.flag}`, ...negated, ...(s.short ? [`-${s.short}`] : [])]
 }
 
-export const GLOBAL_SPECS = flagSpecs(globalFlags)
+// -w and -p complete from the server; set here rather than in the flags' metadata, which
+// would make the type of `globalFlags` depend on `Ctx`, which depends on it.
+const GLOBAL_COMPLETE: Record<string, Complete> = {
+  workspace: workspaceSlugs,
+  project: projectKeys,
+}
+export const GLOBAL_SPECS: FlagSpec[] = flagSpecs(globalFlags).map((s) => ({
+  ...s,
+  complete: GLOBAL_COMPLETE[s.key],
+}))
 
 // The global flags help and completion list for a command: -w and -p only where it reads them.
 export const inheritedFlags = (cmd?: Command) =>

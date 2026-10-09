@@ -1,6 +1,7 @@
 import { STATUSES, type Status } from "@intesa/api/schemas"
 import { STATUS_LABELS } from "@intesa/task-query"
 import { z } from "zod"
+import { taskKeys } from "../../client/candidates"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
 import { choose, confirmDestructive, isInteractive } from "../../io/prompt"
@@ -20,14 +21,16 @@ const SUBTASK_MODES = ["keep", "match", "ask", ...STATUSES] as const
 export type SubtaskMode = (typeof SUBTASK_MODES)[number]
 
 const moveFlags = z.object({
-  before: z
-    .string()
-    .optional()
-    .meta({ placeholder: "TASK", description: "Put it just above this task in the column" }),
-  after: z
-    .string()
-    .optional()
-    .meta({ placeholder: "TASK", description: "Put it just below this task in the column" }),
+  before: z.string().optional().meta({
+    placeholder: "TASK",
+    description: "Put it just above this task in the column",
+    complete: taskKeys,
+  }),
+  after: z.string().optional().meta({
+    placeholder: "TASK",
+    description: "Put it just below this task in the column",
+    complete: taskKeys,
+  }),
   top: z.boolean().default(false).meta({ description: "Put it at the top of the column" }),
   bottom: z.boolean().default(false).meta({ description: "Put it at the bottom of the column" }),
   subtasks: z.enum(SUBTASK_MODES).optional().meta({

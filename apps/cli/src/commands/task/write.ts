@@ -1,5 +1,12 @@
 import { PRIORITIES, STATUSES } from "@intesa/api/schemas"
 import { z } from "zod"
+import {
+  customFieldAssignments,
+  customFieldNames,
+  people,
+  tagNames,
+  taskKeys,
+} from "../../client/candidates"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
 import { isInteractive } from "../../io/prompt"
@@ -37,6 +44,7 @@ const createTags = z
 const fieldFlag = z.array(z.string()).default([]).meta({
   placeholder: "NAME=VALUE",
   description: "Set a custom field; values are checked against the field's type",
+  complete: customFieldAssignments,
 })
 
 export const create = defineCommand({
@@ -65,16 +73,18 @@ export const create = defineCommand({
       short: "a",
       placeholder: "person",
       description: "Assign people: @me, an email or a name",
+      complete: people,
     }),
     tag: z
       .array(z.string())
       .default([])
-      .meta({ short: "t", placeholder: "tag", description: "Add tags" }),
+      .meta({ short: "t", placeholder: "tag", description: "Add tags", complete: tagNames }),
     createTags,
-    parent: z
-      .string()
-      .optional()
-      .meta({ placeholder: "TASK", description: "Create a subtask of this task, in its project" }),
+    parent: z.string().optional().meta({
+      placeholder: "TASK",
+      description: "Create a subtask of this task, in its project",
+      complete: taskKeys,
+    }),
     field: fieldFlag,
   }),
   context: ["workspace", "project"],
@@ -171,22 +181,26 @@ export const edit = defineCommand({
     addAssignee: z
       .array(z.string())
       .default([])
-      .meta({ placeholder: "person", description: "Assign someone" }),
+      .meta({ placeholder: "person", description: "Assign someone", complete: people }),
     removeAssignee: z
       .array(z.string())
       .default([])
-      .meta({ placeholder: "person", description: "Unassign someone" }),
-    addTag: z.array(z.string()).default([]).meta({ placeholder: "tag", description: "Add a tag" }),
+      .meta({ placeholder: "person", description: "Unassign someone", complete: people }),
+    addTag: z
+      .array(z.string())
+      .default([])
+      .meta({ placeholder: "tag", description: "Add a tag", complete: tagNames }),
     removeTag: z
       .array(z.string())
       .default([])
-      .meta({ placeholder: "tag", description: "Remove a tag" }),
+      .meta({ placeholder: "tag", description: "Remove a tag", complete: tagNames }),
     createTags,
     field: fieldFlag,
-    clearField: z
-      .array(z.string())
-      .default([])
-      .meta({ placeholder: "NAME", description: "Clear a custom field" }),
+    clearField: z.array(z.string()).default([]).meta({
+      placeholder: "NAME",
+      description: "Clear a custom field",
+      complete: customFieldNames,
+    }),
   }),
   context: ["workspace", "project"],
   output: "task",

@@ -1,23 +1,16 @@
 import { FIELD_TYPES } from "@intesa/api/schemas"
 import { z } from "zod"
+import { customFieldNames } from "../client/candidates"
 import { resolver } from "../client/resolve"
 import { confirmDestructive } from "../io/prompt"
 import { usageError } from "../output/errors"
-import { wordsStarting } from "../registry/completion"
-import { type Ctx, defineCommand, defineGroup } from "../registry/define"
+import { defineCommand, defineGroup } from "../registry/define"
 
 const fieldArg = {
   name: "field",
   required: true,
   description: "Field name (any case) or id",
-  complete: async (ctx: Ctx, { word }: { word: string }) => {
-    const r = resolver(ctx)
-    const fields = await r.fields((await r.project()).id)
-    return wordsStarting(
-      fields.map((f) => f.name),
-      word,
-    )
-  },
+  complete: customFieldNames,
 } as const
 
 // The server trims options too; doing it here keeps comparisons with stored options exact.

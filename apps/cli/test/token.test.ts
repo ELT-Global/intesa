@@ -151,6 +151,22 @@ describe("token list", () => {
     expect(row).toMatch(/\btrue$/)
   })
 
+  test("a terminal table shows dates relative to now; piped output keeps ISO", async () => {
+    const { box } = await signedIn()
+    await box.run(["token", "create", "--name", "idle"])
+    const ISO = /\d{4}-\d{2}-\d{2}T\d{2}:/
+    const tty = await box.run(["token", "list"], { env: { INTESA_FORCE_TTY: "250" } })
+    const idle = tty.stdout.split("\n").find((l) => l.includes("idle"))
+    expect(idle).not.toMatch(ISO)
+    // Created just now, never used, never expires.
+    expect(idle).toMatch(/\bnow\b.*\bnever\b.*\bno expiry\b/)
+    const piped = await box.run(["token", "list"])
+    expect(piped.stdout).toMatch(ISO)
+    expect(piped.stdout).not.toContain("no expiry")
+    const json = await box.run(["token", "list", "--json"], { env: { INTESA_FORCE_TTY: "250" } })
+    expect(json.json()[0].createdAt).toMatch(ISO)
+  })
+
   test("--fields narrows the columns", async () => {
     const { box } = await signedIn()
     const r = await box.run(["token", "list", "--json", "--fields", "name,scope"])

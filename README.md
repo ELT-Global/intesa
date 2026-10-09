@@ -105,14 +105,14 @@ Scripts and CI can skip the login and set `INTESA_TOKEN` (and `INTESA_HOST`). Cr
 ## Tests
 
 ```sh
-bun run test          # API tests on in-memory SQLite
-bun run test:pg       # same suite on Postgres; set TEST_DATABASE_URL first
+bun run test          # API and CLI tests on in-memory SQLite
+bun run test:pg       # the same suites on Postgres; set TEST_DATABASE_URL first
 bun run test:e2e      # Playwright against the production build
 bun run typecheck
 bun run lint
 ```
 
-`test:pg` drops and recreates the schema `intesa_test` in the database you point it at, for example
+`test:pg` runs the API suite, then the CLI suite. Both drop and recreate the schema `intesa_test` in the database you point it at, for example
 `TEST_DATABASE_URL=postgres://postgres:intesa@localhost:55432/intesa bun run test:pg`.
 
 ## Docker

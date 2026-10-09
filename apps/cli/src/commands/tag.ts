@@ -1,20 +1,16 @@
 import { TAG_COLORS } from "@intesa/api/schemas"
 import { z } from "zod"
+import { tagNames } from "../client/candidates"
 import { resolver } from "../client/resolve"
 import { confirmDestructive } from "../io/prompt"
 import { usageError } from "../output/errors"
-import { wordsStarting } from "../registry/completion"
-import { type Ctx, defineCommand, defineGroup } from "../registry/define"
+import { defineCommand, defineGroup } from "../registry/define"
 
 const tagArg = {
   name: "tag",
   required: true,
   description: "Tag name (any case) or id",
-  complete: async (ctx: Ctx, { word }: { word: string }) =>
-    wordsStarting(
-      (await resolver(ctx).tags()).map((t) => t.name),
-      word,
-    ),
+  complete: tagNames,
 } as const
 
 const color = z

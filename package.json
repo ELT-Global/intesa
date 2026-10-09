@@ -15,7 +15,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "turbo run test",
-    "test:pg": "bun run --cwd apps/api test:pg",
+    "test:pg": "bun run --cwd apps/api test:pg && bun run --cwd apps/cli test:pg",
     "test:e2e": "turbo run test:e2e"
   },
   "devDependencies": {

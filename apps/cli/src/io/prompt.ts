@@ -2,14 +2,15 @@ import { cancelled, usageError } from "../output/errors"
 import { isSet } from "../output/mode"
 import type { Ctx } from "../registry/define"
 
+// Something says this is automation: CI, INTESA_PROMPT_DISABLED or `prompt disabled`.
+export const automated = (ctx: Pick<Ctx, "env" | "config">) =>
+  isSet(ctx.env.CI) || isSet(ctx.env.INTESA_PROMPT_DISABLED) || ctx.config.prompt === "disabled"
+
 // A person is at the terminal: stdin and stdout are terminals and nothing says this is
-// automation (CI, INTESA_PROMPT_DISABLED, `prompt disabled`). Agents and scripts never are.
-// Only then are prompts shown, editors and browsers opened.
+// automation. Agents and scripts never are. Only then are prompts shown, editors and
+// browsers opened.
 export const personPresent = (ctx: Pick<Ctx, "env" | "config">) =>
-  Boolean(process.stdin.isTTY && process.stdout.isTTY) &&
-  !isSet(ctx.env.CI) &&
-  !isSet(ctx.env.INTESA_PROMPT_DISABLED) &&
-  ctx.config.prompt !== "disabled"
+  Boolean(process.stdin.isTTY && process.stdout.isTTY) && !automated(ctx)
 
 // Whether a person can be asked for missing input: one is there, and --yes was not given.
 export const isInteractive = (ctx: Ctx) => personPresent(ctx) && !ctx.globals.yes

@@ -1,7 +1,7 @@
 import { styleText } from "node:util"
 import { project, toJson } from "./json"
 import type { Mode } from "./mode"
-import { formatTable } from "./table"
+import { formatTable, timestampText } from "./table"
 
 const TASK = [
   "id",
@@ -177,7 +177,10 @@ export function render(
   }
   if (isRow(data)) {
     const keys = opts.fields ?? Object.keys(data)
-    const rows = keys.map((field) => ({ field, value: data[field] }))
+    const rows = keys.map((field) => ({
+      field,
+      value: opts.mode.tty ? (timestampText(field, data[field]) ?? data[field]) : data[field],
+    }))
     return formatTable(rows, ["field", "value"], { ...table, header: false })
   }
   return data === undefined ? "" : `${String(data)}\n`

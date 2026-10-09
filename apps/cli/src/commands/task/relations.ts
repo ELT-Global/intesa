@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { taskKeys } from "../../client/candidates"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
 import { openOrPrint } from "../../io/browser"
@@ -6,7 +7,7 @@ import { notFound, usageError } from "../../output/errors"
 import { asTable, rows, section } from "../../output/render"
 import { statusText } from "../../output/task-line"
 import { type Ctx, defineCommand } from "../../registry/define"
-import { historyRows, lineStyle, relationRows, type TaskDetail, taskArg, taskKeys } from "./shared"
+import { historyRows, lineStyle, relationRows, type TaskDetail, taskArg } from "./shared"
 
 const context = ["workspace", "project"] as const
 
