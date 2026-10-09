@@ -346,6 +346,29 @@ describe("custom field edge cases", () => {
     expect(await values(t1.id)).toEqual({ [f.id]: tricky })
   })
 
+  test("a new task can carry values, checked like a PATCH; a bad one creates nothing", async () => {
+    const { owner, project, field, values } = await setup()
+    const num = await field({ name: "Estimate", type: "number", required: true })
+    const sel = await field({ name: "Stage", type: "select", options: ["Design", "Build"] })
+    const url = `/api/projects/${project.id}/tasks`
+
+    const created = await owner.call("POST", url, {
+      title: "Valued",
+      customFields: { [num.id]: 3, [sel.id]: "Build" },
+    })
+    expect(created.status).toBe(201)
+    expect(await values(created.body.task.id)).toEqual({ [num.id]: 3, [sel.id]: "Build" })
+
+    const count = async () => (await owner.call("GET", url)).body.tasks.length
+    const before = await count()
+    for (const customFields of [{ [sel.id]: "Ship" }, { nope: 1 }, { [num.id]: "3" }]) {
+      const res = await owner.call("POST", url, { title: "Bad", customFields })
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe("VALIDATION_ERROR")
+    }
+    expect(await count()).toBe(before)
+  })
+
   test("a PATCH with too many custom field entries is rejected", async () => {
     const { task, setValues } = await setup()
     const t1 = await task()

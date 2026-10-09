@@ -8,10 +8,18 @@ export {
   type TaskPriority,
   type TaskStatus,
 } from "./constants"
-export { type DueState, dayFromToday, dueState, formatDay, relativeTime } from "./dates"
+export {
+  type DueState,
+  dayFromToday,
+  daysUntil,
+  dueState,
+  formatDay,
+  relativeTime,
+} from "./dates"
 export {
   applySuggestion,
   compileSearch,
+  normalise,
   parseTerms,
   SEARCH_FIELDS,
   type SearchableTask,

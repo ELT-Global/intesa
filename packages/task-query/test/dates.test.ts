@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { dayFromToday, dueState } from "../src"
+import { dayFromToday, daysUntil, dueState } from "../src"
 
 // Mid-afternoon: due dates are whole days, so the time of day must not tip the result.
 const NOW = new Date(2026, 5, 15, 15, 30)
@@ -36,5 +36,14 @@ describe("dayFromToday", () => {
     expect(dayFromToday(1, new Date(2026, 11, 31))).toBe("2027-01-01")
     expect(dayFromToday(-1, new Date(2026, 2, 1))).toBe("2026-02-28")
     expect(dayFromToday(7, new Date(2026, 5, 28))).toBe("2026-07-05")
+  })
+})
+
+describe("daysUntil", () => {
+  test("whole calendar days, whatever the time of day", () => {
+    expect(daysUntil("2026-06-15", NOW)).toBe(0)
+    expect(daysUntil("2026-06-16", NOW)).toBe(1)
+    expect(daysUntil("2026-06-13", NOW)).toBe(-2)
+    expect(daysUntil("2026-07-01", NOW)).toBe(16)
   })
 })

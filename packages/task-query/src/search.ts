@@ -11,7 +11,7 @@ export type SearchableTask = {
   dueAt: string | null
   subtaskCount: number
   assignees: readonly { id: string; name: string }[]
-  tags: readonly { name: string }[]
+  tags: readonly { id: string; name: string }[]
 }
 
 /**
@@ -112,7 +112,8 @@ export type SearchContext = {
   now?: Date
 }
 
-const normalise = (s: string) => s.toLowerCase().replace(/[\s-]+/g, "_")
+/** How status values compare: in any case, with spaces or hyphens for underscores. */
+export const normalise = (s: string) => s.toLowerCase().replace(/[\s-]+/g, "_")
 
 function matchesValue(task: SearchableTask, field: SearchField, value: string, ctx: SearchContext) {
   switch (field) {
@@ -123,9 +124,10 @@ function matchesValue(task: SearchableTask, field: SearchField, value: string, c
     case "assignee":
       if (value === "unassigned" || value === "none") return task.assignees.length === 0
       if (value === "me") return !!ctx.meId && task.assignees.some((a) => a.id === ctx.meId)
-      return task.assignees.some((a) => a.name.toLowerCase().includes(value))
+      // An exact id is how a client names someone it has already looked up.
+      return task.assignees.some((a) => a.id === value || a.name.toLowerCase().includes(value))
     case "tag":
-      return task.tags.some((t) => t.name.toLowerCase().includes(value))
+      return task.tags.some((t) => t.id === value || t.name.toLowerCase().includes(value))
     case "due":
       if (value === "none") return task.dueAt === null
       if (!task.dueAt) return false

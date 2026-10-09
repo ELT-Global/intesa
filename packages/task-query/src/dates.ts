@@ -6,12 +6,17 @@ function parseDay(day: string): Date {
   return new Date(y, m - 1, d)
 }
 
+/** Calendar days from today to `day`: 0 for today, 1 for tomorrow, negative when past. */
+export function daysUntil(day: string, now = new Date()): number {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((parseDay(day).getTime() - today.getTime()) / 86_400_000)
+}
+
 export type DueState = "neutral" | "soon" | "overdue"
 
 export function dueState(dueAt: string, status: TaskStatus, now = new Date()): DueState {
   if (status === "complete") return "neutral"
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = Math.round((parseDay(dueAt).getTime() - today.getTime()) / 86_400_000)
+  const days = daysUntil(dueAt, now)
   if (days < 0) return "overdue"
   return days <= 2 ? "soon" : "neutral"
 }

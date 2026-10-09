@@ -15,7 +15,7 @@ async function setup(email = "owner@example.com") {
 
 describe("task creation", () => {
   test("applies defaults and records the initial history row", async () => {
-    const { owner, project, create } = await setup()
+    const { owner, workspaceId, project, create } = await setup()
     const task = await create({ title: "  First  " })
     const res = await owner.call("GET", `/api/tasks/${task.id}`)
     expect(res.body.task).toMatchObject({
@@ -30,7 +30,7 @@ describe("task creation", () => {
       subtaskCount: 0,
       subtaskDoneCount: 0,
       key: `${project.key}-1`,
-      project: { id: project.id, name: "Website", key: project.key },
+      project: { id: project.id, name: "Website", key: project.key, workspaceId },
       parent: null,
       subtasks: [],
     })

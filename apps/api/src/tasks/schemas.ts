@@ -3,7 +3,7 @@ import { z } from "zod"
 export const STATUSES = ["backlog", "todo", "in_progress", "review", "complete"] as const
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const
 
-const MAX_CUSTOM_FIELDS_PER_PATCH = 50
+const MAX_CUSTOM_FIELDS = 50
 
 export const FIELD_TYPES = ["text", "number", "boolean", "date", "select"] as const
 // blocked_by is the reverse view of blocks; it is accepted on input and never stored.
@@ -19,6 +19,10 @@ const body = z.string().max(20000)
 const status = z.enum(STATUSES)
 const priority = z.enum(PRIORITIES)
 const ids = z.array(z.string().min(1)).max(100)
+// Values by field id; each is checked against its field when the task is written.
+const customFields = z
+  .record(z.string(), z.unknown())
+  .refine((r) => Object.keys(r).length <= MAX_CUSTOM_FIELDS, "Too many custom fields")
 
 // YYYY-MM-DD that is a real calendar date (rejects 2026-02-31).
 export function isRealDate(s: string): boolean {
@@ -41,6 +45,7 @@ export const createTaskBody = z.object({
   parentTaskId: z.string().min(1).nullish(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
+  customFields: customFields.optional(),
 })
 
 // Where to put the task among the others in its column (the one it is in after this patch):
@@ -61,10 +66,7 @@ export const patchTaskBody = z.object({
   dueAt: dueAt.nullable().optional(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
-  customFields: z
-    .record(z.string(), z.unknown())
-    .refine((r) => Object.keys(r).length <= MAX_CUSTOM_FIELDS_PER_PATCH, "Too many custom fields")
-    .optional(),
+  customFields: customFields.optional(),
 })
 
 export type CreateTaskInput = z.infer<typeof createTaskBody>

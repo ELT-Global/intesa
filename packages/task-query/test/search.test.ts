@@ -131,6 +131,17 @@ describe("compileSearch", () => {
     expect(run("tag:bu", [tagged, task({ title: "Plain" })])).toEqual(["Tagged"])
   })
 
+  test("people and tags also match by exact id", () => {
+    const tasks = [
+      task({ title: "Olive's", assignees: [olive], tags: [bug] }),
+      task({ title: "Ui", tags: [ui] }),
+    ]
+    expect(run("assignee:u1", tasks)).toEqual(["Olive's"])
+    expect(run("assignee:u1,unassigned", tasks)).toEqual(["Olive's", "Ui"])
+    expect(run("tag:g2", tasks)).toEqual(["Ui"])
+    expect(run("-tag:g1", tasks)).toEqual(["Ui"])
+  })
+
   test("due understands overdue, soon, today, none and dates", () => {
     const overdue = task({ title: "Overdue", dueAt: "2026-06-10" })
     const soon = task({ title: "Soon", dueAt: "2026-06-16" })

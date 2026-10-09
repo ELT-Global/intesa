@@ -37,7 +37,7 @@ export type TaskSummary = {
 }
 
 export type TaskDetail = TaskSummary & {
-  project: { id: string; name: string; key: string }
+  project: { id: string; name: string; key: string; workspaceId: string }
   parent: TaskRef | null
   subtasks: TaskSummary[]
   blockedBy: TaskRef[]
@@ -234,7 +234,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
   const [project, parent, children, relationships, customFields] = await Promise.all([
     db
       .selectFrom("projects")
-      .select(["id", "name", "key"])
+      .select(["id", "name", "key", "workspaceId"])
       .where("id", "=", summary.projectId)
       .executeTakeFirstOrThrow(),
     summary.parentTaskId
@@ -439,6 +439,9 @@ export async function createTask(
       .execute()
     await replaceAssignees(trx, id, assigneeIds)
     await replaceTags(trx, id, tagIds)
+    if (input.customFields) {
+      await applyCustomFields(trx, { id, projectId: project.id }, input.customFields)
+    }
     return id
   })
 }
