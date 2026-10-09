@@ -4,7 +4,6 @@ import { notFound, usageError } from "../output/errors"
 import type { Ctx } from "../registry/define"
 import { requireHost } from "./context"
 
-
 // Turns what people type (slugs, keys, names, links) into API objects. Lists are fetched
 // lazily and at most once per invocation; nothing but a workspace's id is kept on disk, so
 // the CLI never works from stale data.

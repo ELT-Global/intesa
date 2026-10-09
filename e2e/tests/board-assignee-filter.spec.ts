@@ -92,9 +92,7 @@ test("multi-select shows tasks of any selected assignee", async ({ page }) => {
   await expect(filterButton(page)).toHaveAccessibleName(`Filter by assignee: ${bob.name}`)
 })
 
-test("Unassigned shows only tasks without assignees and combines with people", async ({
-  page,
-}) => {
+test("Unassigned shows only tasks without assignees and combines with people", async ({ page }) => {
   const { url } = await setup(page)
   await page.goto(url)
 
@@ -177,10 +175,10 @@ test.describe("unusable saved preferences fall back to Me without breaking the b
       await page.goto("/")
       // Entries for the real project id, so a "valid" shape would actually apply.
       const value = raw.replaceAll('"P"', JSON.stringify(project.id))
-      await page.evaluate(([k, v]) => localStorage.setItem(k as string, v as string), [
-        PREFERENCES_KEY,
-        value,
-      ])
+      await page.evaluate(
+        ([k, v]) => localStorage.setItem(k as string, v as string),
+        [PREFERENCES_KEY, value],
+      )
       await page.goto(url)
 
       await expectTitles(page, ["Mine", "Shared"])
@@ -223,7 +221,10 @@ test("when every saved person is gone the filter resets to Me and forgets the en
   await page.goto("/")
   await page.evaluate(
     ([k, v]) => localStorage.setItem(k as string, v as string),
-    [PREFERENCES_KEY, JSON.stringify({ v: 1, boardAssignees: { [project.id]: ["ghost-1", "ghost-2"] } })],
+    [
+      PREFERENCES_KEY,
+      JSON.stringify({ v: 1, boardAssignees: { [project.id]: ["ghost-1", "ghost-2"] } }),
+    ],
   )
   await page.goto(url)
 
@@ -372,7 +373,10 @@ test.describe("new tasks are pre-assigned from the filter", () => {
 
     // Un-assigning in the composer is respected rather than re-applied.
     await assigneeButton(page).click()
-    await page.getByRole("dialog", { name: "Assignees" }).getByRole("option", { name: new RegExp(bob.email) }).click()
+    await page
+      .getByRole("dialog", { name: "Assignees" })
+      .getByRole("option", { name: new RegExp(bob.email) })
+      .click()
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog", { name: "Assignees" })).toBeHidden()
     await expect(assigneeButton(page)).toContainText("Assign")
