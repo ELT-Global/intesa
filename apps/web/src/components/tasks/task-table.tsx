@@ -1,4 +1,4 @@
-import { PRIORITY_RANK, STATUS_LABELS, TASK_STATUSES } from "@intesa/task-query"
+import { compareBy, nextSort, type Sort, type SortKey, STATUS_LABELS } from "@intesa/task-query"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
@@ -13,8 +13,6 @@ export type TableColumn = "task" | "project" | "status" | "priority" | "assignee
 export const ALL_COLUMNS: TableColumn[] = ["task", "status", "priority", "assignees", "tags", "due"]
 
 type RowPatch = { status: TaskSummary["status"] } | { priority: TaskSummary["priority"] }
-type SortKey = "task" | "status" | "priority" | "due"
-type Sort = { key: SortKey; dir: "asc" | "desc" }
 
 const HEADERS: Record<TableColumn, string> = {
   task: "Task",
@@ -26,31 +24,6 @@ const HEADERS: Record<TableColumn, string> = {
   due: "Due",
 }
 const SORTABLE: TableColumn[] = ["task", "status", "priority", "due"]
-
-/** Missing values always sort last, whichever direction is active. */
-function compareBy(sort: Sort): (a: TableTask, b: TableTask) => number {
-  const sign = sort.dir === "asc" ? 1 : -1
-  const value = (t: TableTask): string | number | null => {
-    switch (sort.key) {
-      case "task":
-        return t.title.toLowerCase()
-      case "status":
-        return TASK_STATUSES.indexOf(t.status)
-      case "priority":
-        return t.priority ? PRIORITY_RANK[t.priority] : null
-      case "due":
-        return t.dueAt
-    }
-  }
-  return (a, b) => {
-    const x = value(a)
-    const y = value(b)
-    if (x === y) return 0
-    if (x === null) return 1
-    if (y === null) return -1
-    return (x < y ? -1 : 1) * sign
-  }
-}
 
 const cell =
   "h-10 pointer-coarse:h-11 border-b border-border/70 px-4 align-middle group-last/row:border-b-0"
@@ -263,10 +236,7 @@ export function TaskTable({
       update.mutate({ taskId: task.id, projectId: task.projectId, patch }),
     [update.mutate],
   )
-  const onSort = (key: SortKey) =>
-    setSort((s) =>
-      s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
-    )
+  const onSort = (key: SortKey) => setSort((s) => nextSort(s, key))
 
   return (
     // relative: sr-only text in cells is absolutely positioned and would otherwise escape this scroller and widen the page

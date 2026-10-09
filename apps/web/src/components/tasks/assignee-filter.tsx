@@ -1,3 +1,4 @@
+import { UNASSIGNED } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { Users, UserX, X } from "lucide-react"
 import { useState } from "react"
@@ -5,9 +6,6 @@ import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { membersQuery } from "@/lib/queries"
 import { PickerPopover } from "./picker-popover"
-
-/** Selection entry that matches tasks with no assignee. */
-export const UNASSIGNED = "unassigned"
 
 /** Multi-select assignee filter. An empty selection means everyone's tasks. */
 export function AssigneeFilter({
@@ -21,7 +19,8 @@ export function AssigneeFilter({
   meId: string | undefined
   onChange: (next: string[]) => void
 }) {
-  const members = useQuery({ ...membersQuery(workspaceId ?? ""), enabled: !!workspaceId }).data ?? []
+  const members =
+    useQuery({ ...membersQuery(workspaceId ?? ""), enabled: !!workspaceId }).data ?? []
   const [filter, setFilter] = useState("")
   const needle = filter.trim().toLowerCase()
   const visible = members.filter(
@@ -31,7 +30,9 @@ export function AssigneeFilter({
   const chosen = members.filter((m) => selected.includes(m.userId))
 
   function toggle(userId: string) {
-    onChange(selected.includes(userId) ? selected.filter((id) => id !== userId) : [...selected, userId])
+    onChange(
+      selected.includes(userId) ? selected.filter((id) => id !== userId) : [...selected, userId],
+    )
   }
 
   let summary = "Everyone"
@@ -78,21 +79,21 @@ export function AssigneeFilter({
               ]
             : []),
           ...visible.map((m) => ({
-          id: m.userId,
-          label: `${m.name} ${m.email}`,
-          selected: selected.includes(m.userId),
-          onSelect: () => toggle(m.userId),
-          content: (
-            <>
-              <Avatar name={m.name} />
-              <span className="min-w-0 flex-1 truncate">
-                {m.name}
-                {m.userId === meId && (
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
-                )}
-              </span>
-            </>
-          ),
+            id: m.userId,
+            label: `${m.name} ${m.email}`,
+            selected: selected.includes(m.userId),
+            onSelect: () => toggle(m.userId),
+            content: (
+              <>
+                <Avatar name={m.name} />
+                <span className="min-w-0 flex-1 truncate">
+                  {m.name}
+                  {m.userId === meId && (
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
+                  )}
+                </span>
+              </>
+            ),
           })),
         ]}
       />

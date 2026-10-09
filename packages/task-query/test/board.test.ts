@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type Placement, placeTask, type TaskStatus } from "../src"
+import { isInPlace, type Placement, placeTask, type TaskStatus } from "../src"
 
 const card = (id: string, status: TaskStatus, parentTaskId: string | null = null) => ({
   id,
@@ -37,5 +37,23 @@ describe("placeTask", () => {
     expect(placeTask(list, "d", "first")).toBe(list)
     expect(placeTask(list, "missing", "first")).toBe(list)
     expect(placeTask(list, "a", { after: "d" })).toBe(list)
+  })
+})
+
+describe("isInPlace", () => {
+  const at = (id: string, placement: Placement) =>
+    isInPlace(list, list.find((t) => t.id === id) as (typeof list)[number], placement)
+
+  test("first and last are in place at either end of the column", () => {
+    expect(at("a", "first")).toBe(true)
+    expect(at("c", "last")).toBe(true)
+    expect(at("b", "first")).toBe(false)
+  })
+
+  test("next to the card it already sits by, skipping subtasks", () => {
+    expect(at("b", { before: "c" })).toBe(true)
+    expect(at("c", { after: "b" })).toBe(true)
+    expect(at("a", { before: "c" })).toBe(false)
+    expect(at("a", { before: "a" })).toBe(true)
   })
 })

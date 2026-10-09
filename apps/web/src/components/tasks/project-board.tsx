@@ -1,7 +1,11 @@
 import {
+  assigneeViews,
   compileSearch,
+  isInPlace,
+  matchesAssignees,
   type Placement,
   STATUS_LABELS,
+  stepAssigneeView,
   TASK_STATUSES,
   type TaskStatus,
 } from "@intesa/task-query"
@@ -21,7 +25,6 @@ import { ErrorState } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { CountBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { assigneeViews, stepAssigneeView } from "@/lib/assignee-views"
 import { getBacklogExpanded, setBacklogExpanded } from "@/lib/preferences"
 import { membersQuery, projectQuery } from "@/lib/queries"
 import { isPlainShortcut, useShortcut } from "@/lib/shortcuts"
@@ -33,7 +36,7 @@ import {
   useUpdateTask,
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import { AssigneeFilter, UNASSIGNED } from "./assignee-filter"
+import { AssigneeFilter } from "./assignee-filter"
 import { CreateTaskDialog } from "./create-task-dialog"
 import { StatusIcon } from "./properties"
 import { type SubtaskSync, SubtaskSyncDialog } from "./subtask-sync-dialog"
@@ -71,7 +74,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     const views = assigneeViews(
       meId,
       members.data.map((m) => m.userId),
-      UNASSIGNED,
     )
     setPicked(stepAssigneeView(views, assigneeIds, delta))
   }
@@ -86,12 +88,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const [query, setQuery] = useState("")
   const matchesQuery = useMemo(() => compileSearch(query, { meId }), [query, meId])
   const shown = useCallback(
-    (t: TaskSummary) =>
-      (assigneeIds.length === 0 ||
-        (t.assignees.length === 0
-          ? assigneeIds.includes(UNASSIGNED)
-          : t.assignees.some((a) => assigneeIds.includes(a.id)))) &&
-      (!matchesQuery || matchesQuery(t)),
+    (t: TaskSummary) => matchesAssignees(t, assigneeIds) && (!matchesQuery || matchesQuery(t)),
     [assigneeIds, matchesQuery],
   )
   // Backlog is out of the way until asked for; the choice is remembered across visits.
@@ -263,18 +260,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       />
     </div>
   )
-}
-
-/** True when `placement` would leave `task` where it already is in its column. */
-function isInPlace(list: TaskSummary[], task: TaskSummary, placement: Placement) {
-  const column = list.filter((t) => t.status === task.status && !t.parentTaskId)
-  const at = column.findIndex((t) => t.id === task.id)
-  if (placement === "first") return at === 0
-  if (placement === "last") return at === column.length - 1
-  if ("before" in placement) {
-    return placement.before === task.id || column[at + 1]?.id === placement.before
-  }
-  return placement.after === task.id || column[at - 1]?.id === placement.after
 }
 
 /** Where a card dropped at `clientY` lands among the cards of a column, and where to draw it. */

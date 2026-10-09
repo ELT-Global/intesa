@@ -1,4 +1,11 @@
-export { type Placement, placeTask } from "./board"
+export {
+  assigneeViews,
+  matchesAssignees,
+  newTaskAssignees,
+  stepAssigneeView,
+  UNASSIGNED,
+} from "./assignees"
+export { isInPlace, type Placement, placeTask } from "./board"
 export {
   PRIORITY_LABELS,
   PRIORITY_RANK,
@@ -29,3 +36,4 @@ export {
   suggest,
   type Term,
 } from "./search"
+export { compareBy, nextSort, type Sort, type SortKey } from "./sort"

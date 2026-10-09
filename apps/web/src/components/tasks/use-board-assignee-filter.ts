@@ -1,8 +1,8 @@
+import { newTaskAssignees, UNASSIGNED } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { getBoardAssignees, setBoardAssignees } from "@/lib/preferences"
 import { membersQuery, meQuery } from "@/lib/queries"
-import { UNASSIGNED } from "./assignee-filter"
 
 /**
  * The board's assignee filter, remembered per project. Defaults to the current user.
@@ -36,9 +36,7 @@ export function useBoardAssigneeFilter(projectId: string, workspaceId: string | 
   const selected = useMemo(() => valid ?? (meId ? [meId] : []), [valid, meId])
   // Hold the board back until we know who to filter by, rather than flashing everyone's tasks.
   const ready =
-    valid === null
-      ? meId !== undefined
-      : valid.length === 0 || membersKnown || members.isError
+    valid === null ? meId !== undefined : valid.length === 0 || membersKnown || members.isError
 
   const select = useCallback(
     (next: string[]) => {
@@ -52,8 +50,8 @@ export function useBoardAssigneeFilter(projectId: string, workspaceId: string | 
 }
 
 /**
- * Who a new task starts assigned to: the one person the board is filtered to, nobody when it is
- * filtered to Unassigned, otherwise (several people, or everyone) the creator.
+ * Who a new task starts assigned to, by the board filter saved for the project. Saved ids of
+ * people who have left are ignored, and the creator only counts while a member.
  */
 export function newTaskAssigneeIds(
   projectId: string,
@@ -61,6 +59,5 @@ export function newTaskAssigneeIds(
   memberIds: ReadonlySet<string>,
 ): string[] {
   const kept = getBoardAssignees(projectId)?.filter((id) => id === UNASSIGNED || memberIds.has(id))
-  if (kept?.length === 1) return kept[0] === UNASSIGNED ? [] : [kept[0] as string]
-  return meId && memberIds.has(meId) ? [meId] : []
+  return newTaskAssignees(kept ?? [], meId && memberIds.has(meId) ? meId : undefined)
 }
