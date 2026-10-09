@@ -75,7 +75,7 @@ describe("intesa api", () => {
 
   test("-H sets request headers (a wrong content type fails validation, exit 8)", async () => {
     const r = await sandbox(server.url).run(
-      ["api", "/auth/dev-login", "--input", "-", "-H", "Content-Type: text/plain"],
+      ["api", "/auth/dev-login", "--input", "-", "-H", "Content-Type: application/xml"],
       { stdin: JSON.stringify({ email: "h@example.com" }) },
     )
     expect(r.exitCode).toBe(8)

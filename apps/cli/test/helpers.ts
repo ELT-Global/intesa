@@ -8,6 +8,8 @@ const MAIN = resolve(import.meta.dir, "../src/main.ts")
 
 export type RunResult = {
   stdout: string
+  // The same output as raw bytes, for commands that print files.
+  stdoutBytes: Uint8Array
   stderr: string
   exitCode: number
   // biome-ignore lint/suspicious/noExplicitAny: tests read arbitrary output shapes
@@ -82,12 +84,13 @@ export function sandbox(host?: string): Sandbox {
 
   const run = async (args: string[], opts: RunOptions = {}): Promise<RunResult> => {
     const proc = spawn(args, opts)
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
+    const [stdoutBytes, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).arrayBuffer().then((b) => new Uint8Array(b)),
       new Response(proc.stderr).text(),
       proc.exited,
     ])
-    return { stdout, stderr, exitCode, json: () => JSON.parse(stdout) }
+    const stdout = new TextDecoder().decode(stdoutBytes)
+    return { stdout, stdoutBytes, stderr, exitCode, json: () => JSON.parse(stdout) }
   }
 
   const start = (args: string[], opts: RunOptions = {}): Started => {

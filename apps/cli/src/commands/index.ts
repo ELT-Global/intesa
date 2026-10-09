@@ -31,6 +31,33 @@ export const nouns: NounEntry[] = [
     load: () => import("./project").then((m) => m.default),
   },
   {
+    name: "task",
+    aliases: ["t"],
+    summary: "List, create, edit and move tasks",
+    load: () => import("./task").then((m) => m.default),
+  },
+  {
+    name: "member",
+    summary: "List, add and manage workspace members",
+    load: () => import("./member").then((m) => m.default),
+  },
+  {
+    name: "tag",
+    summary: "List, create and manage tags",
+    load: () => import("./tag").then((m) => m.default),
+  },
+  {
+    name: "field",
+    summary: "List, create and manage a project's custom fields",
+    load: () => import("./field").then((m) => m.default),
+  },
+  {
+    name: "artifact",
+    aliases: ["a"],
+    summary: "List, upload, download and edit a task's artifacts",
+    load: () => import("./artifact").then((m) => m.default),
+  },
+  {
     name: "status",
     summary: "Show your recent projects, your tasks and what is due soon",
     load: () => import("./status").then((m) => m.default),

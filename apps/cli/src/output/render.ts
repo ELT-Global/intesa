@@ -2,6 +2,26 @@ import { project, toJson } from "./json"
 import type { Mode } from "./mode"
 import { formatTable } from "./table"
 
+const TASK_FIELDS = [
+  "id",
+  "key",
+  "number",
+  "projectId",
+  "parentTaskId",
+  "title",
+  "body",
+  "status",
+  "priority",
+  "dueAt",
+  "assignees",
+  "tags",
+  "subtaskCount",
+  "subtaskDoneCount",
+  "createdAt",
+  "updatedAt",
+  "url",
+] as const
+
 // Named output shapes. `fields` is what --fields and `intesa schema` accept; `columns` is the
 // default table. JSON names are the API's own (camelCase).
 export const FIELD_SETS = {
@@ -49,10 +69,10 @@ export const FIELD_SETS = {
     ],
     columns: ["token"],
   },
-  // `me 2fa`: the account after enable/disable, or the enrolment details after setup.
+  // `me 2fa`: the account after disable, or where to enable it in the web app.
   twoFactor: {
-    fields: ["id", "name", "email", "avatarUrl", "totpEnabled", "secret", "otpauthUrl"],
-    columns: ["secret", "otpauthUrl"],
+    fields: ["id", "name", "email", "avatarUrl", "totpEnabled", "url"],
+    columns: ["email", "totpEnabled"],
   },
   authStatus: {
     fields: [
@@ -96,10 +116,61 @@ export const FIELD_SETS = {
     ],
     columns: ["key", "name", "description", "taskCounts"],
   },
+  // Task summaries as the API returns them, plus `url`. Piped tables show people and tags
+  // as names.
+  task: {
+    fields: TASK_FIELDS,
+    columns: ["key", "status", "priority", "title", "assignees", "tags", "dueAt"],
+  },
+  // `task view`: the API's task detail, plus `url`, the artifacts and (--history) history.
+  taskDetail: {
+    fields: [
+      ...TASK_FIELDS,
+      "project",
+      "parent",
+      "subtasks",
+      "blockedBy",
+      "blocks",
+      "related",
+      "customFields",
+      "artifacts",
+      "history",
+    ],
+    columns: ["key", "status", "title"],
+  },
+  // `task move` and its shorthands: also the subtasks left in another status.
+  taskMove: {
+    fields: [...TASK_FIELDS, "subtasksOutOfSync"],
+    columns: ["key", "status", "priority", "title", "assignees", "tags", "dueAt"],
+  },
+  member: {
+    fields: ["id", "userId", "name", "email", "avatarUrl", "role", "createdAt"],
+    columns: ["name", "email", "role"],
+  },
+  tag: { fields: ["id", "name", "color"], columns: ["id", "name", "color"] },
+  field: {
+    fields: ["id", "projectId", "name", "type", "required", "options", "position"],
+    columns: ["id", "name", "type", "required", "options"],
+  },
   // `status`: the Home page's sections; each task carries its `key` and `url`.
   status: {
     fields: ["projects", "assigned", "dueSoon"],
     columns: ["projects", "assigned", "dueSoon"],
+  },
+  // `url` is the artifact's own address under /api; a browser needs a web session to open it.
+  artifact: {
+    fields: ["id", "name", "mimeType", "size", "createdAt", "updatedAt", "url"],
+    columns: ["id", "name", "mimeType", "size", "updatedAt"],
+  },
+  // `artifact view`: also the text, for Markdown.
+  artifactView: {
+    fields: ["id", "name", "mimeType", "size", "createdAt", "updatedAt", "url", "content"],
+    columns: ["id", "name", "mimeType", "size", "updatedAt", "content"],
+  },
+  // `artifact download`: also where the file went.
+  artifactDownload: {
+    fields: ["id", "name", "mimeType", "size", "createdAt", "updatedAt", "url", "path"],
+    columns: ["id", "name", "mimeType", "size", "path"],
   },
 } as const satisfies Record<string, { fields: readonly string[]; columns: readonly string[] }>
 

@@ -15,8 +15,8 @@ let counter = 0
 async function signedIn(opts: { scope?: "read" | "write" } = {}) {
   const box = sandbox(server.url)
   const email = `me-${++counter}@example.com`
-  await loginAs(box, server, email, opts)
-  return { box, email }
+  const { session } = await loginAs(box, server, email, opts)
+  return { box, email, session }
 }
 
 const dbUser = (email: string) =>
@@ -80,37 +80,50 @@ describe("me edit", () => {
 })
 
 describe("me 2fa", () => {
-  // The secret only exists after setup; scripts get it from `2fa setup` and then pass a code.
-  async function setUp(box: ReturnType<typeof sandbox>) {
-    const r = await box.run(["me", "2fa", "setup", "--json"])
-    expect(r.exitCode).toBe(0)
-    return r.json() as { secret: string; otpauthUrl: string }
+  // An API token cannot enrol an authenticator, so tests do it the way the web app does.
+  async function withTwoFactor() {
+    const { box, email, session } = await signedIn()
+    const setup = await session.call("POST", "/api/me/2fa/setup")
+    expect(setup.status).toBe(200)
+    const secret = setup.body.secret as string
+    const enabled = await session.call("POST", "/api/me/2fa/enable", {
+      code: await totpCode(secret),
+    })
+    expect(enabled.status).toBe(200)
+    return { box, email, secret }
   }
 
-  test("setup prints the secret and the otpauth URL", async () => {
+  const wrongCode = async (secret: string) =>
+    String((Number(await totpCode(secret)) + 500_000) % 1_000_000).padStart(6, "0")
+
+  test("enable prints the settings URL on stdout and does not open a browser", async () => {
     const { box, email } = await signedIn()
-    const { secret, otpauthUrl } = await setUp(box)
-    expect(secret).toMatch(/^[A-Z2-7]{32}$/)
-    expect(otpauthUrl).toStartWith("otpauth://totp/")
-    expect(otpauthUrl).toContain(secret)
-    expect((await dbUser(email)).totpEnabled).toBe(0)
+    const r = await box.run(["me", "2fa", "enable"])
+    expect(r.exitCode).toBe(0)
+    expect(r.stdout).toBe(`${server.url}/settings
+`)
+    expect(r.stderr).toContain("web app")
+    expect(r.stderr).toContain(`${server.url}/settings`)
+    expect((await dbUser(email)).totpSecret).toBeNull()
   })
 
-  test("enable --code turns two-factor on, disable --code turns it off", async () => {
-    const { box, email } = await signedIn()
-    const { secret } = await setUp(box)
+  test("enable --json prints the URL as an object", async () => {
+    const { box } = await signedIn()
+    const r = await box.run(["me", "2fa", "enable", "--json"])
+    expect(r.exitCode).toBe(0)
+    expect(r.json()).toEqual({ url: `${server.url}/settings` })
+  })
 
-    const enabled = await box.run([
-      "me",
-      "2fa",
-      "enable",
-      "--code",
-      await totpCode(secret),
-      "--json",
-    ])
-    expect(enabled.exitCode).toBe(0)
-    expect(enabled.json().totpEnabled).toBe(true)
-    expect((await dbUser(email)).totpEnabled).toBe(1)
+  test("enable when already enabled says so and prints no URL", async () => {
+    const { box } = await withTwoFactor()
+    const r = await box.run(["me", "2fa", "enable"])
+    expect(r.exitCode).toBe(0)
+    expect(r.stdout).toBe("")
+    expect(r.stderr).toContain("already enabled")
+  })
+
+  test("disable --code turns two-factor off", async () => {
+    const { box, email, secret } = await withTwoFactor()
     expect((await box.run(["me", "--json"])).json().totpEnabled).toBe(true)
 
     const disabled = await box.run([
@@ -128,61 +141,37 @@ describe("me 2fa", () => {
     expect(user.totpSecret).toBeNull()
   })
 
-  test("enable without --code exits 2 naming --code, and changes nothing", async () => {
-    const { box, email } = await signedIn()
-    const r = await box.run(["me", "2fa", "enable"])
-    expect(r.exitCode).toBe(2)
-    expect(r.stderr).toContain("--code")
-    expect(r.stdout).toBe("")
-    expect((await dbUser(email)).totpSecret).toBeNull()
-  })
-
-  test("a wrong code exits 8 and leaves two-factor off", async () => {
-    const { box, email } = await signedIn()
-    const { secret } = await setUp(box)
-    const wrong = String((Number(await totpCode(secret)) + 500_000) % 1_000_000).padStart(6, "0")
-    const r = await box.run(["me", "2fa", "enable", "--code", wrong])
-    expect(r.exitCode).toBe(8)
-    expect((await dbUser(email)).totpEnabled).toBe(0)
-  })
-
-  test("a code that is not six digits is a usage error", async () => {
-    const { box } = await signedIn()
-    const r = await box.run(["me", "2fa", "enable", "--code", "12ab"])
-    expect(r.exitCode).toBe(2)
-    expect(r.stderr).toContain("--code")
-  })
-
-  test("enable before setup is rejected by the server (exit 8)", async () => {
-    const { box } = await signedIn()
-    expect((await box.run(["me", "2fa", "enable", "--code", "123456"])).exitCode).toBe(8)
-  })
-
   test("disable without --code exits 2 naming --code, and a wrong code exits 8", async () => {
-    const { box, email } = await signedIn()
-    const { secret } = await setUp(box)
-    await box.run(["me", "2fa", "enable", "--code", await totpCode(secret)])
+    const { box, email, secret } = await withTwoFactor()
 
     const missing = await box.run(["me", "2fa", "disable"])
     expect(missing.exitCode).toBe(2)
     expect(missing.stderr).toContain("--code")
 
-    const wrong = String((Number(await totpCode(secret)) + 500_000) % 1_000_000).padStart(6, "0")
-    expect((await box.run(["me", "2fa", "disable", "--code", wrong])).exitCode).toBe(8)
+    expect(
+      (await box.run(["me", "2fa", "disable", "--code", await wrongCode(secret)])).exitCode,
+    ).toBe(8)
     expect((await dbUser(email)).totpEnabled).toBe(1)
   })
 
-  test("setup when already enabled conflicts (exit 6)", async () => {
+  test("a code that is not six digits is a usage error", async () => {
     const { box } = await signedIn()
-    const { secret } = await setUp(box)
-    await box.run(["me", "2fa", "enable", "--code", await totpCode(secret)])
-    expect((await box.run(["me", "2fa", "setup"])).exitCode).toBe(6)
+    const r = await box.run(["me", "2fa", "disable", "--code", "12ab"])
+    expect(r.exitCode).toBe(2)
+    expect(r.stderr).toContain("--code")
   })
 
-  test("the action is validated", async () => {
+  test("disable when two-factor is off is rejected by the server (exit 8)", async () => {
     const { box } = await signedIn()
-    const r = await box.run(["me", "2fa", "toggle"])
-    expect(r.exitCode).toBe(2)
-    expect(r.stderr).toContain("setup|enable|disable")
+    expect((await box.run(["me", "2fa", "disable", "--code", "123456"])).exitCode).toBe(8)
+  })
+
+  test("setup is no longer an action, and the action is validated", async () => {
+    const { box } = await signedIn()
+    for (const action of ["setup", "toggle"]) {
+      const r = await box.run(["me", "2fa", action])
+      expect(r.exitCode).toBe(2)
+      expect(r.stderr).toContain("enable|disable")
+    }
   })
 })

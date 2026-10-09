@@ -1,6 +1,6 @@
 import { z } from "zod"
-import { askText, isInteractive } from "../output/ask"
-import { usageError } from "../output/errors"
+import { openBrowser } from "../io/browser"
+import { askText } from "../output/ask"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const view = defineCommand({
@@ -39,85 +39,66 @@ const edit = defineCommand({
   },
 })
 
-type Enrollment = { secret: string; otpauthUrl: string }
-
-// The URL and secret are always shown; the QR code is a convenience for a terminal.
-async function showEnrollment(ctx: Ctx, { secret, otpauthUrl }: Enrollment) {
-  const { renderUnicodeCompact } = await import("uqr")
-  const qr = renderUnicodeCompact(otpauthUrl)
-  // Light modules are drawn as full blocks, so force white on black to scan on any theme.
-  const drawn = ctx.mode.color
-    ? qr
-        .split("\n")
-        .map((line) => `\x1b[97;40m${line}\x1b[0m`)
-        .join("\n")
-    : qr
-  ctx.stderr(
-    `Scan this code with an authenticator app:\n\n${drawn}\n\n` +
-      `Or add it by hand. Secret: ${secret}\n${otpauthUrl}\n\n`,
-  )
+// An API token cannot enrol an authenticator, so enabling happens in the web app.
+async function enableInWebApp(ctx: Ctx) {
+  const { client, host } = await ctx.http()
+  const url = `${host}/settings`
+  if ((await (await client.api.me.$get()).json()).user.totpEnabled) {
+    ctx.stderr("Two-factor sign-in is already enabled.\n")
+    return ctx.globals.json ? { totpEnabled: true } : undefined
+  }
+  ctx.stderr("Two-factor sign-in is set up in the web app, where you scan the QR code.\n")
+  const person = Boolean(process.stdin.isTTY && process.stderr.isTTY)
+  if (person && openBrowser(url, { env: ctx.env, configBrowser: ctx.config.browser })) {
+    ctx.stderr(`Opening ${url} in your browser…\n`)
+  } else {
+    ctx.stderr(`Open ${url} in your browser to turn it on.\n`)
+  }
+  if (ctx.globals.json) return { url }
+  ctx.stdout(`${url}\n`)
 }
 
-const codeHint =
-  "Run `intesa me 2fa setup`, add the secret to an authenticator app, then pass a code."
-
-async function twoFactor(ctx: Ctx, action: string, code: string | undefined) {
+async function disableTwoFactor(ctx: Ctx, code: string | undefined) {
   const { client } = await ctx.http()
-  const setup = async () => (await (await client.api.me["2fa"].setup.$post()).json()) as Enrollment
-  const askCode = (message: string) =>
-    askText(ctx, {
+  const value =
+    code ??
+    (await askText(ctx, {
       flag: "--code",
-      message,
+      message: "Current code from your authenticator app",
       validate: (v) => (/^\d{6}$/.test(v) ? undefined : "Enter the 6-digit code"),
-    })
-
-  if (action === "setup") {
-    const enrollment = await setup()
-    if (!ctx.globals.json && process.stderr.isTTY) await showEnrollment(ctx, enrollment)
-    return enrollment
-  }
-  if (action === "enable") {
-    let value = code
-    if (!value) {
-      if (!isInteractive(ctx))
-        throw usageError("missing --code (required when not interactive)", codeHint)
-      // Without --code the secret is made here, so a person can scan it and read the code back.
-      await showEnrollment(ctx, await setup())
-      value = await askCode("Code from your authenticator app")
-    }
-    return (await (await client.api.me["2fa"].enable.$post({ json: { code: value } })).json()).user
-  }
-  const value = code ?? (await askCode("Current code from your authenticator app"))
+    }))
   return (await (await client.api.me["2fa"].disable.$post({ json: { code: value } })).json()).user
 }
 
 const twoFa = defineCommand({
   name: "2fa",
-  summary: "Set up, enable or disable two-factor sign-in",
+  summary: "Enable or disable two-factor sign-in",
   description: [
     "Manage two-factor sign-in with an authenticator app.",
     "",
-    "On a terminal, `enable` shows a QR code and the secret, then asks for the code your app",
-    "shows. Scripts and agents cannot scan anything: run `setup` to get the secret and otpauth",
-    "URL, generate a code from the secret, then pass it with `enable --code`. `disable` always",
-    "needs a current code.",
+    "`enable` points you to the web app settings, where the QR code is shown: an API token",
+    "cannot enrol an authenticator. It opens the page on a terminal and always prints the URL.",
+    "`disable` needs a current code from your authenticator app.",
   ].join("\n"),
-  args: [{ name: "action", required: true, enum: ["setup", "enable", "disable"] as const }],
+  args: [{ name: "action", required: true, enum: ["enable", "disable"] as const }],
   flags: z.object({
     code: z
       .string()
       .regex(/^\d{6}$/, "expected 6 digits")
       .optional()
-      .meta({ placeholder: "123456", description: "Authenticator code (asked for on a terminal)" }),
+      .meta({
+        placeholder: "123456",
+        description: "Authenticator code for disable (asked for on a terminal)",
+      }),
   }),
   output: "twoFactor",
   examples: [
     "intesa me 2fa enable",
-    "intesa me 2fa setup --json",
-    "intesa me 2fa enable --code 123456",
+    "intesa me 2fa enable --json",
     "intesa me 2fa disable --code 123456",
   ],
-  run: (ctx, { action }, flags) => twoFactor(ctx, action, flags.code),
+  run: (ctx, { action }, flags) =>
+    action === "enable" ? enableInWebApp(ctx) : disableTwoFactor(ctx, flags.code),
 })
 
 export default defineGroup({
