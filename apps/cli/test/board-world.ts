@@ -153,6 +153,8 @@ export async function boardWorld(server: TestServer, opts: { editor?: string } =
   }
   const artifactText = async (taskId: string, id: string) =>
     (await session.request(artifactPath(taskId, id))).text()
+  const artifacts = async (taskId: string): Promise<Json[]> =>
+    (await session.call("GET", artifactPath(taskId))).body.artifacts
 
   return {
     ctx,
@@ -196,6 +198,7 @@ export async function boardWorld(server: TestServer, opts: { editor?: string } =
     addPerson,
     addArtifact,
     artifactText,
+    artifacts,
   }
 }
 

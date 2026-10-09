@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { join, resolve } from "node:path"
 import type { Task } from "../src/tui/api"
-import { applyChanges, revert } from "../src/tui/model"
+import { applyChanges, expandPath, revert, splitPaths } from "../src/tui/model"
 
 const card = (id: string, status: Task["status"] = "todo") =>
   ({ id, status, priority: null, parentTaskId: null }) as unknown as Task
@@ -25,5 +26,26 @@ describe("revert", () => {
     const back = revert(now, "b", undo ?? { fields: {} })
     expect(ids(back)).toEqual(["b", "a", "c"])
     expect(back[0]?.priority).toBeNull()
+  })
+})
+
+describe("upload paths", () => {
+  test("split on spaces, with quotes around paths that hold them", () => {
+    expect(splitPaths(` a.md  "my files/b.pdf" 'c d.html'`)).toEqual([
+      "a.md",
+      "my files/b.pdf",
+      "c d.html",
+    ])
+    expect(splitPaths(`""  `)).toEqual([])
+  })
+
+  test("~ is the home directory; other paths are relative to the working directory", () => {
+    const cwd = resolve("/work")
+    const home = resolve("/home/alan")
+    expect(expandPath("~", cwd, home)).toBe(home)
+    expect(expandPath("~/notes.md", cwd, home)).toBe(join(home, "notes.md"))
+    expect(expandPath("~\\notes.md", cwd, home)).toBe(join(home, "notes.md"))
+    expect(expandPath("docs/a.md", cwd, home)).toBe(join(cwd, "docs", "a.md"))
+    expect(expandPath("~alan/a.md", cwd, home)).toBe(join(cwd, "~alan", "a.md"))
   })
 })

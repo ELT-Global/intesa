@@ -75,7 +75,7 @@ export function createView(renderer: CliRenderer, store: Store, ui: Ui) {
     const arrows = ui.unicode ? { lr: "←→", ud: "↑↓" } : { lr: "left/right", ud: "up/down" }
     const hints =
       top === "detail"
-        ? `esc back · ${arrows.ud} scroll · tab select · space done · enter open · e edit · m menu · ? help`
+        ? `esc back · ${arrows.ud} scroll · tab select · space done · enter open · n subtask · u upload · e edit · m menu · ? help`
         : s.view === "table"
           ? `1-4 sort · enter open · n new · / search · m menu · b board · ? help · q quit`
           : `n new · / search · enter open · alt+${arrows.lr} move · alt+${arrows.ud} reorder · m menu · ? help · q quit`

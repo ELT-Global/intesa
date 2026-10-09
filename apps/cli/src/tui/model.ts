@@ -1,5 +1,7 @@
 // Pure board logic of the terminal board alone; the rules it shares with the web board (the
 // assignee filter, placement, the table sort) come from @intesa/task-query.
+
+import { join, resolve } from "node:path"
 import {
   compileSearch,
   matchesAssignees,
@@ -92,4 +94,16 @@ export function fuzzyFilter<T>(items: readonly T[], query: string, text: (item: 
     .filter((x): x is { item: T; score: number } => x.score !== undefined)
     .sort((a, b) => a.score - b.score)
     .map((x) => x.item)
+}
+
+/** What was typed for upload: paths separated by spaces, in quotes ("…" or '…') if they hold any. */
+export const splitPaths = (input: string) =>
+  [...input.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)]
+    .flatMap((m) => m[1] ?? m[2] ?? m[3] ?? [])
+    .filter(Boolean)
+
+/** A typed path made absolute: `~` is the home directory, as a shell would expand it. */
+export function expandPath(path: string, cwd: string, home: string) {
+  if (path === "~") return home
+  return resolve(cwd, /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path)
 }

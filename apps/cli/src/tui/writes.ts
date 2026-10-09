@@ -3,7 +3,18 @@ import { isInPlace, type Placement, STATUS_LABELS, type TaskStatus } from "@inte
 import type { Artifact, Task, TaskDetail, TaskPatch } from "./api"
 import { fromDoc, toDoc } from "./edit-doc"
 import { applyChanges, type Changes, nextStatus, revert } from "./model"
-import { type Core, patchDetails, shownTasks, targetTask, taskById } from "./state"
+import {
+  type Core,
+  DRAFT,
+  detailItems,
+  patchDetails,
+  type State,
+  selectedTask,
+  shownTasks,
+  targetTask,
+  taskById,
+  withSubtask,
+} from "./state"
 
 const MARKDOWN = "text/markdown"
 
@@ -139,12 +150,84 @@ export function createWrites(core: Core, settled: () => void) {
     })
   }
 
+  // Selects a subtask in its parent's open pane.
+  function select(s: State, parentId: string, subId: string) {
+    const items = detailItems(s.details[parentId])
+    const item = items.findIndex((i) => i.kind === "subtask" && i.task.id === subId)
+    return s.overlays.map((o) =>
+      o.kind === "detail" && o.taskId === parentId ? { ...o, item } : o,
+    )
+  }
+
+  // Shown at once and selected, as the last subtask (where the server lists it), then swapped
+  // for the server's; taken back if it says no.
+  let drafts = 0
+  function createSubtask(parent: Task, title: string) {
+    const now = new Date().toISOString()
+    const draft: Task = {
+      id: `${DRAFT}${++drafts}`,
+      projectId: parent.projectId,
+      number: 0,
+      key: "new",
+      title,
+      body: null,
+      status: "todo",
+      priority: null,
+      dueAt: null,
+      parentTaskId: parent.id,
+      assignees: [],
+      tags: [],
+      subtaskCount: 0,
+      subtaskDoneCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    set((s) => {
+      const next = { ...s, ...withSubtask(s, draft, 1) }
+      return { ...next, overlays: select(next, parent.id, draft.id) }
+    })
+    void enqueue(async () => {
+      try {
+        const task = await api.create(parent.projectId, {
+          title,
+          status: "todo",
+          parentTaskId: parent.id,
+        })
+        set((s) => {
+          const at = s.details[parent.id]?.task?.subtasks.findIndex((t) => t.id === draft.id) ?? -1
+          const without = { ...s, ...withSubtask(s, draft, -1) }
+          return withSubtask(without, task, 1, at >= 0 ? at : undefined)
+        })
+        toast(`Created ${task.key}`)
+      } catch (err) {
+        set((s) => ({
+          ...withSubtask(s, draft, -1),
+          overlays: s.overlays.map((o) =>
+            o.kind === "detail" && selectedTask(s, o)?.id === draft.id ? { ...o, item: -1 } : o,
+          ),
+        }))
+        failed("Could not create the subtask", err)
+      }
+    })
+  }
+
+  // A task leaves the board, a subtask its parent's pane; either is put back if the server
+  // says no.
   function removeTask(task: Task) {
-    const index = get().tasks.findIndex((t) => t.id === task.id)
-    set((s) => ({
-      tasks: s.tasks.filter((t) => t.id !== task.id),
-      overlays: s.overlays.filter((o) => !(o.kind === "detail" && o.taskId === task.id)),
-    }))
+    const s0 = get()
+    const index = s0.tasks.findIndex((t) => t.id === task.id)
+    const parentId = task.parentTaskId
+    const subIndex = parentId
+      ? (s0.details[parentId]?.task?.subtasks.findIndex((t) => t.id === task.id) ?? -1)
+      : -1
+    set((s) => {
+      const left = parentId ? withSubtask(s, task, -1) : s
+      return {
+        tasks: left.tasks.filter((t) => t.id !== task.id),
+        details: left.details,
+        overlays: s.overlays.filter((o) => !(o.kind === "detail" && o.taskId === task.id)),
+      }
+    })
     void enqueue(async () => {
       try {
         await api.remove(task.id)
@@ -153,9 +236,40 @@ export function createWrites(core: Core, settled: () => void) {
         if (index >= 0) {
           set((s) => ({ tasks: [...s.tasks.slice(0, index), task, ...s.tasks.slice(index)] }))
         }
+        if (parentId) set((s) => withSubtask(s, task, 1, subIndex >= 0 ? subIndex : undefined))
         failed(`Could not delete ${task.key}`, err)
       }
     })
+  }
+
+  /**
+   * Uploads the files typed, one after another as the web does, once all of them have passed
+   * the checks the server would make. Returns why not, to keep the prompt open.
+   */
+  function uploadArtifacts(taskId: string, input: string): string | undefined {
+    const files = api.localFiles(input)
+    if (typeof files === "string") return files
+    void enqueue(async () => {
+      for (const file of files) {
+        try {
+          const artifact = await api.uploadArtifact(taskId, file)
+          set((s) => {
+            const entry = s.details[taskId]
+            if (!entry) return {}
+            const artifacts = [...entry.artifacts.filter((a) => a.id !== artifact.id), artifact]
+            return { details: { ...s.details, [taskId]: { ...entry, artifacts } } }
+          })
+        } catch (err) {
+          failed(`Could not upload ${file.name}`, err)
+          return
+        }
+      }
+      const [only] = files
+      toast(
+        files.length === 1 && only ? `Uploaded ${only.name}` : `Uploaded ${files.length} artifacts`,
+      )
+    })
+    return undefined
   }
 
   // The editor's own failures are local and meant for people, so their text is shown.
@@ -225,7 +339,9 @@ export function createWrites(core: Core, settled: () => void) {
     moveWithin,
     toggleMe,
     createTask,
+    createSubtask,
     removeTask,
+    uploadArtifacts,
     editTask: (task: Task) => void track(editTask(task)),
     openArtifact: (taskId: string, artifact: Artifact) =>
       void track(openArtifact(taskId, artifact)),

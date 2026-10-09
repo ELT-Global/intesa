@@ -199,3 +199,40 @@ export function patchDetails(details: State["details"], taskId: string, changes:
   }
   return out
 }
+
+// A subtask shown before the server has made it: nothing can be done to it until then.
+export const DRAFT = "draft:"
+export const isDraft = (task: { id: string }) => task.id.startsWith(DRAFT)
+
+const recount = <T extends Task>(task: T, sub: Task, by: 1 | -1): T => ({
+  ...task,
+  subtaskCount: task.subtaskCount + by,
+  subtaskDoneCount: task.subtaskDoneCount + (sub.status === "complete" ? by : 0),
+})
+
+/**
+ * The board and its details with `sub` added under its parent (at `index`, else last) or, by
+ * -1, taken out, and the parent's subtask counts to match.
+ */
+export function withSubtask(
+  s: State,
+  sub: Task,
+  by: 1 | -1,
+  index?: number,
+): Pick<State, "tasks" | "details"> {
+  const parentId = sub.parentTaskId ?? ""
+  const tasks = s.tasks.map((t) => (t.id === parentId ? recount(t, sub, by) : t))
+  const entry = s.details[parentId]
+  if (!entry?.task) return { tasks, details: s.details }
+  const others = entry.task.subtasks.filter((t) => t.id !== sub.id)
+  if (by < 0 && others.length === entry.task.subtasks.length) return { tasks, details: s.details }
+  const subtasks = by > 0 ? others.toSpliced(index ?? others.length, 0, sub) : others
+  const task = { ...recount(entry.task, sub, by), subtasks }
+  return { tasks, details: { ...s.details, [parentId]: { ...entry, task } } }
+}
+
+// The subtask selected in an open pane.
+export function selectedTask(s: State, o: DetailOverlay): Task | undefined {
+  const item = detailItems(s.details[o.taskId])[o.item]
+  return item?.kind === "subtask" ? item.task : undefined
+}

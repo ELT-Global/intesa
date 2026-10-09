@@ -789,6 +789,223 @@ await Bun.write(path, text.replace("title: Draft", "title: Final title").replace
   })
 })
 
+describe("board: subtasks and artifacts in the open task", () => {
+  const subtasksOf = async (w: BoardWorld, id: string) =>
+    ((await w.getTask(id)).subtasks as { key: string; title: string; status: string }[]).map(
+      (s) => [s.key, s.title, s.status],
+    )
+
+  test("n adds a subtask at once, selects it, and saves it under the open task", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    const b = await board(w)
+    await b.enter()
+    let frame = await b.press("n")
+    expect(rows(frame).at(-1)).toBe(" New subtask of WEB-1: ▏")
+    await b.type("Write tests")
+    // Shown before the server has answered.
+    const slow = w.hold("POST", `/api/projects/${w.project.id}/tasks`)
+    b.keys.pressEnter()
+    await slow.reached
+    const shown = b.store.state.details[parent.id]?.task?.subtasks.map((s) => s.title)
+    expect(shown).toEqual(["Write tests"])
+    slow.release()
+    frame = await b.frame()
+    expect(frame).toContain("Subtasks 0/1")
+    expect(frame).toContain("▌○ WEB-2  Write tests")
+    expect(rows(frame).at(-1)).toBe(" Created WEB-2")
+    expect(await subtasksOf(w, parent.id)).toEqual([["WEB-2", "Write tests", "todo"]])
+    // The card counts it too.
+    expect(columnLines(await b.escape(), "Todo")[1]).toBe("▌@alan ☐ 0/1")
+  })
+
+  test("a subtask the server will not create is taken back, and says so", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    await w.addTask({ title: "Kid", parentTaskId: parent.id })
+    const b = await board(w)
+    await b.enter()
+    w.faults.failWrites = true
+    await b.press("n")
+    await b.type("Doomed")
+    const frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(" ✗ Could not create the subtask.")
+    expect(frame).not.toContain("Doomed")
+    expect(frame).toContain("Subtasks 0/1")
+    expect(await subtasksOf(w, parent.id)).toEqual([["WEB-2", "Kid", "todo"]])
+  })
+
+  test("a subtask cannot have subtasks of its own", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    await w.addTask({ title: "Kid", parentTaskId: parent.id })
+    const b = await board(w)
+    await b.enter()
+    await b.press("TAB")
+    await b.enter()
+    const frame = await b.press("n")
+    expect(rows(frame).at(-1)).toBe(" WEB-2 is a subtask; subtasks cannot have their own")
+    expect(overlays(b)).toEqual(["detail", "detail"])
+  })
+
+  test("x deletes the selected subtask after confirming; with none selected, the task", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    const one = await w.addTask({ title: "Kid one", parentTaskId: parent.id })
+    await w.addTask({ title: "Kid two", parentTaskId: parent.id })
+    const b = await board(w)
+    await b.enter()
+    expect(await b.press("x")).toContain(
+      "Delete WEB-1 (Parent)? Its 2 subtasks will be deleted too.",
+    )
+    await b.press("n")
+    await b.press("TAB")
+    expect(await b.press("x")).toContain("Delete WEB-2 (Kid one)?")
+    await b.press("n")
+    expect(await w.getTask(one.id)).toBeDefined()
+    await b.press("x")
+    const frame = await b.press("y")
+    expect(rows(frame).at(-1)).toBe(" Deleted WEB-2")
+    expect(frame).toContain("╭─ WEB-1 ─")
+    expect(frame).toContain("Subtasks 0/1")
+    expect(frame).not.toContain("Kid one")
+    expect(await w.getTask(one.id)).toBeUndefined()
+    expect(await subtasksOf(w, parent.id)).toEqual([["WEB-3", "Kid two", "todo"]])
+  })
+
+  test("a subtask delete the server refuses puts it back", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    await w.addTask({ title: "Kid one", parentTaskId: parent.id })
+    await w.addTask({ title: "Kid two", parentTaskId: parent.id })
+    const b = await board(w)
+    await b.enter()
+    await b.press("TAB")
+    w.faults.failWrites = true
+    await b.press("x")
+    const frame = await b.press("y")
+    expect(rows(frame).at(-1)).toBe(" ✗ Could not delete WEB-2.")
+    expect(frame).toContain("Subtasks 0/2")
+    expect(frame.indexOf("WEB-2  Kid one")).toBeLessThan(frame.indexOf("WEB-3  Kid two"))
+  })
+
+  test("e on a subtask opened from its parent edits the subtask", async () => {
+    const w = await boardWorld(server, {
+      editor: await replacingEditor("title: Kid", "title: Grown"),
+    })
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    const kid = await w.addTask({ title: "Kid", parentTaskId: parent.id })
+    const b = await board(w)
+    await b.enter()
+    await b.press("TAB")
+    expect(await b.enter()).toContain("╭─ WEB-2 ─")
+    await b.press("e")
+    expect((await w.getTask(kid.id)).title).toBe("Grown")
+    expect((await w.getTask(parent.id)).title).toBe("Parent")
+    expect(await b.escape()).toContain("○ WEB-2  Grown")
+  })
+
+  // A directory of files to upload, with a space in its name.
+  async function files(names: Record<string, string>) {
+    const dir = join(mkdtempSync(join(tmpdir(), "intesa-board-upload-")), "my files")
+    for (const [name, content] of Object.entries(names)) await Bun.write(join(dir, name), content)
+    return dir
+  }
+
+  test("u uploads files, quoted or relative to the working directory, into the list", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    const dir = await files({ "spec.html": "<p>Spec</p>\n" })
+    await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    const b = await board(w)
+    await b.enter()
+    let frame = await b.press("u")
+    expect(rows(frame).at(-1)).toBe(" Upload to WEB-1: ▏")
+    await b.type(`notes.md "${join(dir, "spec.html")}"`)
+    frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(" Uploaded 2 artifacts")
+    expect(frame).toContain("Artifacts (2)")
+    expect(frame).toContain(" notes.md  text/markdown")
+    expect(frame).toContain(" spec.html  text/html")
+    const saved = await w.artifacts(task.id)
+    expect(saved.map((a) => a.name).sort()).toEqual(["notes.md", "spec.html"])
+  })
+
+  test("a path with spaces works unquoted when it names one file", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    const dir = await files({ "notes.md": "# Notes\n" })
+    const b = await board(w)
+    await b.enter()
+    await b.press("u")
+    await b.type(join(dir, "notes.md"))
+    expect(rows(await b.enter()).at(-1)).toBe(" Uploaded notes.md")
+    expect((await w.artifacts(task.id)).map((a) => a.name)).toEqual(["notes.md"])
+  })
+
+  test("a file the server would refuse is refused here, before anything is sent", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    await Bun.write(join(w.ctx.cwd, "notes.txt"), "plain\n")
+    const b = await board(w)
+    await b.enter()
+    const before = w.answered.length
+    await b.press("u")
+    await b.type("notes.md notes.txt")
+    let frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(
+      " Upload to WEB-1: notes.md notes.txt▏  notes.txt: Only HTML, PDF, Markdown, Word and OpenDocument files are allowed.",
+    )
+    for (let i = 0; i < 9; i++) await b.press("BACKSPACE")
+    await b.type("nope.md")
+    frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(" Upload to WEB-1: notes.md nope.md▏  nope.md: no such file")
+    expect(w.answered.slice(before).filter((r) => !r.startsWith("GET"))).toEqual([])
+    expect(await w.artifacts(task.id)).toEqual([])
+  })
+
+  test("an upload the server refuses says so and leaves the list as it was", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    await w.addArtifact(task.id, "old.md", "old\n")
+    await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    const b = await board(w)
+    await b.enter()
+    w.faults.failWrites = true
+    await b.press("u")
+    await b.type("notes.md")
+    const frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(" ✗ Could not upload notes.md.")
+    expect(frame).toContain("Artifacts (1)")
+    expect(frame).not.toContain("notes.md  ")
+    expect((await w.artifacts(task.id)).map((a) => a.name)).toEqual(["old.md"])
+  })
+
+  test("quitting during an upload waits for it", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    const b = await board(w)
+    await b.enter()
+    await b.press("u")
+    await b.type("notes.md")
+    const slow = w.hold("POST", `/api/tasks/${task.id}/artifacts`)
+    b.keys.pressEnter()
+    await slow.reached
+    let finished = false
+    void b.app.done.then(() => {
+      finished = true
+    })
+    b.keys.pressCtrlC()
+    await Bun.sleep(50)
+    expect(finished).toBe(false)
+    slow.release()
+    expect(await b.app.done).toEqual([])
+    expect((await w.artifacts(task.id)).map((a) => a.name)).toEqual(["notes.md"])
+  })
+})
+
 describe("board: help and quitting", () => {
   test("? lists the keys; Esc closes it", async () => {
     const w = await boardWorld(server)

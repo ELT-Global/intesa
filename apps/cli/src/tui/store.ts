@@ -29,6 +29,7 @@ import {
   detailItems,
   type Host,
   type InputOverlay,
+  isDraft,
   type MenuOverlay,
   normalize,
   type Overlay,
@@ -37,6 +38,7 @@ import {
   railFocused,
   type State,
   type SyncOverlay,
+  selectedTask,
   targetTask,
   type View,
 } from "./state"
@@ -193,6 +195,12 @@ export function createStore(
   function openDetail(taskId: string) {
     push({ kind: "detail", taskId, item: -1 })
     void loadDetail(taskId)
+  }
+
+  // A subtask the server has not made yet cannot be acted on.
+  function drafting(task: { id: string; title: string }) {
+    if (isDraft(task)) toast(`"${task.title}" is still being created`)
+    return isDraft(task)
   }
 
   async function init() {
@@ -443,14 +451,49 @@ export function createStore(
     // Space on a subtask: done, or back to Todo.
     detailToggle(o: DetailOverlay) {
       const item = detailItems(state.details[o.taskId])[o.item]
-      if (item?.kind !== "subtask") return
+      if (item?.kind !== "subtask" || drafting(item.task)) return
       const status = item.task.status === "complete" ? "todo" : "complete"
       void writes.update(item.task, { status })
     },
     detailOpen(o: DetailOverlay) {
       const item = detailItems(state.details[o.taskId])[o.item]
-      if (item?.kind === "subtask") openDetail(item.task.id)
+      if (item?.kind === "subtask" && !drafting(item.task)) openDetail(item.task.id)
       else if (item?.kind === "artifact") writes.openArtifact(o.taskId, item.artifact)
+    },
+    // x on a selected subtask deletes it rather than the open task; false if none is selected.
+    detailDelete(o: DetailOverlay): boolean {
+      const sub = selectedTask(state, o)
+      if (!sub) return false
+      if (!drafting(sub)) menus.confirmDelete(sub)
+      return true
+    },
+    newSubtask(o: DetailOverlay) {
+      const parent = state.details[o.taskId]?.task
+      if (!parent) return toast("The task is still loading")
+      if (parent.parent) {
+        return toast(`${parent.key} is a subtask; subtasks cannot have their own`)
+      }
+      push({
+        kind: "input",
+        label: `New subtask of ${parent.key}`,
+        value: "",
+        allowEmpty: false,
+        onSubmit: (title) => {
+          writes.createSubtask(parent, title.trim())
+          return undefined
+        },
+      })
+    },
+    // Paths separated by spaces, quoted if they hold any; all are checked before any is sent.
+    upload(o: DetailOverlay) {
+      const key = targetTask(state)?.key ?? "the task"
+      push({
+        kind: "input",
+        label: `Upload to ${key}`,
+        value: "",
+        allowEmpty: false,
+        onSubmit: (paths) => writes.uploadArtifacts(o.taskId, paths),
+      })
     },
 
     // Menus, pickers, inputs, confirmations, the subtask dialog.

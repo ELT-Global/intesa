@@ -30,14 +30,13 @@ export const HELP: [keys: string, what: string][] = [
   ["alt+↑ ↓ / K J", "Move the card up or down in its column"],
   ["shift+← →", "Switch assignee filter: me, each member, unassigned, everyone"],
   ["/ or f", "Search (status:, assignee:, tag:, priority:, due:, has:, no:)"],
-  ["n or c", "New task in the focused column"],
+  ["n or c", "New task in the focused column (open task: a subtask)"],
   ["m", "Actions menu"],
   ["s / p / d", "Status, priority, due date"],
   ["a", "Assign or unassign me"],
   ["e", "Edit title and description in $EDITOR"],
-  ["y", "Copy the task key"],
-  ["o", "Open in the browser"],
-  ["x", "Delete the task"],
+  ["y / o", "Copy the task key, or open it in the browser"],
+  ["x", "Delete the task (open task: the selected subtask, if any)"],
   ["t / b", "Table or board view"],
   ["1 2 3 4", "Table: sort by task, status, priority, due (again to reverse)"],
   ["[", "Show or hide Backlog"],
@@ -46,7 +45,8 @@ export const HELP: [keys: string, what: string][] = [
   ["↑ ↓ / pgup pgdn", "Open task: scroll"],
   ["tab / shift+tab", "Open task: select a subtask or artifact"],
   ["space", "Open task: tick the selected subtask off, or back to Todo"],
-  ["enter", "Open task: open the selected subtask or artifact"],
+  ["enter", "Open task: open the selected subtask (e edits it there) or artifact"],
+  ["u", "Open task: upload files as artifacts (quote paths with spaces)"],
   ["esc", "Close, go back, or clear the search"],
   ["?", "This help"],
   ["q / ctrl+c", "Quit (q closes an open task first)"],
@@ -225,6 +225,18 @@ function detailKey(store: Store, o: DetailOverlay, k: Key): boolean {
     case "linefeed":
       store.detailOpen(o)
       return true
+  }
+  if (!plain(k)) return false
+  switch (k.name) {
+    case "n":
+    case "c":
+      store.newSubtask(o)
+      return true
+    case "u":
+      store.upload(o)
+      return true
+    case "x":
+      return store.detailDelete(o)
   }
   return false
 }
