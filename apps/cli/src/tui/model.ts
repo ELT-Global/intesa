@@ -1,23 +1,14 @@
-// Pure board logic: what is shown, where cards go, how the table sorts. No I/O, no terminal.
+// Pure board logic of the terminal board alone; the rules it shares with the web board (the
+// assignee filter, placement, the table sort) come from @intesa/task-query.
 import {
   compileSearch,
+  matchesAssignees,
   type Placement,
-  PRIORITY_RANK,
   placeTask,
   TASK_STATUSES,
   type TaskStatus,
 } from "@intesa/task-query"
 import type { Task } from "./api"
-
-// The assignee filter's "nobody" entry, next to user ids.
-export const UNASSIGNED = "unassigned"
-
-export function matchesAssignees(task: Task, ids: readonly string[]) {
-  if (ids.length === 0) return true
-  return task.assignees.length === 0
-    ? ids.includes(UNASSIGNED)
-    : task.assignees.some((a) => ids.includes(a.id))
-}
 
 // The cards that pass the assignee filter and the search, in board order.
 export function filterTasks(
@@ -28,46 +19,14 @@ export function filterTasks(
   return tasks.filter((t) => matchesAssignees(t, opts.assignees) && (!search || search(t)))
 }
 
-export const columnOf = (tasks: readonly Task[], status: TaskStatus) =>
-  tasks.filter((t) => t.status === status && !t.parentTaskId)
-
 export const nextStatus = (status: TaskStatus, delta: -1 | 1) =>
   TASK_STATUSES[TASK_STATUSES.indexOf(status) + delta]
-
-/**
- * The views Shift+Arrow steps through, as for the web board: the current user, each other
- * member, Unassigned, then everyone (the empty selection).
- */
-export function assigneeViews(meId: string | undefined, memberIds: readonly string[]) {
-  const others = memberIds.filter((id) => id !== meId).map((id) => [id])
-  return [...(meId ? [[meId]] : []), ...others, [UNASSIGNED], []]
-}
-
-export function stepAssigneeView(
-  views: readonly string[][],
-  current: readonly string[],
-  delta: -1 | 1,
-): string[] {
-  const at = views.findIndex(
-    (v) => v.length === current.length && v.every((id) => current.includes(id)),
-  )
-  const next =
-    at === -1 ? (delta > 0 ? 0 : views.length - 1) : (at + delta + views.length) % views.length
-  return views[next] ?? []
-}
-
-/** Who a new task starts assigned to: the one person filtered to, nobody for Unassigned, else me. */
-export function newTaskAssignees(filter: readonly string[], meId: string | undefined): string[] {
-  const [only] = filter
-  if (filter.length === 1 && only) return only === UNASSIGNED ? [] : [only]
-  return meId ? [meId] : []
-}
 
 export type Changes = Partial<
   Pick<Task, "title" | "body" | "status" | "priority" | "dueAt" | "assignees" | "tags">
 >
-// What an optimistic edit replaced: the changed fields and where the card sat.
-export type Undo = { fields: Changes; index: number }
+// What an optimistic edit replaced: the changed fields and, when it moved, where the card sat.
+export type Undo = { fields: Changes; index?: number }
 
 /**
  * The list with an edit applied as the server will apply it: a task changing column goes to
@@ -89,65 +48,22 @@ export function applyChanges(
     placement ??
     (changes.status !== undefined && changes.status !== row.status ? "first" : undefined)
   const edited = list.map((t) => (t.id === taskId ? { ...t, ...changes } : t))
-  return { list: place ? placeTask(edited, taskId, place) : edited, undo: { fields, index } }
+  if (!place) return { list: edited, undo: { fields } }
+  return { list: placeTask(edited, taskId, place), undo: { fields, index } }
 }
 
-/** Puts back what `applyChanges` replaced, leaving other edits made since then alone. */
+/**
+ * Puts back what `applyChanges` replaced, leaving other edits made since then alone. The card
+ * goes back to its old place only if the edit moved it, as on the web.
+ */
 export function revert(list: readonly Task[], taskId: string, undo: Undo): Task[] {
   const current = list.find((t) => t.id === taskId)
   if (!current) return [...list]
+  const restored = { ...current, ...undo.fields }
+  if (undo.index === undefined) return list.map((t) => (t.id === taskId ? restored : t))
   const others = list.filter((t) => t.id !== taskId)
-  return [
-    ...others.slice(0, undo.index),
-    { ...current, ...undo.fields },
-    ...others.slice(undo.index),
-  ]
+  return [...others.slice(0, undo.index), restored, ...others.slice(undo.index)]
 }
-
-/** True when `placement` would leave `task` where it already is in its column. */
-export function isInPlace(list: readonly Task[], task: Task, placement: Placement) {
-  const column = columnOf(list, task.status)
-  const at = column.findIndex((t) => t.id === task.id)
-  if (placement === "first") return at === 0
-  if (placement === "last") return at === column.length - 1
-  if ("before" in placement) {
-    return placement.before === task.id || column[at + 1]?.id === placement.before
-  }
-  return placement.after === task.id || column[at - 1]?.id === placement.after
-}
-
-export type SortKey = "task" | "status" | "priority" | "due"
-export type Sort = { key: SortKey; dir: "asc" | "desc" }
-export const SORT_KEYS: SortKey[] = ["task", "status", "priority", "due"]
-
-/** As the web table: missing values always sort last, whichever direction is active. */
-export function compareBy(sort: Sort): (a: Task, b: Task) => number {
-  const sign = sort.dir === "asc" ? 1 : -1
-  const value = (t: Task): string | number | null => {
-    switch (sort.key) {
-      case "task":
-        return t.title.toLowerCase()
-      case "status":
-        return TASK_STATUSES.indexOf(t.status)
-      case "priority":
-        return t.priority ? PRIORITY_RANK[t.priority] : null
-      case "due":
-        return t.dueAt
-    }
-  }
-  return (a, b) => {
-    const x = value(a)
-    const y = value(b)
-    if (x === y) return 0
-    if (x === null) return 1
-    if (y === null) return -1
-    return (x < y ? -1 : 1) * sign
-  }
-}
-
-// Clicking a header again flips the direction, like the web table.
-export const nextSort = (current: Sort | null, key: SortKey): Sort =>
-  current?.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
 
 /**
  * A subsequence match for the pickers: lower is better, undefined is no match. Gaps between

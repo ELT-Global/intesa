@@ -1,15 +1,17 @@
 // Keys to store actions. Mirrors the web board's shortcuts, with terminal-safe alternates:
 // terminals (and Windows Terminal's own Alt+Arrow bindings) make some combinations unreliable.
-import type { SortKey } from "./model"
-import type {
-  ConfirmOverlay,
-  DetailOverlay,
-  InputOverlay,
-  MenuOverlay,
-  PickerOverlay,
-  Store,
-  SyncOverlay,
-} from "./store"
+import type { SortKey } from "@intesa/task-query"
+import type { Task } from "./api"
+import {
+  type ConfirmOverlay,
+  type DetailOverlay,
+  type InputOverlay,
+  type MenuOverlay,
+  type PickerOverlay,
+  type SyncOverlay,
+  targetTask,
+} from "./state"
+import { POLL_MS, type Store } from "./store"
 
 export type Key = {
   name: string
@@ -40,10 +42,14 @@ export const HELP: [keys: string, what: string][] = [
   ["1 2 3 4", "Table: sort by task, status, priority, due (again to reverse)"],
   ["[", "Show or hide Backlog"],
   ["P / W", "Switch project or workspace"],
-  ["r", "Refresh (also every 30 s, and after each change)"],
+  ["r", `Refresh (also every ${POLL_MS / 1000} s, and after each change)`],
+  ["↑ ↓ / pgup pgdn", "Open task: scroll"],
+  ["tab / shift+tab", "Open task: select a subtask or artifact"],
+  ["space", "Open task: tick the selected subtask off, or back to Todo"],
+  ["enter", "Open task: open the selected subtask or artifact"],
   ["esc", "Close, go back, or clear the search"],
   ["?", "This help"],
-  ["q / ctrl+c", "Quit"],
+  ["q / ctrl+c", "Quit (q closes an open task first)"],
 ]
 
 const alt = (k: Key) => k.meta || Boolean(k.option)
@@ -92,6 +98,19 @@ export function handleKey(store: Store, k: Key) {
   boardKey(store, k)
 }
 
+// Plain letters for what acts on one task.
+const TASK_ACTIONS: Record<string, (store: Store, task: Task) => void> = {
+  m: (store, task) => store.taskMenu(task),
+  s: (store, task) => store.statusMenu(task),
+  p: (store, task) => store.priorityMenu(task),
+  a: (store, task) => store.toggleMe(task),
+  d: (store, task) => store.dueMenu(task),
+  y: (store, task) => store.copyKey(task),
+  o: (store, task) => store.openInBrowser(task),
+  x: (store, task) => store.confirmDelete(task),
+  e: (store, task) => store.editTask(task),
+}
+
 // Keys that act on the focused card or the task open in the detail pane.
 function taskKey(store: Store, k: Key): boolean {
   if (alt(k) && (k.name === "left" || k.name === "right")) {
@@ -110,21 +129,10 @@ function taskKey(store: Store, k: Key): boolean {
     store.moveWithin(k.name === "k" ? -1 : 1)
     return true
   }
-  if (!plain(k)) return false
-  const actions = {
-    m: "menu",
-    s: "status",
-    p: "priority",
-    a: "me",
-    d: "due",
-    y: "copy",
-    o: "open",
-    x: "delete",
-    e: "edit",
-  } as const
-  const action = actions[k.name as keyof typeof actions]
+  const action = plain(k) ? TASK_ACTIONS[k.name] : undefined
   if (!action) return false
-  store.withTarget(action)
+  const task = targetTask(store.state)
+  if (task) action(store, task)
   return true
 }
 
@@ -186,6 +194,11 @@ function detailKey(store: Store, o: DetailOverlay, k: Key): boolean {
     case "escape":
       store.pop()
       return true
+    // As in menus and help, q closes what is open rather than the whole board.
+    case "q":
+      if (k.shift) return false
+      store.pop()
+      return true
     case "up":
     case "k":
       if (k.shift) return false
@@ -245,17 +258,24 @@ function menuKey(store: Store, o: MenuOverlay, k: Key) {
   if (at >= 0) store.menuChoose(o, at)
 }
 
+// Letters count only unmodified, so Ctrl+Y or Alt+Y does not delete.
 function confirmKey(store: Store, o: ConfirmOverlay, k: Key) {
-  if (k.name === "y" || k.name === "return" || k.name === "linefeed") store.confirm(o, true)
-  else if (k.name === "n" || k.name === "escape" || k.name === "q") store.confirm(o, false)
+  const enter = k.name === "return" || k.name === "linefeed"
+  if (enter || (plain(k) && k.name === "y")) store.confirm(o, true)
+  else if (k.name === "escape" || (plain(k) && (k.name === "n" || k.name === "q"))) {
+    store.confirm(o, false)
+  }
 }
 
 function syncKey(store: Store, o: SyncOverlay, k: Key) {
   if (k.name === "escape") return store.pop()
   if (k.name === "return" || k.name === "linefeed") return store.syncApply(o)
-  if (k.name === "up" || k.name === "k") return store.syncStep(o, -1)
-  if (k.name === "down" || k.name === "j") return store.syncStep(o, 1)
-  if (k.name === "left" || k.name === "h") return store.syncCycle(o, -1)
-  if (k.name === "right" || k.name === "l" || k.name === "space") return store.syncCycle(o, 1)
-  if (k.name === "a") store.syncAll(o)
+  if (alt(k) || k.ctrl) return
+  if (k.name === "up" || (plain(k) && k.name === "k")) return store.syncStep(o, -1)
+  if (k.name === "down" || (plain(k) && k.name === "j")) return store.syncStep(o, 1)
+  if (k.name === "left" || (plain(k) && k.name === "h")) return store.syncCycle(o, -1)
+  if (k.name === "right" || (plain(k) && k.name === "l") || k.name === "space") {
+    return store.syncCycle(o, 1)
+  }
+  if (plain(k) && k.name === "a") store.syncAll(o)
 }

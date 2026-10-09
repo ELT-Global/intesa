@@ -15,6 +15,11 @@ export default defineCommand({
   context: ["workspace", "project"],
   examples: ["intesa board", "intesa board WEB", "intesa board WEB-12"],
   async run(ctx, { key }) {
+    // The board saves as you go and prints nothing to parse.
+    if (ctx.globals.dryRun || ctx.globals.json) {
+      const flag = ctx.globals.dryRun ? "--dry-run" : "--json"
+      throw usageError(`board does not take ${flag}; use the \`intesa task\` commands`)
+    }
     // OpenTUI would draw escape codes into a pipe rather than fail.
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       throw usageError("board needs an interactive terminal; use `intesa task list`")

@@ -1,15 +1,20 @@
 // Everything the board takes from the rest of the CLI goes through this file, so the TUI
 // depends on a handful of names: resolution, the typed client, links, the editor and browser.
 import { type PatchTaskInput, TASK_KEY_PATTERN } from "@intesa/api/schemas"
+import { requireHost } from "../client/context"
+import { createHttp, debugLevel, type Http, timeoutMs } from "../client/http"
 import { links } from "../client/links"
 import { type Resolver, resolver } from "../client/resolve"
+import { plural } from "../commands/task/shared"
+import { readToken } from "../config/secrets"
 import { openBrowser } from "../io/browser"
 import { editText } from "../io/editor"
+import { CliError } from "../output/errors"
 import { dueText, glyphs, supportsUnicode } from "../output/task-line"
 import type { Ctx } from "../registry/define"
 
 export type { Ctx }
-export { dueText, glyphs }
+export { CliError, dueText, glyphs, plural }
 
 export type TaskDetail = Awaited<ReturnType<Resolver["task"]>>
 export type Task = TaskDetail["subtasks"][number]
@@ -76,11 +81,28 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isTaskRef = (ref: string) =>
   TASK_KEY_PATTERN.test(ref) || UUID.test(ref) || /^https?:\/\//i.test(ref)
 
-// Resolves where the board starts (before the screen is taken over, so errors print as usual)
-// and wraps the typed client.
+// A client like the CLI's that never logs: on the full-screen board, --debug and INTESA_DEBUG
+// would write over the board.
+async function quietHttp(ctx: Ctx): Promise<Http> {
+  if (debugLevel(ctx.env, ctx.globals.debug) === "off") return ctx.http()
+  const host = requireHost(ctx.context())
+  const credentials = await readToken(ctx.configDir, host, ctx.env)
+  return createHttp({
+    host,
+    token: credentials?.token,
+    dryRun: false,
+    debug: "off",
+    stdout: () => {},
+    stderr: () => {},
+    timeoutMs: timeoutMs(ctx.env),
+  })
+}
+
+// Resolves where the board starts (before the screen is taken over, so errors print as usual,
+// with --debug logging as usual) and wraps the typed client.
 export async function connect(ctx: Ctx, ref?: string): Promise<{ api: BoardApi; start: Start }> {
   const r = resolver(ctx)
-  const http = await ctx.http()
+  const http = await quietHttp(ctx)
   const { client } = http
   const workspace = await r.workspace()
 
@@ -99,7 +121,8 @@ export async function connect(ctx: Ctx, ref?: string): Promise<{ api: BoardApi; 
 
   const api: BoardApi = {
     me: () => r.me(),
-    workspaces: () => r.workspaces(),
+    // Not the resolver's: it keeps its first answer, and W should list workspaces made since.
+    workspaces: async () => (await (await client.api.workspaces.$get()).json()).workspaces,
     projects: async (workspaceId) =>
       (
         await (
