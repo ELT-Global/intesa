@@ -12,6 +12,7 @@
     },
     "apps/api": {
       "name": "@intesa/api",
+      "version": "0.1.0",
       "dependencies": {
         "@hono/zod-validator": "^0.9.1",
         "fflate": "^0.8.3",
@@ -37,6 +38,7 @@
         "@intesa/api": "workspace:*",
         "@intesa/task-query": "workspace:*",
         "hono": "^4.13.13",
+        "uqr": "^0.1.3",
         "zod": "^4.6.5",
       },
       "devDependencies": {

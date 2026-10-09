@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { type ResolvedContext, requireHost, resolveContext } from "./client/context"
-import { createHttp, type DebugLevel, DryRunDone, type Http } from "./client/http"
+import { createHttp, DryRunDone, debugLevel, type Http } from "./client/http"
 import { nouns, resolveWords } from "./commands"
 import { readConfig, readHosts } from "./config/config"
 import { configDir } from "./config/paths"
@@ -20,12 +20,6 @@ const stderr = (text: string) => void process.stderr.write(text)
 const print = (text: string) => {
   stdout(text)
   return 0
-}
-
-function debugLevel(env: Env, flag: boolean): DebugLevel {
-  if (env.INTESA_DEBUG === "api") return "api"
-  if (flag || (env.INTESA_DEBUG && env.INTESA_DEBUG !== "0")) return "requests"
-  return "off"
 }
 
 function createCtx(globals: Globals, env: Env): Ctx {
@@ -90,7 +84,9 @@ async function main(argv: string[], env: Env): Promise<number> {
       const found = await resolveWords(words.slice(1)).catch(() => {
         throw usageError(`unknown help topic "${words.slice(1).join(" ")}"`, "Run `intesa help`.")
       })
-      if (!found.cmd && found.noun.kind === "group") return print(groupHelp(found.noun, color()))
+      if ((!found.cmd || found.viaDefault) && found.noun.kind === "group") {
+        return print(groupHelp(found.noun, color()))
+      }
       if (found.cmd) return print(commandHelp(found.cmd, found.path, color()))
     }
 
@@ -109,7 +105,11 @@ async function main(argv: string[], env: Env): Promise<number> {
       return 0
     }
     const { cmd, path } = found
-    if (wantsHelp) return print(commandHelp(cmd, path, color()))
+    if (wantsHelp) {
+      if (found.viaDefault && found.noun.kind === "group")
+        return print(groupHelp(found.noun, color()))
+      return print(commandHelp(cmd, path, color()))
+    }
 
     const used = new Set(indexes.slice(0, found.consumed))
     let parsed: ReturnType<typeof parseCommand>

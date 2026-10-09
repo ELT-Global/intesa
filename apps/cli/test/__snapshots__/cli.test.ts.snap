@@ -7,9 +7,16 @@ USAGE
   intesa <command> <subcommand> [flags]
 
 COMMANDS
-  api:     Make an authenticated request to the Intesa API
-  config:  Get and set intesa configuration
-  schema:  Describe commands, flags and exit codes as JSON
+  auth:        Sign in to and out of Intesa servers
+  workspace:   List, create and switch workspaces
+  project:     List, create and manage projects
+  status:      Show your recent projects, your tasks and what is due soon
+  api:         Make an authenticated request to the Intesa API
+  config:      Get and set intesa configuration
+  schema:      Describe commands, flags and exit codes as JSON
+  token:       Manage API tokens
+  me:          View and edit your account, including two-factor sign-in
+  completion:  Generate a shell completion script
 
 HELP TOPICS
   environment:  Environment variables that change how intesa behaves

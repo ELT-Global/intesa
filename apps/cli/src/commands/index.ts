@@ -7,10 +7,34 @@ export type NounEntry = {
   name: string
   aliases?: string[]
   summary: string
+  // Left out of help, `intesa schema` and completion scripts (plumbing such as `__complete`).
+  hidden?: boolean
   load: () => Promise<Noun>
 }
 
 export const nouns: NounEntry[] = [
+  {
+    name: "auth",
+    summary: "Sign in to and out of Intesa servers",
+    load: () => import("./auth").then((m) => m.default),
+  },
+  {
+    name: "workspace",
+    aliases: ["ws"],
+    summary: "List, create and switch workspaces",
+    load: () => import("./workspace").then((m) => m.default),
+  },
+  {
+    name: "project",
+    aliases: ["p"],
+    summary: "List, create and manage projects",
+    load: () => import("./project").then((m) => m.default),
+  },
+  {
+    name: "status",
+    summary: "Show your recent projects, your tasks and what is due soon",
+    load: () => import("./status").then((m) => m.default),
+  },
   {
     name: "api",
     summary: "Make an authenticated request to the Intesa API",
@@ -26,12 +50,40 @@ export const nouns: NounEntry[] = [
     summary: "Describe commands, flags and exit codes as JSON",
     load: () => import("./schema").then((m) => m.default),
   },
+  {
+    name: "token",
+    summary: "Manage API tokens",
+    load: () => import("./token").then((m) => m.default),
+  },
+  {
+    name: "me",
+    summary: "View and edit your account, including two-factor sign-in",
+    load: () => import("./me").then((m) => m.default),
+  },
+  {
+    name: "completion",
+    summary: "Generate a shell completion script",
+    load: () => import("./completion").then((m) => m.default),
+  },
+  {
+    name: "__complete",
+    summary: "Print completion candidates for the words typed so far",
+    hidden: true,
+    load: () => import("./complete").then((m) => m.default),
+  },
 ]
 
-const named = (name: string) => (n: { name: string; aliases?: string[] }) =>
+export const named = (name: string) => (n: { name: string; aliases?: string[] }) =>
   n.name === name || Boolean(n.aliases?.includes(name))
 
-export type Resolved = { noun: Noun; cmd?: Command; path: string[]; consumed: number }
+export type Resolved = {
+  noun: Noun
+  cmd?: Command
+  path: string[]
+  consumed: number
+  // The group was named alone and its default command was chosen; `--help` still means the group.
+  viaDefault?: boolean
+}
 
 // Turns leading words into a command. A group without a verb resolves to the group alone.
 export async function resolveWords(words: string[]): Promise<Resolved> {
@@ -45,7 +97,11 @@ export async function resolveWords(words: string[]): Promise<Resolved> {
   }
   const noun = await entry.load()
   if (noun.kind === "command") return { noun, cmd: noun, path: [noun.name], consumed: 1 }
-  if (second === undefined) return { noun, path: [noun.name], consumed: 1 }
+  if (second === undefined) {
+    const fallback = noun.commands.find(named(noun.defaultCommand ?? ""))
+    if (!fallback) return { noun, path: [noun.name], consumed: 1 }
+    return { noun, cmd: fallback, path: [noun.name, fallback.name], consumed: 1, viaDefault: true }
+  }
   const cmd = noun.commands.find(named(second))
   if (!cmd) {
     throw usageError(
@@ -59,7 +115,7 @@ export async function resolveWords(words: string[]): Promise<Resolved> {
 // Loads every module; only `intesa schema` needs the whole tree.
 export async function allCommands() {
   const out: { cmd: Command; path: string[]; names: string[][] }[] = []
-  for (const entry of nouns) {
+  for (const entry of nouns.filter((n) => !n.hidden)) {
     const noun = await entry.load()
     const own = [noun.name, ...(noun.aliases ?? [])]
     if (noun.kind === "command") out.push({ cmd: noun, path: [noun.name], names: [own] })

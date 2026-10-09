@@ -113,6 +113,22 @@ describe("parseCommand", () => {
     expect(flags.top).toBe(true)
   })
 
+  test("a nullable value flag is cleared with --no-x", () => {
+    const edit = defineCommand({
+      name: "edit",
+      summary: "Edit",
+      args: [{ name: "rest", variadic: true }],
+      flags: z.object({ note: z.string().nullable().optional() }),
+      run() {},
+    })
+    expect(parseCommand(edit, ["--no-note"]).flags.note).toBeNull()
+    expect(parseCommand(edit, ["--note", "x"]).flags.note).toBe("x")
+    expect(parseCommand(edit, []).flags.note).toBeUndefined()
+    expect(parseCommand(edit, ["--", "--no-note"]).args.rest).toEqual(["--no-note"])
+    expect(() => parseCommand(edit, ["--note", "x", "--no-note"])).toThrow("conflict")
+    expect(() => parseCommand(move, ["T", "--no-label"])).toThrow("unknown flag: --no-label")
+  })
+
   test("command flags may not shadow global flags", () => {
     expect(() =>
       defineCommand({ name: "x", summary: "X", flags: z.object({ host: z.string() }), run() {} }),

@@ -1,0 +1,96 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`intesa completion the bash script 1`] = `
+"# bash completion for intesa
+# Load it with: source <(intesa completion bash)
+_intesa() {
+  local IFS=$' \\t\\n'
+  local cur="\${COMP_WORDS[COMP_CWORD]}" w opts="" flagged=0
+  local -a words=("\${COMP_WORDS[@]:1:COMP_CWORD-1}")
+  for w in "\${words[@]}"; do
+    [[ $w == -* ]] && flagged=1
+  done
+  [[ $cur == *=* ]] && flagged=1
+  if ((flagged == 0)); then
+    if [[ $cur == -* ]]; then
+      case "\${words[*]}" in
+        "") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "auth login") opts="--no-browser --with-token --dev --email --insecure-storage --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "auth logout") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "auth status") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "auth token") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace list") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace ls") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws list") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws ls") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace view") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws view") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace create") opts="--slug --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws create") opts="--slug --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace rename") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws rename") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace use") opts="--local --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws use") opts="--local --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project list") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project ls") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p list") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p ls") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project view") opts="--workspace --project --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p view") opts="--workspace --project --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project create") opts="--key --description --workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p create") opts="--key --description --workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project edit") opts="--name --description --workspace --project --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p edit") opts="--name --description --workspace --project --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project delete") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p delete") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project use") opts="--local --workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p use") opts="--local --workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "status") opts="--workspace --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "api") opts="--method --raw-field --field --header --input --include --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "config get") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "config list") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "config ls") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "config set") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "schema") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "token list") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "token ls") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "token create") opts="--name --scope --expires --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "token revoke") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "me view") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "me edit") opts="--name --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "me 2fa") opts="--code --host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "completion") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "auth") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "workspace") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "ws") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "project") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "p") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "config") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "token") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+        "me") opts="--host --json --fields --quiet --yes --dry-run --no-color --debug --help" ;;
+      esac
+    elif ((\${#words[@]} == 0)); then
+      opts="api auth completion config me p project schema status token workspace ws"
+    elif ((\${#words[@]} == 1)); then
+      case "\${words[0]}" in
+        auth) opts="login logout status token" ;;
+        workspace) opts="list ls view create rename use" ;;
+        ws) opts="list ls view create rename use" ;;
+        project) opts="list ls view create edit delete use" ;;
+        p) opts="list ls view create edit delete use" ;;
+        config) opts="get list ls set" ;;
+        token) opts="list ls create revoke" ;;
+        me) opts="view edit 2fa" ;;
+      esac
+    fi
+  fi
+  if [[ -n $opts ]]; then
+    COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+  else
+    local IFS=$'\\n'
+    COMPREPLY=($(intesa __complete --word="$cur" -- "\${words[@]}" 2>/dev/null))
+  fi
+}
+complete -F _intesa intesa
+"
+`;

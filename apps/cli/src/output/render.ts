@@ -6,6 +6,101 @@ import { formatTable } from "./table"
 // default table. JSON names are the API's own (camelCase).
 export const FIELD_SETS = {
   config: { fields: ["key", "value"], columns: ["key", "value"] },
+  apiToken: {
+    fields: [
+      "id",
+      "name",
+      "kind",
+      "scope",
+      "lastFour",
+      "createdAt",
+      "lastUsedAt",
+      "expiresAt",
+      "current",
+    ],
+    columns: [
+      "id",
+      "name",
+      "kind",
+      "scope",
+      "lastFour",
+      "createdAt",
+      "lastUsedAt",
+      "expiresAt",
+      "current",
+    ],
+  },
+  account: {
+    fields: ["id", "name", "email", "avatarUrl", "totpEnabled"],
+    columns: ["id", "name", "email", "avatarUrl", "totpEnabled"],
+  },
+  // `token create`: the list shape plus the plaintext, which the server shows only once.
+  newApiToken: {
+    fields: [
+      "token",
+      "id",
+      "name",
+      "kind",
+      "scope",
+      "lastFour",
+      "createdAt",
+      "lastUsedAt",
+      "expiresAt",
+    ],
+    columns: ["token"],
+  },
+  // `me 2fa`: the account after enable/disable, or the enrolment details after setup.
+  twoFactor: {
+    fields: ["id", "name", "email", "avatarUrl", "totpEnabled", "secret", "otpauthUrl"],
+    columns: ["secret", "otpauthUrl"],
+  },
+  authStatus: {
+    fields: [
+      "host",
+      "user",
+      "name",
+      "userId",
+      "tokenId",
+      "tokenName",
+      "kind",
+      "scope",
+      "expiresAt",
+      "lastUsedAt",
+      "storage",
+      "totpEnabled",
+    ],
+    columns: ["host", "user", "kind", "scope", "expiresAt", "storage", "totpEnabled"],
+  },
+  // `url` is the web app link for the item.
+  workspace: {
+    fields: ["id", "name", "slug", "role", "url"],
+    columns: ["slug", "name", "role"],
+  },
+  project: {
+    fields: ["id", "key", "name", "description", "workspaceId", "createdAt", "updatedAt", "url"],
+    columns: ["key", "name", "description"],
+  },
+  // `project view`: also top-level task counts per status and the custom field definitions.
+  projectView: {
+    fields: [
+      "id",
+      "key",
+      "name",
+      "description",
+      "workspaceId",
+      "createdAt",
+      "updatedAt",
+      "url",
+      "taskCounts",
+      "customFields",
+    ],
+    columns: ["key", "name", "description", "taskCounts"],
+  },
+  // `status`: the Home page's sections; each task carries its `key` and `url`.
+  status: {
+    fields: ["projects", "assigned", "dueSoon"],
+    columns: ["projects", "assigned", "dueSoon"],
+  },
 } as const satisfies Record<string, { fields: readonly string[]; columns: readonly string[] }>
 
 export type OutputName = keyof typeof FIELD_SETS

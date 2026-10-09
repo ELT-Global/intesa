@@ -9,6 +9,8 @@ export type FlagSpec = {
   short?: string
   kind: "boolean" | "string" | "number"
   multiple: boolean
+  // A nullable value flag also takes `--no-<flag>`, which sets it to null (clears it).
+  nullable: boolean
   choices?: string[]
   defaultValue?: unknown
   description?: string
@@ -26,16 +28,18 @@ type Def = {
 const defOf = (s: z.ZodType) => s._zod.def as unknown as Def
 
 // Peels optional/default/nullable/pipe wrappers to find what the flag holds.
-function unwrap(schema: z.ZodType): { def: Def; defaultValue?: unknown } {
+function unwrap(schema: z.ZodType): { def: Def; defaultValue?: unknown; nullable: boolean } {
   let def = defOf(schema)
   let defaultValue: unknown
+  let nullable = false
   while (def.innerType || def.type === "pipe") {
     if (def.type === "default") defaultValue = def.defaultValue
+    if (def.type === "nullable") nullable = true
     const next = def.innerType ?? def.in
     if (!next) break
     def = defOf(next)
   }
-  return { def, defaultValue }
+  return { def, defaultValue, nullable }
 }
 
 export function flagSpecs(schema: z.ZodObject | undefined): FlagSpec[] {
@@ -51,6 +55,7 @@ export function flagSpecs(schema: z.ZodObject | undefined): FlagSpec[] {
       short: meta.short,
       kind,
       multiple,
+      nullable: outer.nullable && kind !== "boolean",
       choices: def.type === "enum" && def.entries ? Object.values(def.entries) : undefined,
       defaultValue: outer.defaultValue,
       description: meta.description,
@@ -131,10 +136,20 @@ export function parseCommand(cmd: Command, argv: string[]) {
       ...(s.short ? { short: s.short } : {}),
     }
   }
+  // `--no-x` for a nullable value flag is taken out before parseArgs, which only negates
+  // booleans. Arguments after `--` are left alone.
+  const negatable = new Map(ownSpecs.filter((s) => s.nullable).map((s) => [`--no-${s.flag}`, s]))
+  const end = argv.indexOf("--")
+  const cleared = new Set<FlagSpec>()
+  const rest = argv.filter((arg, i) => {
+    const spec = (end === -1 || i < end) && negatable.get(arg)
+    if (spec) cleared.add(spec)
+    return !spec
+  })
   let parsed: ReturnType<typeof parseArgs>
   try {
     parsed = parseArgs({
-      args: argv,
+      args: rest,
       options,
       strict: true,
       allowPositionals: true,
@@ -153,9 +168,12 @@ export function parseCommand(cmd: Command, argv: string[]) {
     return raw
   }
   const globals = validate<Globals>(globalFlags, GLOBAL_SPECS, collect(GLOBAL_SPECS))
-  const flags = cmd.flags
-    ? validate<Record<string, unknown>>(cmd.flags, ownSpecs, collect(ownSpecs))
-    : {}
+  const own = collect(ownSpecs)
+  for (const s of cleared) {
+    if (own[s.key] !== undefined) throw usageError(`--${s.flag} and --no-${s.flag} conflict`)
+    own[s.key] = null
+  }
+  const flags = cmd.flags ? validate<Record<string, unknown>>(cmd.flags, ownSpecs, own) : {}
 
   const positionals = parsed.positionals
   const args: Record<string, string | string[] | undefined> = {}

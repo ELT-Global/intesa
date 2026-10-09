@@ -5,7 +5,7 @@ import type { Arg, Command, Group } from "./define"
 import { globalFlags } from "./define"
 import { type FlagSpec, flagSpecs } from "./parse"
 
-export type NounSummary = { name: string; aliases?: string[]; summary: string }
+export type NounSummary = { name: string; aliases?: string[]; summary: string; hidden?: boolean }
 
 const GLOBALS = flagSpecs(globalFlags)
 
@@ -98,7 +98,7 @@ export function rootHelp(nouns: NounSummary[], color: boolean) {
     "Work with Intesa from the command line.",
     [
       ["USAGE", ["intesa <command> <subcommand> [flags]"]],
-      ["COMMANDS", list(nouns)],
+      ["COMMANDS", list(nouns.filter((n) => !n.hidden))],
       ["HELP TOPICS", list(HELP_TOPICS)],
       ["FLAGS", flagRows(GLOBALS)],
       [

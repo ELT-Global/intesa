@@ -29,6 +29,25 @@ export type Sandbox = {
   root: string
   configDir: string
   run: (args: string[], opts?: RunOptions) => Promise<RunResult>
+  // Starts the CLI without waiting, for tests that act while it runs (device sign-in).
+  start: (args: string[], opts?: RunOptions) => Started
+}
+
+export type Started = {
+  exited: Promise<number>
+  stdout: () => string
+  stderr: () => string
+  // Resolves with the first match in stderr so far, waiting for more output up to ~10 s.
+  waitForStderr: (pattern: RegExp) => Promise<RegExpExecArray>
+}
+
+function collect(stream: ReadableStream<Uint8Array>) {
+  let text = ""
+  const decoder = new TextDecoder()
+  const done = (async () => {
+    for await (const chunk of stream) text += decoder.decode(chunk, { stream: true })
+  })()
+  return { text: () => text, done }
 }
 
 // A throwaway config dir and cwd. Credentials always go to a file (INTESA_SECRETS=file), so
@@ -40,7 +59,7 @@ export function sandbox(host?: string): Sandbox {
   const cwd = join(root, "work")
   mkdirSync(cwd, { recursive: true })
 
-  const run = async (args: string[], opts: RunOptions = {}): Promise<RunResult> => {
+  const spawn = (args: string[], opts: RunOptions = {}) => {
     const env: Record<string, string | undefined> = {}
     for (const [k, v] of Object.entries(process.env)) if (!LEAKY.test(k)) env[k] = v
     Object.assign(env, {
@@ -52,13 +71,17 @@ export function sandbox(host?: string): Sandbox {
     })
     for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k]
 
-    const proc = Bun.spawn([process.execPath, MAIN, ...args], {
+    return Bun.spawn([process.execPath, MAIN, ...args], {
       cwd: opts.cwd ?? cwd,
       env,
       stdin: opts.stdin === undefined ? "ignore" : new Blob([opts.stdin]),
       stdout: "pipe",
       stderr: "pipe",
     })
+  }
+
+  const run = async (args: string[], opts: RunOptions = {}): Promise<RunResult> => {
+    const proc = spawn(args, opts)
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -66,7 +89,26 @@ export function sandbox(host?: string): Sandbox {
     ])
     return { stdout, stderr, exitCode, json: () => JSON.parse(stdout) }
   }
-  return { root, configDir, run }
+
+  const start = (args: string[], opts: RunOptions = {}): Started => {
+    const proc = spawn(args, opts)
+    const out = collect(proc.stdout)
+    const err = collect(proc.stderr)
+    return {
+      exited: Promise.all([proc.exited, out.done, err.done]).then(([code]) => code),
+      stdout: out.text,
+      stderr: err.text,
+      async waitForStderr(pattern) {
+        for (let i = 0; i < 400; i++) {
+          const match = pattern.exec(err.text())
+          if (match) return match
+          await Bun.sleep(25)
+        }
+        throw new Error(`stderr never matched ${pattern}:\n${err.text()}`)
+      },
+    }
+  }
+  return { root, configDir, run, start }
 }
 
 const sandboxes: string[] = []

@@ -49,6 +49,9 @@ export type Arg = {
   variadic?: boolean
   enum?: readonly string[]
   description?: string
+  // Candidates for shell completion: `word` is what has been typed of this argument and
+  // `words` everything typed before it. Errors are swallowed, so a source may just throw.
+  complete?: (ctx: Ctx, input: { word: string; words: string[] }) => string[] | Promise<string[]>
 }
 
 type ArgValues<A extends readonly Arg[]> = {
@@ -100,6 +103,8 @@ export type Group = {
   summary: string
   description?: string
   commands: Command[]
+  // Runs when the group is named without a subcommand (`intesa me`); otherwise its help prints.
+  defaultCommand?: string
   examples?: string[]
 }
 

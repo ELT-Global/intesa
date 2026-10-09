@@ -6,6 +6,12 @@ import { USER_AGENT } from "../version"
 
 export type DebugLevel = "off" | "requests" | "api"
 
+export function debugLevel(env: Record<string, string | undefined>, flag: boolean): DebugLevel {
+  if (env.INTESA_DEBUG === "api") return "api"
+  if (flag || (env.INTESA_DEBUG && env.INTESA_DEBUG !== "0")) return "requests"
+  return "off"
+}
+
 // Thrown after --dry-run prints a mutation; main treats it as success.
 export class DryRunDone extends Error {}
 

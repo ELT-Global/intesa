@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { z } from "zod"
 import { type Config, normalizeHost } from "../config/config"
@@ -38,6 +38,15 @@ export function findLocalFile(cwd: string) {
     }
     if (dirname(dir) === dir) return undefined
   }
+}
+
+// `use --local`: pins a value in `.intesa.json` in cwd itself (not a parent's), keeping the
+// keys already there.
+export function writeLocalFile(cwd: string, patch: { workspace?: string; project?: string }) {
+  const path = join(cwd, LOCAL_FILE)
+  const current = existsSync(path) ? (findLocalFile(cwd)?.data ?? {}) : {}
+  writeFileSync(path, `${JSON.stringify({ ...current, ...patch }, null, 2)}\n`)
+  return path
 }
 
 type Input = {
