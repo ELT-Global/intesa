@@ -36,7 +36,7 @@ All settings come from environment variables (see `apps/api/.env.example`; copy 
 | `NODE_ENV` | `production` when unset | `development`, `production` or `test`. Anything other than `production` allows the dev login. In `development` the API does not serve the client (Vite does). |
 | `DATABASE_URL` | `<repo root>/data/intesa.db` | SQLite file path (the directory is created; a relative path is relative to the directory you start the process in), `:memory:`, or a `postgres://` URL. |
 | `WEB_DIST` | `apps/web/dist/client` | Directory with the built web client. |
-| `PUBLIC_URL` | `http://localhost:$PORT` | Public origin, used for the Google redirect URI. Session cookies get the `Secure` flag when `NODE_ENV=production` and this starts with `https://`. |
+| `PUBLIC_URL` | `http://localhost:$PORT` | Public origin, used for the Google redirect URI. Session cookies get the `Secure` flag when `NODE_ENV=production` and this starts with `https://`. Browser requests that could be forged cross-site (form posts, uploads, body-less writes) must come from this origin, so open the app at this exact URL. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | unset | Both are required to enable Google sign-in. |
 | `DEV_LOGIN` | unset | `true` enables `POST /api/auth/dev-login`. Ignored in production. |
 | `TEST_DATABASE_URL` | unset | Test only: run the API tests against this Postgres database. |
