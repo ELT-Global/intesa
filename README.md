@@ -72,6 +72,36 @@ while Cancel discards edits. Other files open through a new-tab link (Word and
 OpenDocument files may download when the browser has no viewer). Uploaded HTML is
 sandboxed, with scripts, forms and external resource requests disabled.
 
+## Command-line client
+
+`intesa` is a `gh`-style command-line client for people and for AI agents: tasks, projects, members, tags, custom fields and artifacts, plus a full-screen board (`intesa board`). It talks to the same API as the web client.
+
+**Install** (pick one):
+
+- In this repository: `bun link` inside `apps/cli` puts `intesa` on your PATH with no build step, or run it directly with `bun apps/cli/src/main.ts`.
+- From a running server, which always serves the bundle that matches its version (needs Bun; Bun cannot run a URL directly, so download it first):
+
+  ```sh
+  curl -fsSL https://pm.example.com/cli/intesa.js -o intesa.js
+  bun intesa.js --version
+  ```
+
+  `intesa board` also needs `@opentui/core` installed next to the file; every other command works as is.
+- Standalone binaries (no Bun needed) for Windows x64, Linux x64 and arm64 and macOS arm64 are attached to the GitHub releases (tags `cli-v*`) as `.zip` / `.tar.xz`, together with `intesa.js` and `SHA256SUMS`. They are not code-signed. Windows SmartScreen warns on first run ("More info", then "Run anyway") and Defender scans the roughly 100 MB file once. On macOS, a browser download is quarantined: run `xattr -d com.apple.quarantine intesa` (downloading with `curl` avoids it). To avoid both, use the `intesa.js` channel.
+
+**Sign in:**
+
+```sh
+intesa auth login --host https://pm.example.com     # shows a code and opens the approval page
+intesa auth login --with-token < token.txt          # a token made with `intesa token create`
+```
+
+Scripts and CI can skip the login and set `INTESA_TOKEN` (and `INTESA_HOST`). Credentials go to the system keychain, or a `0600` file in the config directory when there is none. A `.intesa.json` in a directory (the nearest one upwards wins) pins defaults for that checkout, for example `{"host": "https://pm.example.com", "workspace": "acme", "project": "WEB"}`; flags and `INTESA_*` variables override it.
+
+**For agents.** Every command takes `--json` (optionally `--fields a,b`); stdout carries only data and stderr everything else. Nothing prompts when stdin is not a terminal, or with `--yes` or `CI` set: missing input is an error that names the flag, and destructive commands need `--yes`. `--dry-run` shows what a mutation would send. Exit codes: `0` ok, `1` unexpected or network error, `2` usage, `3` cancelled, `4` not signed in, `5` not found, `6` conflict, `7` forbidden, `8` rejected input. `intesa schema` prints every command, argument, flag and output field as JSON, and `intesa mcp` serves the same commands as tools over MCP (`claude mcp add intesa -- intesa mcp`).
+
+**Building it** (maintainers). In `apps/cli`, `bun run build` writes the single-file bundle to `dist/intesa.js`, and `bun run build:bin [--target windows-x64|linux-x64|linux-arm64|darwin-arm64]` compiles standalone binaries to `dist/intesa-<target>`. Building a binary for another platform needs every native OpenTUI library installed first (`bun install --os="*" --cpu="*"`); the release workflow avoids that by building each target on its own platform. To release, set the version in `apps/cli/package.json` and push a tag `cli-v<version>`. The Docker image builds the bundle into the web root, so a deployed server serves it at `/cli/intesa.js`.
+
 ## Tests
 
 ```sh
@@ -137,4 +167,5 @@ The server logs startup and shutdown, and requests only when they fail: a respon
 
 - `apps/api`: Hono API, Kysely migrations, auth, tests (`apps/api/test`).
 - `apps/web`: the single-page client.
+- `apps/cli`: the `intesa` command-line client.
 - `e2e`: Playwright tests.

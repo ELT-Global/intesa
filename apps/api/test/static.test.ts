@@ -19,6 +19,8 @@ beforeAll(async () => {
   writeFileSync(join(dir, "assets", "app-abc123.js.gz"), gzipSync(Buffer.from(JS)))
   writeFileSync(join(dir, "assets", "plain-1.js"), "export {}\n")
   writeFileSync(join(dir, "robots.txt"), "User-agent: *\n")
+  mkdirSync(join(dir, "cli"))
+  writeFileSync(join(dir, "cli", "intesa.js"), "console.log(1)\n")
 
   const db = await createDb(":memory:")
   await migrate(db)
@@ -77,6 +79,14 @@ describe("static assets", () => {
     )
     expect((await get("/")).headers.get("cache-control")).toBe("no-cache")
     expect((await get("/robots.txt")).headers.get("cache-control")).toBe("no-cache")
+  })
+
+  test("an unhashed script in a subdirectory is served as JavaScript and revalidates", async () => {
+    const res = await get("/cli/intesa.js")
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("javascript")
+    expect(res.headers.get("cache-control")).toBe("no-cache")
+    expect(await res.text()).toBe("console.log(1)\n")
   })
 
   test("a matching If-None-Match gets a 304 per encoding", async () => {

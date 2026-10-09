@@ -20,11 +20,15 @@ COPY packages/markdown-editor/package.json packages/markdown-editor/
 COPY packages/task-query/package.json packages/task-query/
 COPY e2e/package.json e2e/
 RUN bun install --frozen-lockfile --filter @intesa/api --filter @intesa/web \
-    --filter @intesa/markdown-editor --filter @intesa/task-query
+    --filter @intesa/cli --filter @intesa/markdown-editor --filter @intesa/task-query
 
 COPY apps ./apps
 COPY packages ./packages
+# The command-line client is built into the web root as /cli/intesa.js, so users can fetch the
+# bundle that matches this server (curl -fsSL $PUBLIC_URL/cli/intesa.js -o intesa.js).
 RUN bun run --cwd apps/web build \
+ && bun apps/cli/scripts/build.ts --outfile apps/web/dist/client/cli/intesa.js \
+ && bun apps/api/scripts/precompress.ts apps/web/dist/client/cli \
  && bun build --target=bun --minify apps/api/src/index.ts --outfile /out/server.js
 
 

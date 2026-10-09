@@ -1,0 +1,127 @@
+name: Release CLI
+
+# Push a tag like cli-v0.1.0 (it must match the version in apps/cli/package.json) to build the
+# binaries and publish a release. A manual run with an empty tag builds and tests everything
+# but publishes nothing.
+on:
+  push:
+    tags: ["cli-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish, e.g. cli-v0.1.0 (empty: build and test only)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.4.2
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          version="$(jq -r .version apps/cli/package.json)"
+          tag="${INPUT_TAG:-}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"; fi
+          if [ -n "$tag" ] && [ "$tag" != "cli-v$version" ]; then
+            echo "Tag $tag does not match apps/cli/package.json version $version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --filter @intesa/api --filter @intesa/cli --filter @intesa/task-query
+      - run: bun run --cwd apps/cli build
+      - run: bash apps/cli/scripts/smoke.sh bun apps/cli/dist/intesa.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intesa-js
+          path: apps/cli/dist/intesa.js
+          if-no-files-found: error
+
+  binary:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64, os: windows-latest, ext: .exe, archive: zip }
+          - { target: linux-x64, os: ubuntu-latest, ext: "", archive: tar.xz }
+          - { target: linux-arm64, os: ubuntu-24.04-arm, ext: "", archive: tar.xz }
+          - { target: darwin-arm64, os: macos-latest, ext: "", archive: tar.xz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # Every runner builds its own platform, so the default install already has the native
+      # OpenTUI library the binary embeds. Cross-compiling from one machine would need
+      # `bun install --os="*" --cpu="*"` instead.
+      - run: bun install --frozen-lockfile --filter @intesa/api --filter @intesa/cli --filter @intesa/task-query
+      - run: bun run --cwd apps/cli build:bin --target ${{ matrix.target }}
+      - name: Smoke test
+        run: bash apps/cli/scripts/smoke.sh "apps/cli/dist/intesa-${{ matrix.target }}${{ matrix.ext }}"
+      - name: Package
+        env:
+          NAME: intesa-${{ needs.prepare.outputs.version }}-${{ matrix.target }}
+        run: |
+          mkdir stage
+          cp "apps/cli/dist/intesa-${{ matrix.target }}${{ matrix.ext }}" "stage/intesa${{ matrix.ext }}"
+          if [ "${{ matrix.archive }}" = zip ]; then
+            (cd stage && 7z a -tzip "../$NAME.zip" "intesa${{ matrix.ext }}")
+          else
+            tar -C stage -cJf "$NAME.tar.xz" intesa
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intesa-${{ matrix.target }}
+          path: intesa-*.${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, bundle, binary]
+    if: needs.prepare.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum intesa* > SHA256SUMS
+      - name: Publish
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "intesa CLI ${TAG#cli-v}" --generate-notes
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber assets/*
