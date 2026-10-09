@@ -37,6 +37,7 @@ const READS = [
   "intesa token list",
   "intesa me view",
   "intesa completion",
+  "intesa mcp",
 ]
 
 type Expected = {

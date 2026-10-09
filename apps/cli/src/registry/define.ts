@@ -63,6 +63,14 @@ type ArgValues<A extends readonly Arg[]> = {
       : string | undefined
 }
 
+// Where a run's output goes and its input comes from: the process, or a caller that captures
+// them (`intesa mcp`, whose stdout is the protocol).
+export type Io = {
+  stdout: (text: string) => void
+  stderr: (text: string) => void
+  readStdin: () => Promise<string>
+}
+
 export type Ctx = {
   globals: Globals
   env: Env
@@ -78,6 +86,9 @@ export type Ctx = {
   // A confirmation for people, like "✓ Deleted WEB-12": on stderr, and not with -q.
   done: (message: string) => void
   readStdin: () => Promise<string>
+  // Runs another intesa command line in this process with its own env and io; resolves to
+  // its exit code.
+  invoke: (argv: string[], env: Env, io: Io) => Promise<number>
 }
 
 type AnyFlags = z.ZodObject

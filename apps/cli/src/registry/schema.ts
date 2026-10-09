@@ -8,7 +8,7 @@ type Prop = { type?: string; default?: unknown }
 
 // JSON Schema for a flags object, keyed by the flags people type: `dry-run`, not `dryRun`,
 // and `no-color` for a boolean that is on by default, matching help.
-function flagsSchema(flags: z.ZodObject | undefined) {
+export function flagsSchema(flags: z.ZodObject | undefined) {
   const { $schema: _, ...schema } = z.toJSONSchema(flags ?? z.object({}), {
     io: "input",
     unrepresentable: "any",

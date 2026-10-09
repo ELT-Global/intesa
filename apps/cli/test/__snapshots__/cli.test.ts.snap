@@ -23,6 +23,7 @@ COMMANDS
   token:       Manage API tokens
   me:          View and edit your account, including two-factor sign-in
   completion:  Generate a shell completion script
+  mcp:         Serve intesa's commands to AI agents as MCP tools
 
 HELP TOPICS
   environment:  Environment variables that change how intesa behaves

@@ -10,21 +10,28 @@ import { selectFields, toJson } from "./output/json"
 import { detectMode, type Env } from "./output/mode"
 import { FIELD_SETS, render } from "./output/render"
 import { complete } from "./registry/completion"
-import { type Command, type Ctx, defineCommand, type Globals, globalFlags } from "./registry/define"
+import {
+  type Command,
+  type Ctx,
+  defineCommand,
+  type Globals,
+  globalFlags,
+  type Io,
+} from "./registry/define"
 import { commandHelp, groupHelp, rootHelp, topicHelp } from "./registry/help"
 import { commandWordIndexes, parseCommand } from "./registry/parse"
 import { VERSION } from "./version"
 
 const root = defineCommand({ name: "intesa", summary: "", run() {} })
-const stdout = (text: string) => void process.stdout.write(text)
-const stderr = (text: string) => void process.stderr.write(text)
-const print = (text: string) => {
-  stdout(text)
-  return 0
+const processIo: Io = {
+  stdout: (text) => void process.stdout.write(text),
+  stderr: (text) => void process.stderr.write(text),
+  readStdin: () => Bun.stdin.text(),
 }
 
 // `quick` is for completion: a short timeout and no retries, since someone is waiting at tab.
-function createCtx(globals: Globals, env: Env, opts: { quick?: boolean } = {}): Ctx {
+function createCtx(globals: Globals, env: Env, io: Io, opts: { quick?: boolean } = {}): Ctx {
+  const { stdout, stderr } = io
   const dir = configDir(env)
   const config = readConfig(dir)
   const mode = detectMode(env, { color: globals.color, configColor: config.color })
@@ -69,7 +76,8 @@ function createCtx(globals: Globals, env: Env, opts: { quick?: boolean } = {}): 
     done: (message) => {
       if (!globals.quiet) stderr(`✓ ${message}\n`)
     },
-    readStdin: () => Bun.stdin.text(),
+    readStdin: io.readStdin,
+    invoke: main,
   }
   return ctx
 }
@@ -83,13 +91,18 @@ async function present(ctx: Ctx, cmd: Command, data: unknown, flags: unknown) {
   return render(data, { output: cmd.output, fields, json, quiet, mode: ctx.mode })
 }
 
-async function main(argv: string[], env: Env): Promise<number> {
+async function main(argv: string[], env: Env, io: Io = processIo): Promise<number> {
+  const { stdout, stderr } = io
+  const print = (text: string) => {
+    stdout(text)
+    return 0
+  }
   // Called by the completion scripts on every tab press: quiet, quick and never failing.
   if (argv[0] === "__complete") {
     try {
       stdout(
         await complete(argv.slice(1), (typed) =>
-          createCtx(globalFlags.parse(typed), env, { quick: true }),
+          createCtx(globalFlags.parse(typed), env, io, { quick: true }),
         ),
       )
     } catch {}
@@ -161,7 +174,7 @@ async function main(argv: string[], env: Env): Promise<number> {
     // Checked before anything runs, so a typo never follows a write.
     selectFields(globals.fields, cmd.output && FIELD_SETS[cmd.output].fields)
 
-    const ctx = createCtx(globals, env)
+    const ctx = createCtx(globals, env, io)
     show = async (data) => {
       if (data !== undefined) stdout(await present(ctx, cmd, data, flags))
     }
@@ -186,7 +199,7 @@ async function main(argv: string[], env: Env): Promise<number> {
 
 // Ctrl+C: exit 3 (cancelled), distinct from usage errors.
 process.on("SIGINT", () => {
-  stderr("\n")
+  processIo.stderr("\n")
   process.exit(3)
 })
 

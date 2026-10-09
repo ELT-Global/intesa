@@ -95,6 +95,11 @@ export const nouns: NounEntry[] = [
     summary: "Generate a shell completion script",
     load: () => import("./completion").then((m) => m.default),
   },
+  {
+    name: "mcp",
+    summary: "Serve intesa's commands to AI agents as MCP tools",
+    load: () => import("./mcp").then((m) => m.default),
+  },
 ]
 
 export const named = (name: string) => (n: { name: string; aliases?: string[] }) =>
