@@ -13,6 +13,11 @@ export const workspacesQuery = queryOptions({
   staleTime: 60_000,
 })
 
+export const tokensQuery = queryOptions({
+  queryKey: keys.tokens,
+  queryFn: async () => (await api.tokens()).tokens,
+})
+
 export const authConfigQuery = queryOptions({
   queryKey: keys.authConfig,
   queryFn: api.authConfig,

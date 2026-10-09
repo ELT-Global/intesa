@@ -4,6 +4,7 @@ import { ArrowLeft, ShieldCheck, User as UserIcon } from "lucide-react"
 import { useState } from "react"
 import { renderSVG } from "uqr"
 import { PageTitle } from "@/components/page"
+import { AccessTokensPanel } from "@/components/settings/access-tokens"
 import { Button } from "@/components/ui/button"
 import { Field, FormError } from "@/components/ui/field"
 import { Label } from "@/components/ui/input"
@@ -47,9 +48,13 @@ function SettingsPage() {
         </Button>
       </header>
       <main className="mx-auto flex max-w-xl flex-col gap-4 px-4 py-8">
-        <PageTitle title="Account." description="Your profile and sign-in security." />
+        <PageTitle
+          title="Account."
+          description="Your profile, sign-in security and access tokens."
+        />
         <ProfilePanel />
         <TwoFactorPanel />
+        <AccessTokensPanel />
       </main>
     </div>
   )

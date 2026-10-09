@@ -37,6 +37,9 @@ export type User = InferResponseType<typeof client.api.me.$get>["user"]
 export type Workspace = InferResponseType<typeof client.api.workspaces.$get>["workspaces"][number]
 export type AuthConfig = InferResponseType<(typeof client.api.auth.config)["$get"]>
 
+export type ApiToken = InferResponseType<typeof client.api.me.tokens.$get>["tokens"][number]
+export type TokenScope = ApiToken["scope"]
+
 export type Project = InferResponseType<
   (typeof client.api.projects)[":projectId"]["$get"]
 >["project"]
@@ -84,6 +87,19 @@ export const api = {
   enable2fa: (code: string) => unwrap(client.api.me["2fa"].enable.$post({ json: { code } })),
   disable2fa: (code: string) => unwrap(client.api.me["2fa"].disable.$post({ json: { code } })),
 
+  tokens: () => unwrap(client.api.me.tokens.$get()),
+  createToken: (json: { name: string; scope: TokenScope; expiresInDays?: number }) =>
+    unwrap(client.api.me.tokens.$post({ json })),
+  revokeToken: (tokenId: string) =>
+    unwrap(client.api.me.tokens[":tokenId"].$delete({ param: { tokenId } })),
+
+  deviceRequest: (userCode: string) =>
+    unwrap(client.api.auth.device[":userCode"].$get({ param: { userCode } })),
+  approveDevice: (userCode: string) =>
+    unwrap(client.api.auth.device[":userCode"].approve.$post({ param: { userCode } })),
+  denyDevice: (userCode: string) =>
+    unwrap(client.api.auth.device[":userCode"].deny.$post({ param: { userCode } })),
+
   workspaces: () => unwrap(client.api.workspaces.$get()),
   createWorkspace: (json: { name: string; slug?: string }) =>
     unwrap(client.api.workspaces.$post({ json })),
@@ -92,6 +108,7 @@ export const api = {
 export const keys = {
   me: ["me"] as const,
   workspaces: ["workspaces"] as const,
+  tokens: ["tokens"] as const,
   authConfig: ["auth-config"] as const,
   projects: (workspaceId: string) => ["workspaces", workspaceId, "projects"] as const,
   // Prefix of the task keys, so invalidating it also covers a project's tasks.
