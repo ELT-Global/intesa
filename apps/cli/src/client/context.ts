@@ -1,12 +1,13 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { z } from "zod"
-import { type Config, normalizeHost } from "../config/config"
-import { CliError, LOGIN_HINT, usageError } from "../output/errors"
+import { type Config, configFile, normalizeHost, readConfig, writeJsonFile } from "../config/config"
+import { CliError, LOGIN_HINT, notLoggedIn } from "../output/errors"
 import type { Env } from "../output/mode"
+import type { Ctx } from "../registry/define"
+import { dryRunWrite } from "./http"
 
-export type Source = "flag" | "env" | "file" | "config" | "hosts"
-export type Resolved = { value: string; source: Source; file?: string }
+export type Resolved = { value: string }
 export type ResolvedContext = { host?: Resolved; workspace?: Resolved; project?: Resolved }
 
 const LOCAL_FILE = ".intesa.json"
@@ -40,12 +41,24 @@ export function findLocalFile(cwd: string) {
   }
 }
 
-// `use --local`: pins a value in `.intesa.json` in cwd itself (not a parent's), keeping the
-// keys already there.
-export function writeLocalFile(cwd: string, patch: { workspace?: string; project?: string }) {
-  const path = join(cwd, LOCAL_FILE)
-  const current = existsSync(path) ? (findLocalFile(cwd)?.data ?? {}) : {}
-  writeFileSync(path, `${JSON.stringify({ ...current, ...patch }, null, 2)}\n`)
+// `use`: makes a workspace or project the default in the user config, or with `local` in
+// `.intesa.json` in cwd itself (not a parent's), keeping the keys already there. --dry-run
+// shows the write instead. Returns the file written.
+export function saveDefault(
+  ctx: Pick<Ctx, "cwd" | "configDir" | "globals" | "stdout">,
+  key: "workspace" | "project",
+  value: string,
+  local: boolean,
+): string {
+  const path = local ? join(ctx.cwd, LOCAL_FILE) : configFile(ctx.configDir)
+  const current = local
+    ? existsSync(path)
+      ? (findLocalFile(ctx.cwd)?.data ?? {})
+      : {}
+    : readConfig(ctx.configDir)
+  const data = { ...current, [key]: value }
+  if (ctx.globals.dryRun) dryRunWrite(ctx, path, data)
+  writeJsonFile(path, data, local ? undefined : 0o600)
   return path
 }
 
@@ -62,17 +75,13 @@ type Input = {
 export function resolveContext({ flags, env, cwd, config, hosts }: Input): ResolvedContext {
   const local = findLocalFile(cwd)
   const pick = (key: "host" | "workspace" | "project", envName: string): Resolved | undefined => {
-    if (flags[key]) return { value: flags[key], source: "flag" }
-    if (env[envName]) return { value: env[envName], source: "env" }
-    if (local?.data[key]) return { value: local.data[key], source: "file", file: local.path }
-    if (config[key]) return { value: config[key], source: "config" }
-    return undefined
+    const value = flags[key] || env[envName] || local?.data[key] || config[key]
+    return value ? { value } : undefined
   }
   let host = pick("host", "INTESA_HOST")
-  if (!host && hosts.length === 1 && hosts[0]) host = { value: hosts[0], source: "hosts" }
-  if (host) host = { ...host, value: normalizeHost(host.value) }
+  if (!host && hosts.length === 1 && hosts[0]) host = { value: hosts[0] }
   return {
-    host,
+    host: host && { value: normalizeHost(host.value) },
     workspace: pick("workspace", "INTESA_WORKSPACE"),
     project: pick("project", "INTESA_PROJECT"),
   }
@@ -80,25 +89,8 @@ export function resolveContext({ flags, env, cwd, config, hosts }: Input): Resol
 
 export function requireHost(ctx: ResolvedContext): string {
   if (ctx.host) return ctx.host.value
-  throw new CliError("no Intesa server configured", {
-    code: "UNAUTHORIZED",
-    exitCode: 4,
-    hint: `${LOGIN_HINT} Or pass --host, or set INTESA_HOST.`,
-  })
-}
-
-export function requireWorkspace(ctx: ResolvedContext): string {
-  if (ctx.workspace) return ctx.workspace.value
-  throw usageError(
-    "no workspace: pass -w/--workspace, set INTESA_WORKSPACE, or add one to .intesa.json",
-    "Run `intesa config set workspace SLUG` to set a default.",
-  )
-}
-
-export function requireProject(ctx: ResolvedContext): string {
-  if (ctx.project) return ctx.project.value
-  throw usageError(
-    "no project: pass -p/--project, set INTESA_PROJECT, or add one to .intesa.json",
-    "Run `intesa config set project KEY` to set a default.",
+  throw notLoggedIn(
+    "no Intesa server configured",
+    `${LOGIN_HINT} Or pass --host, or set INTESA_HOST.`,
   )
 }

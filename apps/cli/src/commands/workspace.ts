@@ -1,7 +1,7 @@
 import { z } from "zod"
-import { writeLocalFile } from "../client/context"
-import { links, resolver } from "../client/resolve"
-import { readConfig, writeConfig } from "../config/config"
+import { saveDefault } from "../client/context"
+import { links } from "../client/links"
+import { resolver } from "../client/resolve"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 type Workspace = { id: string; name: string; slug: string; role: string }
@@ -101,18 +101,19 @@ const use = defineCommand({
       .default(false)
       .meta({ description: "Write .intesa.json in the current directory" }),
   }),
+  output: "workspaceDefault",
   examples: ["intesa workspace use acme", "intesa ws use acme --local"],
   async run(ctx, { slug }, flags) {
     const ws = await resolver(ctx).workspace(slug)
-    if (flags.local) {
-      const path = writeLocalFile(ctx.cwd, { workspace: ws.slug })
-      ctx.stderr(`✓ Using workspace ${ws.slug} in this directory (${path})\n`)
-    } else {
-      writeConfig(ctx.configDir, { ...readConfig(ctx.configDir), workspace: ws.slug })
-      ctx.stderr(`✓ Default workspace set to ${ws.slug}\n`)
-    }
-    if (ctx.globals.json) return { workspace: ws.slug, id: ws.id, local: flags.local }
+    const file = saveDefault(ctx, "workspace", ws.slug, flags.local)
+    ctx.done(
+      flags.local
+        ? `Using workspace ${ws.slug} in this directory (${file})`
+        : `Default workspace set to ${ws.slug}`,
+    )
+    return { id: ws.id, slug: ws.slug, file }
   },
+  human: () => "",
 })
 
 export default defineGroup({

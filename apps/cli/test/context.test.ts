@@ -2,8 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { requireProject, requireWorkspace, resolveContext } from "../src/client/context"
-import { CliError } from "../src/output/errors"
+import { resolveContext } from "../src/client/context"
 import { fakeServer, removeSandboxes, sandbox } from "./helpers"
 
 // Each candidate host answers with its own name, so the output shows which one was used.
@@ -52,6 +51,11 @@ describe("workspace and project resolution", () => {
     writeFileSync(join(root, ".intesa.json"), JSON.stringify(local))
     return { root, cwd }
   }
+  const outside = () => {
+    const dir = mkdtempSync(join(tmpdir(), "intesa-ctx-"))
+    dirs.push(dir)
+    return dir
+  }
   const config = { workspace: "cfg-ws", project: "CFG" }
 
   test("follows flag > env > .intesa.json > config, per value", () => {
@@ -61,75 +65,34 @@ describe("workspace and project resolution", () => {
       resolveContext({ flags, env: e, cwd, config, hosts: [] })
 
     const all = at({ workspace: "flag-ws", project: "FLAG" }, env)
-    expect(all.workspace).toEqual({ value: "flag-ws", source: "flag" })
-    expect(all.project).toEqual({ value: "FLAG", source: "flag" })
-
-    const fromEnv = at({ workspace: "flag-ws" }, env)
-    expect(fromEnv.project).toEqual({ value: "ENV", source: "env" })
-
-    const fromFile = at({}, {})
-    expect(fromFile.workspace?.value).toBe("file-ws")
-    expect(fromFile.workspace?.source).toBe("file")
+    expect(all.workspace?.value).toBe("flag-ws")
+    expect(all.project?.value).toBe("FLAG")
+    expect(at({ workspace: "flag-ws" }, env).project?.value).toBe("ENV")
+    expect(at({}, {}).workspace?.value).toBe("file-ws")
   })
 
   test("falls back to config when no .intesa.json is found", () => {
-    const outside = mkdtempSync(join(tmpdir(), "intesa-ctx-"))
-    dirs.push(outside)
-    const r = resolveContext({ flags: {}, env: {}, cwd: outside, config, hosts: [] })
-    expect(r.workspace).toEqual({ value: "cfg-ws", source: "config" })
-    expect(r.project).toEqual({ value: "CFG", source: "config" })
+    const r = resolveContext({ flags: {}, env: {}, cwd: outside(), config, hosts: [] })
+    expect(r.workspace?.value).toBe("cfg-ws")
+    expect(r.project?.value).toBe("CFG")
   })
 
   test("a .intesa.json without a key does not mask config for that key", () => {
     const { cwd } = tree({ project: "FILE" })
     const r = resolveContext({ flags: {}, env: {}, cwd, config, hosts: [] })
-    expect(r.workspace?.source).toBe("config")
-    expect(r.project?.source).toBe("file")
+    expect(r.workspace?.value).toBe("cfg-ws")
+    expect(r.project?.value).toBe("FILE")
   })
 
   test("the only logged-in host is the last resort", () => {
-    const outside = mkdtempSync(join(tmpdir(), "intesa-ctx-"))
-    dirs.push(outside)
-    const one = resolveContext({
-      flags: {},
-      env: {},
-      cwd: outside,
-      config: {},
-      hosts: ["https://a.example"],
-    })
-    expect(one.host).toEqual({ value: "https://a.example", source: "hosts" })
-    const two = resolveContext({
-      flags: {},
-      env: {},
-      cwd: outside,
-      config: {},
-      hosts: ["https://a.example", "https://b.example"],
-    })
-    expect(two.host).toBeUndefined()
-  })
-
-  test("a missing workspace or project is a usage error naming the flag", () => {
-    const outside = mkdtempSync(join(tmpdir(), "intesa-ctx-"))
-    dirs.push(outside)
-    const r = resolveContext({ flags: {}, env: {}, cwd: outside, config: {}, hosts: [] })
-    const errorOf = (fn: () => unknown) => {
-      try {
-        fn()
-      } catch (e) {
-        return e as CliError
-      }
-      throw new Error("expected an error")
-    }
-    const ws = errorOf(() => requireWorkspace(r))
-    expect(ws).toBeInstanceOf(CliError)
-    expect(ws.exitCode).toBe(2)
-    expect(ws.message).toContain("--workspace")
-    expect(errorOf(() => requireProject(r)).message).toContain("--project")
+    const at = (hosts: string[]) =>
+      resolveContext({ flags: {}, env: {}, cwd: outside(), config: {}, hosts }).host
+    expect(at(["https://a.example"])).toEqual({ value: "https://a.example" })
+    expect(at(["https://a.example", "https://b.example"])).toBeUndefined()
   })
 
   test("a malformed .intesa.json is reported, not ignored", () => {
-    const root = mkdtempSync(join(tmpdir(), "intesa-ctx-"))
-    dirs.push(root)
+    const root = outside()
     writeFileSync(join(root, ".intesa.json"), "{ nope")
     expect(() => resolveContext({ flags: {}, env: {}, cwd: root, config: {}, hosts: [] })).toThrow(
       ".intesa.json",

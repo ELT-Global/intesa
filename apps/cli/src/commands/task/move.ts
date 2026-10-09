@@ -1,11 +1,20 @@
 import { STATUSES, type Status } from "@intesa/api/schemas"
 import { STATUS_LABELS } from "@intesa/task-query"
 import { z } from "zod"
+import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
-import { confirmDestructive, isInteractive } from "../../output/ask"
-import { usageError } from "../../output/errors"
+import { confirmDestructive, isInteractive, pickSome } from "../../io/prompt"
+import { CliError, formatError, prefixed, usageError } from "../../output/errors"
 import { type Ctx, defineCommand } from "../../registry/define"
-import { linker, plural, present, splitList, type TaskSummary, taskArg, userIds } from "./shared"
+import {
+  plural,
+  showTasks,
+  splitList,
+  type TaskDetail,
+  type TaskSummary,
+  taskArg,
+  userIds,
+} from "./shared"
 
 const SUBTASK_MODES = ["keep", "match", "ask", ...STATUSES] as const
 type SubtaskMode = (typeof SUBTASK_MODES)[number]
@@ -29,64 +38,43 @@ const moveFlags = z.object({
 })
 type MoveFlags = z.output<typeof moveFlags>
 
-type OutOfSync = { key: string; status: Status }
-
-// Picks which differing subtasks follow the parent. Cancelling leaves them as they are: the
-// parent has moved already.
-async function askSubtasks(differing: TaskSummary[], status: Status): Promise<string[]> {
-  const { multiselect, isCancel } = await import("@clack/prompts")
-  const picked = await multiselect({
-    message: `Move these subtasks to ${STATUS_LABELS[status]} too?`,
-    options: differing.map((s) => ({
-      value: s.id,
-      label: `${s.key}  ${s.title}`,
-      hint: STATUS_LABELS[s.status],
-    })),
-    initialValues: differing.map((s) => s.id),
-    required: false,
-    output: process.stderr,
-  })
-  return isCancel(picked) ? [] : picked
-}
-
-// Like the web's "Update subtasks?" dialog, with one PATCH per subtask. Asking only happens
+// Which subtasks to move where, like the web's "Update subtasks?" dialog. Asking only happens
 // when the parent changed column (not for a reorder); match and a status apply regardless.
-// Returns the subtasks left in another status than the parent.
-async function syncSubtasks(
+async function subtaskUpdates(
   ctx: Ctx,
   subtasks: TaskSummary[],
   status: Status,
   opts: { mode: SubtaskMode | undefined; changed: boolean },
-): Promise<OutOfSync[]> {
-  const current = subtasks.map((s) => ({ ...s }))
-  const differing = current.filter((s) => s.status !== status)
-  const { mode } = opts
-  const chosen =
-    mode === "ask" || mode === undefined
-      ? isInteractive(ctx) && opts.changed
-        ? "ask"
-        : "keep"
-      : mode
-  let updates: { task: TaskSummary; to: Status }[] = []
-  if (chosen === "match") updates = differing.map((task) => ({ task, to: status }))
-  else if (chosen === "ask" && differing.length > 0) {
-    const ids = new Set(await askSubtasks(differing, status))
-    updates = differing.filter((s) => ids.has(s.id)).map((task) => ({ task, to: status }))
-  } else if (chosen !== "keep" && chosen !== "ask") {
-    updates = current.filter((s) => s.status !== chosen).map((task) => ({ task, to: chosen }))
+): Promise<{ task: TaskSummary; to: Status }[]> {
+  const differing = subtasks.filter((s) => s.status !== status)
+  const mode = opts.mode ?? (isInteractive(ctx) ? "ask" : "keep")
+  if (mode === "keep" || differing.length === 0) return []
+  if (mode === "match") return differing.map((task) => ({ task, to: status }))
+  if (mode === "ask") {
+    if (!opts.changed) return []
+    // Cancelling leaves them as they are: the parent has moved already.
+    const ids = new Set(
+      await pickSome(
+        `Move these subtasks to ${STATUS_LABELS[status]} too?`,
+        differing.map((s) => ({
+          value: s.id,
+          label: `${s.key}  ${s.title}`,
+          hint: STATUS_LABELS[s.status],
+        })),
+      ),
+    )
+    return differing.filter((s) => ids.has(s.id)).map((task) => ({ task, to: status }))
   }
-  const { client } = await ctx.http()
-  for (const { task, to } of updates) {
-    await client.api.tasks[":taskId"].$patch({ param: { taskId: task.id }, json: { status: to } })
-    task.status = to
-  }
-  return current.filter((s) => s.status !== status).map((s) => ({ key: s.key, status: s.status }))
+  return subtasks.filter((s) => s.status !== mode).map((task) => ({ task, to: mode }))
 }
 
 async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags) {
   const placements = [flags.before, flags.after].filter((v) => v !== undefined).length
   if (placements + Number(flags.top) + Number(flags.bottom) > 1) {
     throw usageError("--before, --after, --top and --bottom conflict: pass one")
+  }
+  if (flags.subtasks === "ask" && !isInteractive(ctx)) {
+    throw usageError("--subtasks ask needs a terminal: pass keep, match or a status")
   }
   const r = resolver(ctx)
   const task = await r.task(ref)
@@ -108,10 +96,44 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
     json: { status, ...(placement && { placement }) },
   })
   const moved = (await res.json()).task
-  const subtasksOutOfSync = await syncSubtasks(ctx, task.subtasks, status, {
+
+  // One PATCH per subtask; a failure does not stop the others.
+  const updates = await subtaskUpdates(ctx, task.subtasks, status, {
     mode: flags.subtasks,
     changed: task.status !== status,
   })
+  const failures: CliError[] = []
+  for (const { task: sub, to } of updates) {
+    try {
+      await client.api.tasks[":taskId"].$patch({ param: { taskId: sub.id }, json: { status: to } })
+    } catch (err) {
+      if (!(err instanceof CliError)) throw err
+      failures.push(prefixed(sub.key, err))
+    }
+  }
+  // Read back rather than assumed: a subtask may also have moved elsewhere meanwhile.
+  let subtasks: TaskDetail["subtasks"] = task.subtasks
+  if (updates.length > 0) {
+    const fresh = await client.api.tasks[":taskId"].$get({ param: { taskId: task.id } })
+    subtasks = (await fresh.json()).task.subtasks
+  }
+  const subtasksOutOfSync = subtasks
+    .filter((s) => s.status !== status)
+    .map((s) => ({ key: s.key, status: s.status }))
+  const result = {
+    ...(await webLinks(ctx, task.project.workspaceId)).task(moved),
+    subtasksOutOfSync,
+  }
+
+  const [first] = failures
+  if (first) {
+    for (const failure of failures) ctx.stderr(formatError(failure, ctx.globals.json))
+    throw new CliError(`${plural(failures.length, "subtask")} of ${updates.length} not moved`, {
+      code: first.code,
+      exitCode: first.exitCode,
+      result,
+    })
+  }
   const note = task.status !== status && !ctx.globals.json && !ctx.globals.quiet
   if (note && subtasksOutOfSync.length > 0) {
     const list = subtasksOutOfSync.map((s) => `${s.key} (${STATUS_LABELS[s.status]})`).join(", ")
@@ -120,7 +142,7 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
         "Pass --subtasks match to move them too.\n",
     )
   }
-  return present(ctx, { ...(await linker(ctx))(moved), subtasksOutOfSync })
+  return result
 }
 
 export const move = defineCommand({
@@ -132,8 +154,10 @@ export const move = defineCommand({
     "A task changing column goes to the top unless a placement is given.\n\n" +
     "When the task has subtasks in another status, --subtasks says what happens to them:\n" +
     "keep leaves them (the JSON output lists them as subtasksOutOfSync), match moves them\n" +
-    "to the new status, a status moves all of them there, and ask lets you pick on a\n" +
-    "terminal. One request is sent per subtask.",
+    "to the new status, a status moves all of them there, and ask lets you pick; ask needs\n" +
+    "a terminal, and without one the default is keep. One request is sent per subtask; when\n" +
+    "some fail, the others still move, the result is printed and the exit code is the first\n" +
+    "failure's.",
   args: [
     taskArg,
     { name: "status", required: true, enum: STATUSES, description: "The status to move it to" },
@@ -148,6 +172,7 @@ export const move = defineCommand({
     "intesa task move WEB-12 complete --subtasks match --json",
   ],
   run: (ctx, { task, status }, flags) => moveTask(ctx, task, status as Status, flags),
+  human: showTasks,
 })
 
 const shorthand = (name: string, status: Status) =>
@@ -161,6 +186,7 @@ const shorthand = (name: string, status: Status) =>
     output: "taskMove",
     examples: [`intesa task ${name} WEB-12`],
     run: (ctx, { task }, flags) => moveTask(ctx, task, status, flags),
+    human: showTasks,
   })
 
 export const start = shorthand("start", "in_progress")
@@ -186,7 +212,7 @@ async function changeAssignees(ctx: Ctx, ref: string, people: string[], add: boo
     param: { taskId: task.id },
     json: { assigneeIds },
   })
-  return present(ctx, (await linker(ctx))((await res.json()).task))
+  return (await webLinks(ctx, task.project.workspaceId)).task((await res.json()).task)
 }
 
 export const assign = defineCommand({
@@ -198,6 +224,7 @@ export const assign = defineCommand({
   output: "task",
   examples: ["intesa task assign WEB-12", 'intesa task assign WEB-12 @me "Mei Chen"'],
   run: (ctx, { task, people }) => changeAssignees(ctx, task, people, true),
+  human: showTasks,
 })
 
 export const unassign = defineCommand({
@@ -209,6 +236,7 @@ export const unassign = defineCommand({
   output: "task",
   examples: ["intesa task unassign WEB-12", "intesa task unassign WEB-12 mei@example.com"],
   run: (ctx, { task, people }) => changeAssignees(ctx, task, people, false),
+  human: showTasks,
 })
 
 export const remove = defineCommand({
@@ -220,6 +248,7 @@ export const remove = defineCommand({
     "otherwise --yes is required.",
   args: [taskArg],
   context: ["workspace", "project"],
+  output: "deleted",
   examples: ["intesa task delete WEB-12", "intesa task delete WEB-12 --yes"],
   async run(ctx, { task: ref }) {
     const task = await resolver(ctx).task(ref)
@@ -231,7 +260,8 @@ export const remove = defineCommand({
     await confirmDestructive(ctx, `Delete ${task.key} (${task.title})?`)
     const { client } = await ctx.http()
     await client.api.tasks[":taskId"].$delete({ param: { taskId: task.id } })
-    if (ctx.globals.json) return { id: task.id, key: task.key, deleted: true }
-    if (!ctx.globals.quiet) ctx.stderr(`✓ Deleted ${task.key}\n`)
+    ctx.done(`Deleted ${task.key}`)
+    return { id: task.id, key: task.key, deleted: true }
   },
+  human: () => "",
 })

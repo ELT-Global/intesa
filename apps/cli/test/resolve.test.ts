@@ -81,9 +81,9 @@ function invocation(context: { workspace?: string; project?: string } = {}) {
     }) as typeof fetch,
   })
   const resolved: ResolvedContext = {
-    host: { value: server.url, source: "flag" },
-    ...(context.workspace && { workspace: { value: context.workspace, source: "flag" } }),
-    ...(context.project && { project: { value: context.project, source: "flag" } }),
+    host: { value: server.url },
+    ...(context.workspace && { workspace: { value: context.workspace } }),
+    ...(context.project && { project: { value: context.project } }),
   }
   const r = resolver({ configDir: box.configDir, http: async () => http, context: () => resolved })
   return { r, calls }

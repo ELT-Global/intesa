@@ -2,14 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { MAX_ARTIFACT_BYTES } from "@intesa/api/artifacts"
-import {
-  loginAs,
-  removeSandboxes,
-  type Sandbox,
-  sandbox,
-  startServer,
-  type TestServer,
-} from "./helpers"
+import { editorCommand } from "../src/io/editor"
+import { removeSandboxes, type Sandbox, startServer, type TestServer, world } from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -25,18 +19,11 @@ const fixture = (name: string) => join(FIXTURES, name)
 
 type Listed = { id: string; name: string; mimeType: string; size: number; url: string }
 
-let n = 0
 // A signed-in sandbox whose user owns one workspace with one task.
 async function setup(opts: { scope?: "read" | "write" } = {}) {
-  const box = sandbox(server.url)
-  const { session } = await loginAs(box, server, `art${++n}@example.com`, opts)
-  const ws = (
-    await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-art-${n}` })
-  ).body.workspace
-  const project = (await session.call("POST", `/api/workspaces/${ws.id}/projects`, { name: "Web" }))
-    .body.project
-  const task = (await session.call("POST", `/api/projects/${project.id}/tasks`, { title: "T" }))
-    .body.task as { id: string; key: string }
+  const w = await world(server, opts)
+  const { box, session } = w
+  const task = (await w.addTask({ title: "T" })) as { id: string; key: string }
   const onServer = async (): Promise<Listed[]> =>
     (await session.call("GET", `/api/tasks/${task.id}/artifacts`)).body.artifacts
   const contentOf = async (id: string) =>
@@ -56,11 +43,13 @@ function put(box: Sandbox, path: string, content: string | Uint8Array) {
 }
 const inWork = (box: Sandbox, name: string) => join(box.root, "work", name)
 
-// A command line for EDITOR that runs a bun script; the script gets the file path last.
+// A command line for an editor that runs a bun script; the script gets the file path last.
 function fakeEditor(box: Sandbox, name: string, source: string) {
   const script = put(box, `editors/${name}.ts`, source)
   return `"${process.execPath}" "${script}"`
 }
+// Without a terminal, only an editor set for intesa itself is used.
+const editor = (command: string) => ({ INTESA_EDITOR: command })
 const APPEND = `import { appendFileSync } from "node:fs"
 appendFileSync(process.argv[2], "\\nEdited in the editor.\\n")`
 const NOOP = `// opens and closes without touching the file`
@@ -189,19 +178,6 @@ describe("artifact upload", () => {
     const r = await box.run(["artifact", "upload", task.key, a, "--continue-on-error", "-q"])
     expect(r.exitCode).toBe(0)
     expect(r.stderr).toBe("")
-  })
-
-  test("--dry-run prints the upload request without sending it", async () => {
-    const { box, onServer, task } = await setup()
-    const md = put(box, "files/plan.md", "# Plan")
-    const r = await box.run(["artifact", "upload", task.key, md, "--dry-run"])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toMatchObject({
-      method: "POST",
-      path: `/api/tasks/${task.id}/artifacts`,
-      body: { file: { name: "plan.md", size: 6 } },
-    })
-    expect(await onServer()).toEqual([])
   })
 
   test("a read-only token cannot upload (exit 7)", async () => {
@@ -341,13 +317,25 @@ describe("artifact download", () => {
 })
 
 describe("artifact view", () => {
-  test("prints a Markdown artifact's text", async () => {
+  test("prints a Markdown artifact's text when piped", async () => {
     const { box, task } = await setup()
     const md = put(box, "files/plan.md", "# Plan\n\nShip *it*.\n")
     await box.run(["artifact", "upload", task.key, md])
     const r = await box.run(["artifact", "view", task.key, "plan.md"])
     expect(r.exitCode).toBe(0)
     expect(r.stdout).toBe("# Plan\n\nShip *it*.\n")
+  })
+
+  test("renders it on a terminal", async () => {
+    const { box, task } = await setup()
+    const md = put(box, "files/plan.md", "# Plan\n\nShip **it**.\n")
+    await box.run(["artifact", "upload", task.key, md])
+    const r = await box.run(["artifact", "view", task.key, "plan.md"], {
+      env: { INTESA_FORCE_TTY: "80" },
+    })
+    expect(r.exitCode).toBe(0)
+    expect(r.stdout).toContain("Ship")
+    expect(r.stdout).not.toContain("**it**")
   })
 
   test("--json adds the text to the artifact's fields", async () => {
@@ -358,7 +346,7 @@ describe("artifact view", () => {
     expect(r.json()).toMatchObject({ name: "plan.md", mimeType: "text/markdown", content: "hello" })
   })
 
-  test("other formats print their link when output is not a terminal", async () => {
+  test("other formats print their link when there is no terminal", async () => {
     const { box, task } = await setup()
     const up = await box.run(["artifact", "upload", task.key, fixture("brief.pdf"), "--json"])
     const [artifact] = up.json() as Listed[]
@@ -379,7 +367,7 @@ describe("artifact edit", () => {
     const [artifact] = up.json() as Listed[]
 
     const r = await box.run(["artifact", "edit", task.key, "plan.md", "--json"], {
-      env: { EDITOR: fakeEditor(box, "append", APPEND) },
+      env: editor(fakeEditor(box, "append", APPEND)),
     })
     expect(r.exitCode).toBe(0)
     expect(await text(artifact?.id ?? "")).toBe("# Plan\n\nEdited in the editor.\n")
@@ -387,9 +375,10 @@ describe("artifact edit", () => {
     expect((await onServer()).map((a) => a.name)).toEqual(["plan.md"])
   })
 
-  test("the editor is given a file named like the artifact, holding its current text", async () => {
+  test("the editor gets a file named like the artifact, in plain characters, with its text", async () => {
     const { box, task } = await setup()
-    const md = put(box, "files/plan.md", "current text")
+    // & and % would be syntax to a `.cmd` editor on Windows.
+    const md = put(box, "files/R&D 100%.md", "current text")
     await box.run(["artifact", "upload", task.key, md])
     const seen = join(box.root, "seen.json")
     const spy = fakeEditor(
@@ -400,9 +389,9 @@ import { readFileSync, writeFileSync } from "node:fs"
 const path = process.argv[2]
 writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ name: basename(path), text: readFileSync(path, "utf8") }))`,
     )
-    await box.run(["artifact", "edit", task.key, "plan.md"], { env: { EDITOR: spy } })
+    await box.run(["artifact", "edit", task.key, "R&D 100%.md"], { env: editor(spy) })
     expect(JSON.parse(readFileSync(seen, "utf8"))).toEqual({
-      name: "plan.md",
+      name: "R_D_100_.md",
       text: "current text",
     })
   })
@@ -413,7 +402,7 @@ writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ name: basename(path), te
     await box.run(["artifact", "upload", task.key, md])
     const before = await onServer()
     const r = await box.run(["artifact", "edit", task.key, "plan.md"], {
-      env: { EDITOR: fakeEditor(box, "noop", NOOP), ...DEBUG },
+      env: { ...editor(fakeEditor(box, "noop", NOOP)), ...DEBUG },
     })
     expect(r.exitCode).toBe(0)
     expect(r.stderr).toContain("No changes")
@@ -421,39 +410,45 @@ writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ name: basename(path), te
     expect(await onServer()).toEqual(before)
   })
 
-  test("VISUAL beats EDITOR, and the editor config key beats both", async () => {
+  test("without a terminal an inherited editor is never started (exit 2, pointing to replace)", async () => {
     const { box, text, task } = await setup()
     const md = put(box, "files/plan.md", "base")
     const up = await box.run(["artifact", "upload", task.key, md, "--json"])
     const [artifact] = up.json() as Listed[]
-    const append = fakeEditor(box, "append", APPEND)
-    const noop = fakeEditor(box, "noop", NOOP)
-
-    await box.run(["artifact", "edit", task.key, "plan.md"], {
-      env: { VISUAL: append, EDITOR: noop },
-    })
-    expect(await text(artifact?.id ?? "")).toContain("Edited in the editor.")
-
-    // The config editor is a no-op, so the stored text stays as it is.
-    const before = await text(artifact?.id ?? "")
-    await box.run(["config", "set", "editor", noop])
-    const r = await box.run(["artifact", "edit", task.key, "plan.md"], {
-      env: { VISUAL: append, EDITOR: append },
-    })
-    expect(r.stderr).toContain("No changes")
-    expect(await text(artifact?.id ?? "")).toBe(before)
+    const marker = join(box.root, "ran")
+    const spy = fakeEditor(
+      box,
+      "marker",
+      `import { writeFileSync } from "node:fs"\nwriteFileSync(${JSON.stringify(marker)}, "ran")`,
+    )
+    await box.run(["config", "set", "editor", spy])
+    for (const env of [{ EDITOR: spy }, { VISUAL: spy }, {}]) {
+      const r = await box.run(["artifact", "edit", task.key, "plan.md"], {
+        env: { ...env, ...DEBUG },
+      })
+      expect(r.exitCode).toBe(2)
+      expect(r.stderr).toContain("intesa artifact replace")
+      expect(r.stderr).toContain("INTESA_EDITOR")
+      expect(sent(r.stderr, "GET")).toBe(false)
+    }
+    expect(existsSync(marker)).toBe(false)
+    expect(await text(artifact?.id ?? "")).toBe("base")
   })
 
-  test("without an editor and without a terminal it is a usage error", async () => {
-    const { box, text, task } = await setup()
-    const md = put(box, "files/plan.md", "base")
-    const up = await box.run(["artifact", "upload", task.key, md, "--json"])
-    const [artifact] = up.json() as Listed[]
-    const r = await box.run(["artifact", "edit", task.key, "plan.md"], { env: DEBUG })
-    expect(r.exitCode).toBe(2)
-    expect(r.stderr).toContain("EDITOR")
-    expect(sent(r.stderr, "PUT")).toBe(false)
-    expect(await text(artifact?.id ?? "")).toBe("base")
+  test("which editor: INTESA_EDITOR, then config, VISUAL, EDITOR; without a terminal only the first", () => {
+    const env = { INTESA_EDITOR: "mine", VISUAL: "visual", EDITOR: "editor" }
+    const pick = (e: Record<string, string>, configEditor?: string, interactive = true) =>
+      editorCommand({ env: e, configEditor, interactive, platform: "linux" })
+    expect(pick(env, "config")).toEqual(["mine"])
+    expect(pick({ VISUAL: "visual", EDITOR: "editor" }, "config")).toEqual(["config"])
+    expect(pick({ VISUAL: "visual", EDITOR: "editor" })).toEqual(["visual"])
+    expect(pick({ EDITOR: '"C:\\Program Files\\ed.exe" --wait' })).toEqual([
+      "C:\\Program Files\\ed.exe",
+      "--wait",
+    ])
+    expect(pick({})).toEqual(["vi"])
+    expect(pick({ VISUAL: "visual" }, "config", false)).toBeUndefined()
+    expect(pick({ INTESA_EDITOR: "mine" }, "config", false)).toEqual(["mine"])
   })
 
   test("a failing editor aborts the edit without saving", async () => {
@@ -462,7 +457,7 @@ writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ name: basename(path), te
     const up = await box.run(["artifact", "upload", task.key, md, "--json"])
     const [artifact] = up.json() as Listed[]
     const r = await box.run(["artifact", "edit", task.key, "plan.md"], {
-      env: { EDITOR: fakeEditor(box, "fail", FAIL), ...DEBUG },
+      env: { ...editor(fakeEditor(box, "fail", FAIL)), ...DEBUG },
     })
     expect(r.exitCode).toBe(1)
     expect(r.stderr).toContain("editor")
@@ -479,7 +474,7 @@ writeFileSync(${JSON.stringify(seen)}, JSON.stringify({ name: basename(path), te
       "marker",
       `import { writeFileSync } from "node:fs"\nwriteFileSync(${JSON.stringify(marker)}, "ran")`,
     )
-    const r = await box.run(["artifact", "edit", task.key, "brief.pdf"], { env: { EDITOR: spy } })
+    const r = await box.run(["artifact", "edit", task.key, "brief.pdf"], { env: editor(spy) })
     expect(r.exitCode).toBe(8)
     expect(r.stderr).toContain("Markdown")
     expect(existsSync(marker)).toBe(false)

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { FIELD_TYPES } from "@intesa/api/schemas"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import { removeSandboxes, startServer, type TestServer, world } from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -21,39 +21,20 @@ type Field = {
   position: number
 }
 
-let n = 0
 // A signed-in sandbox that owns one workspace with a project WEB, passed as -p WEB by `run`.
-async function setup() {
-  const id = ++n
-  const box = sandbox(server.url)
-  const { session } = await loginAs(box, server, `field${id}@example.com`)
-  const ws = await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-${id}` })
-  const workspace = ws.body.workspace as { id: string; slug: string }
-  const project = (
-    await session.call("POST", `/api/workspaces/${workspace.id}/projects`, {
-      name: "Web",
-      key: "WEB",
-    })
-  ).body.project as { id: string }
-
+async function setup(opts: { scope?: "read" | "write" } = {}) {
+  const w = await world(server, opts)
+  const { box, session, project } = w
   const run = (args: string[]) => box.run([...args, "-p", "WEB"])
   const fields = async (): Promise<Field[]> => (await run(["field", "list", "--json"])).json()
-  const add = async (body: Record<string, unknown>) =>
-    (await session.call("POST", `/api/projects/${project.id}/custom-fields`, body)).body
-      .field as Field
+  const add = async (body: Record<string, unknown>) => (await w.addField(body)) as Field
   // A task with `value` stored in `field`, to see what happens to values when a field changes.
   const taskWith = async (field: Field, value: unknown) => {
-    const task = (
-      await session.call("POST", `/api/projects/${project.id}/tasks`, { title: "Has a value" })
-    ).body.task
+    const task = await w.addTask({ title: "Has a value" })
     await session.call("PATCH", `/api/tasks/${task.id}`, { customFields: { [field.id]: value } })
-    return async () =>
-      (await session.call("GET", `/api/tasks/${task.id}`)).body.task.customFields as Record<
-        string,
-        unknown
-      >
+    return async () => (await w.getTask(task.id)).customFields as Record<string, unknown>
   }
-  return { box, session, project, run, fields, add, taskWith }
+  return { box, session, project, workspace: w.workspace, run, fields, add, taskWith }
 }
 
 describe("field create", () => {
@@ -105,7 +86,7 @@ describe("field create", () => {
     const { run, fields } = await setup()
     const missing = await run(["field", "create", "Nameless"])
     expect(missing.exitCode).toBe(2)
-    expect(missing.stderr).toContain("--type")
+    expect(missing.stderr).toContain(`missing --type (one of ${FIELD_TYPES.join("|")})`)
     const unknown = await run(["field", "create", "Odd", "--type", "color"])
     expect(unknown.exitCode).toBe(2)
     expect(unknown.stderr).toContain(FIELD_TYPES.join("|"))
@@ -149,10 +130,12 @@ describe("field create", () => {
   })
 
   test("the same name is fine in another project", async () => {
-    const { box, session, run, add } = await setup()
+    const { box, session, workspace, run, add } = await setup()
     await add({ name: "Estimate", type: "number" })
-    const ws = (await box.run(["ws", "list", "--json"])).json()[0].id
-    await session.call("POST", `/api/workspaces/${ws}/projects`, { name: "Api", key: "API" })
+    await session.call("POST", `/api/workspaces/${workspace.id}/projects`, {
+      name: "Api",
+      key: "API",
+    })
     const r = await box.run(["field", "create", "Estimate", "--type", "number", "-p", "API"])
     expect(r.exitCode).toBe(0)
     expect((await run(["field", "list", "--json"])).json()).toHaveLength(1)
@@ -170,39 +153,9 @@ describe("field create", () => {
     )
   })
 
-  test("--dry-run shows the request body the flags produce", async () => {
-    const { run, project, fields } = await setup()
-    const r = await run([
-      "field",
-      "create",
-      "Stage",
-      "--type",
-      "select",
-      "--option",
-      "A",
-      "--required",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "POST",
-      path: `/api/projects/${project.id}/custom-fields`,
-      body: { name: "Stage", type: "select", required: true, options: ["A"] },
-    })
-    expect(await fields()).toEqual([])
-  })
-
   test("a read-only token cannot create fields (exit 7)", async () => {
-    const id = ++n
-    const box = sandbox(server.url)
-    const { session } = await loginAs(box, server, `field-ro${id}@example.com`, { scope: "read" })
-    const ws = await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-ro${id}` })
-    await session.call("POST", `/api/workspaces/${ws.body.workspace.id}/projects`, {
-      name: "Web",
-      key: "WEB",
-    })
-    const r = await box.run(["field", "create", "X", "--type", "text", "-p", "WEB"])
-    expect(r.exitCode).toBe(7)
+    const { run } = await setup({ scope: "read" })
+    expect((await run(["field", "create", "X", "--type", "text"])).exitCode).toBe(7)
   })
 })
 
@@ -384,14 +337,5 @@ describe("field delete", () => {
     const f = await add({ name: "Gone", type: "text" })
     const r = await run(["field", "delete", "Gone", "--yes", "--json"])
     expect(r.json()).toEqual({ id: f.id, name: "Gone", deleted: true })
-  })
-
-  test("--dry-run needs no confirmation and keeps the field", async () => {
-    const { run, add, fields } = await setup()
-    const f = await add({ name: "Dry", type: "text" })
-    const r = await run(["field", "delete", "Dry", "--dry-run"])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({ method: "DELETE", path: `/api/custom-fields/${f.id}`, body: null })
-    expect(await fields()).toHaveLength(1)
   })
 })

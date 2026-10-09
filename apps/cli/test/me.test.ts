@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { totpCode } from "../../api/src/auth/totp"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import {
+  removeSandboxes,
+  sandbox,
+  signedIn as signIn,
+  startServer,
+  type TestServer,
+} from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -11,13 +17,7 @@ afterAll(() => {
   removeSandboxes()
 })
 
-let counter = 0
-async function signedIn(opts: { scope?: "read" | "write" } = {}) {
-  const box = sandbox(server.url)
-  const email = `me-${++counter}@example.com`
-  const { session } = await loginAs(box, server, email, opts)
-  return { box, email, session }
-}
+const signedIn = (opts: { scope?: "read" | "write" } = {}) => signIn(server, opts)
 
 const dbUser = (email: string) =>
   server.db.selectFrom("users").selectAll().where("email", "=", email).executeTakeFirstOrThrow()
@@ -61,11 +61,12 @@ describe("me edit", () => {
     expect((await dbUser(email)).name).toBe("Renamed Person")
   })
 
-  test("--name is required when not interactive, and the error names it", async () => {
+  test("--name is required when not interactive: the error names it, and nothing is fetched", async () => {
     const { box } = await signedIn()
-    const r = await box.run(["me", "edit"])
+    const r = await box.run(["me", "edit"], { env: { INTESA_DEBUG: "1" } })
     expect(r.exitCode).toBe(2)
     expect(r.stderr).toContain("--name")
+    expect(r.stderr).not.toContain("> ")
   })
 
   test("a blank name is rejected by the server (exit 8)", async () => {

@@ -1,8 +1,9 @@
 import { PROJECT_KEY_PATTERN, TASK_KEY_PATTERN } from "@intesa/api/schemas"
-import { readHosts, writeHosts } from "../config/config"
-import { CliError, usageError } from "../output/errors"
+import { cacheWorkspace, readHosts } from "../config/config"
+import { notFound, usageError } from "../output/errors"
 import type { Ctx } from "../registry/define"
 import { requireHost } from "./context"
+
 
 // Turns what people type (slugs, keys, names, links) into API objects. Lists are fetched
 // lazily and at most once per invocation; nothing but a workspace's id is kept on disk, so
@@ -13,20 +14,9 @@ export type WorkspaceRef = { id: string; slug: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Web app links, as the web's own "Copy link" builds them.
-export const links = {
-  workspace: (host: string, slug: string) => `${host}/w/${slug}/home`,
-  project: (host: string, slug: string, projectId: string) =>
-    `${host}/w/${slug}/projects/${projectId}`,
-  task: (host: string, slug: string, task: { id: string; projectId: string }) =>
-    `${host}/w/${slug}/projects/${task.projectId}?task=${task.id}`,
-}
-
-export const notFound = (message: string, hint?: string) =>
-  new CliError(message, { code: "NOT_FOUND", exitCode: 5, hint })
-
-// Exact id first, then a case-insensitive exact name (or email). Several matches are never
-// guessed between; none is NOT_FOUND, like an unknown id on the server.
+// Exact id first, then (with `exactCase`) a name as typed, then a case-insensitive name (or
+// email). The first step that finds anything decides; several matches in it are never
+// guessed between. None is NOT_FOUND, like an unknown id on the server.
 export function pickOne<T>(
   items: T[],
   query: string,
@@ -35,20 +25,29 @@ export function pickOne<T>(
     ids: (t: T) => string[]
     names: (t: T) => string[]
     label: (t: T) => string
+    exactCase?: boolean
+    // For NOT_FOUND, e.g. what there is to choose from.
+    hint?: string
   },
 ): T {
-  const byId = items.find((t) => opts.ids(t).includes(query))
-  if (byId) return byId
   const wanted = query.toLowerCase()
-  const matches = items.filter((t) => opts.names(t).some((n) => n.toLowerCase() === wanted))
-  if (matches.length === 1 && matches[0] !== undefined) return matches[0]
-  if (matches.length > 1) {
-    throw usageError(
-      `"${query}" matches several ${opts.noun}s: ${matches.map(opts.label).join(", ")}`,
-      `Name one of them exactly, e.g. by ${opts.noun === "member" ? "email" : "id"}.`,
-    )
+  const steps = [
+    (t: T) => opts.ids(t).includes(query),
+    ...(opts.exactCase ? [(t: T) => opts.names(t).includes(query)] : []),
+    (t: T) => opts.names(t).some((n) => n.toLowerCase() === wanted),
+  ]
+  for (const step of steps) {
+    const matches = items.filter(step)
+    const [first] = matches
+    if (matches.length === 1 && first !== undefined) return first
+    if (matches.length > 1) {
+      throw usageError(
+        `"${query}" matches several ${opts.noun}s: ${matches.map(opts.label).join(", ")}`,
+        `Name one of them exactly, e.g. by ${opts.noun === "member" ? "email" : "id"}.`,
+      )
+    }
   }
-  throw notFound(`no ${opts.noun} matches "${query}"`)
+  throw notFound(`no ${opts.noun} matches "${query}"`, opts.hint)
 }
 
 function once<T>(load: () => Promise<T>): () => Promise<T> {
@@ -95,15 +94,9 @@ function createResolver(ctx: Deps) {
     async () => (await (await (await client()).api.workspaces.$get()).json()).workspaces,
   )
 
-  // Only for a host with stored credentials: a hosts.json entry also marks "logged in".
-  const remember = (ws: WorkspaceRef) => {
-    const hosts = readHosts(ctx.configDir)
-    const entry = hosts[host()]
-    if (!entry || (entry.workspace?.id === ws.id && entry.workspace.slug === ws.slug)) return
-    entry.workspace = { slug: ws.slug, id: ws.id }
-    writeHosts(ctx.configDir, hosts)
-  }
+  const remember = (ws: WorkspaceRef) => cacheWorkspace(ctx.configDir, host(), ws)
 
+  // A slug (any case) or an id.
   async function findWorkspace(wanted: string): Promise<WorkspaceRef> {
     const cached = readHosts(ctx.configDir)[host()]?.workspace
     if (cached && (cached.slug === wanted || cached.id === wanted)) return cached
@@ -141,7 +134,7 @@ function createResolver(ctx: Deps) {
     )
   })
 
-  const workspace = (slug?: string) => (slug ? findWorkspace(slug) : currentWorkspace())
+  const workspace = (ref?: string) => (ref ? findWorkspace(ref) : currentWorkspace())
 
   const projects = once(async () => {
     const { id } = await currentWorkspace()

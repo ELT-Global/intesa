@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { EXIT_CODES } from "../output/errors"
+import { ERROR_CODES, EXIT_CODES } from "../output/errors"
 import { FIELD_SETS } from "../output/render"
 import { VERSION } from "../version"
 import { type Command, globalFlags, kebab } from "./define"
@@ -53,6 +53,8 @@ export function cliSchema(commands: { cmd: Command; path: string[] }[]) {
     version: VERSION,
     globalFlags: flagsSchema(globalFlags),
     exitCodes: EXIT_CODES,
+    // The `code` of an `{"error": …}` on stderr, and the exit code that goes with it.
+    errorCodes: ERROR_CODES,
     commands: commands.map(({ cmd, path }) => commandSchema(cmd, path)),
   }
 }

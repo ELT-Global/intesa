@@ -1,13 +1,18 @@
 import { styleText } from "node:util"
 import { EXIT_CODES } from "../output/errors"
 import { FIELD_SETS } from "../output/render"
-import type { Arg, Command, Group } from "./define"
-import { globalFlags } from "./define"
-import { type FlagSpec, flagSpecs } from "./parse"
+import {
+  type Arg,
+  type Command,
+  type FlagSpec,
+  flagSpecs,
+  GLOBAL_SPECS as GLOBALS,
+  type Group,
+  inheritedFlags,
+  negationOnly,
+} from "./define"
 
-export type NounSummary = { name: string; aliases?: string[]; summary: string; hidden?: boolean }
-
-const GLOBALS = flagSpecs(globalFlags)
+export type NounSummary = { name: string; aliases?: string[]; summary: string }
 
 const ENVIRONMENT: [string, string][] = [
   ["INTESA_TOKEN", "Token to use instead of stored credentials (CI and agents)"],
@@ -24,8 +29,10 @@ const ENVIRONMENT: [string, string][] = [
   ["NO_COLOR, CLICOLOR=0", "Disable color"],
   ["CLICOLOR_FORCE", "Enable color even when piped"],
   ["INTESA_DEBUG", "`1` logs HTTP requests to stderr; `api` also logs headers and bodies"],
+  ["INTESA_HTTP_TIMEOUT_MS", "How long a request may take before it fails (default 30000)"],
   ["INTESA_PAGER, PAGER", "Pager for long output"],
-  ["VISUAL, EDITOR", "Editor for long text"],
+  ["VISUAL, EDITOR", "Editor for long text, at a terminal"],
+  ["INTESA_EDITOR", "Editor for intesa only, used even without a terminal"],
   ["BROWSER", "Browser for opening links"],
 ]
 
@@ -64,14 +71,15 @@ function flagRows(specs: FlagSpec[]): string[] {
   return columns(
     specs.map((s) => {
       // A boolean that defaults to on is documented by the form that turns it off.
-      const name = s.kind === "boolean" && s.defaultValue === true ? `no-${s.flag}` : s.flag
+      const name = negationOnly(s) ? `no-${s.flag}` : s.flag
       const value =
         s.kind === "boolean"
           ? ""
           : ` ${s.placeholder ?? (s.kind === "number" ? "number" : "string")}${s.multiple ? "..." : ""}`
       const choices = s.choices ? `: {${s.choices.join("|")}}` : ""
-      const fallback =
-        s.kind !== "boolean" && s.defaultValue !== undefined && !Array.isArray(s.defaultValue)
+      const fallback = s.required
+        ? " (required)"
+        : s.kind !== "boolean" && s.defaultValue !== undefined && !Array.isArray(s.defaultValue)
           ? ` (default ${JSON.stringify(s.defaultValue)})`
           : ""
       return [
@@ -98,7 +106,7 @@ export function rootHelp(nouns: NounSummary[], color: boolean) {
     "Work with Intesa from the command line.",
     [
       ["USAGE", ["intesa <command> <subcommand> [flags]"]],
-      ["COMMANDS", list(nouns.filter((n) => !n.hidden))],
+      ["COMMANDS", list(nouns)],
       ["HELP TOPICS", list(HELP_TOPICS)],
       ["FLAGS", flagRows(GLOBALS)],
       [
@@ -136,11 +144,6 @@ export function groupHelp(group: Group, color: boolean) {
 export function commandHelp(cmd: Command, path: string[], color: boolean) {
   const usage = ["intesa", ...path, argUsage(cmd.args), "[flags]"].filter(Boolean).join(" ")
   const described = (cmd.args ?? []).filter((a) => a.description)
-  const inherited = GLOBALS.filter(
-    (s) =>
-      s.key !== "version" &&
-      ((s.key !== "workspace" && s.key !== "project") || cmd.context?.includes(s.key)),
-  )
   const output = cmd.output ? FIELD_SETS[cmd.output].fields.join(", ") : undefined
   return sections(
     cmd.description ?? cmd.summary,
@@ -149,7 +152,7 @@ export function commandHelp(cmd: Command, path: string[], color: boolean) {
       ["ALIASES", aliasLines(path, cmd.aliases)],
       ["ARGUMENTS", columns(described.map((a) => [`<${a.name}>`, a.description ?? ""]))],
       ["FLAGS", flagRows(flagSpecs(cmd.flags))],
-      ["INHERITED FLAGS", flagRows(inherited)],
+      ["INHERITED FLAGS", flagRows(inheritedFlags(cmd))],
       ["JSON FIELDS", output ? [output] : []],
       ["EXAMPLES", examples(cmd.examples)],
       ["LEARN MORE", LEARN_MORE],

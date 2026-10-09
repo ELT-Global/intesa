@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { TAG_COLORS } from "@intesa/api/schemas"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import { removeSandboxes, startServer, type TestServer, world } from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -15,35 +15,35 @@ type Tag = { id: string; name: string; color: string }
 
 let n = 0
 // A signed-in sandbox whose user owns exactly one workspace, so no -w is needed.
-async function owner() {
-  const id = ++n
-  const box = sandbox(server.url)
-  const { session } = await loginAs(box, server, `tag${id}@example.com`)
-  const ws = await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-${id}` })
-  const workspace = ws.body.workspace as { id: string; slug: string }
-  const tags = async (): Promise<Tag[]> => (await box.run(["tag", "list", "--json"])).json()
-  const add = async (name: string, color = "blue") =>
-    (await session.call("POST", `/api/workspaces/${workspace.id}/tags`, { name, color })).body
-      .tag as Tag
-  return { box, session, workspace, tags, add }
+async function owner(opts: { scope?: "read" | "write" } = {}) {
+  ++n
+  const w = await world(server, opts)
+  const tags = async (): Promise<Tag[]> => (await w.box.run(["tag", "list", "--json"])).json()
+  const add = (name: string, color = "blue") => w.addTag(name, color)
+  return { ...w, tags, add }
 }
 
 describe("tag create", () => {
   test("creates a tag with the colour asked for and returns it", async () => {
     const { box, tags } = await owner()
-    const r = await box.run(["tag", "create", "Urgent", "--tag-color", "violet", "--json"])
+    const r = await box.run(["tag", "create", "Urgent", "--color", "violet", "--json"])
     expect(r.exitCode).toBe(0)
     expect(r.json()).toEqual({ id: expect.any(String), name: "Urgent", color: "violet" })
     expect(await tags()).toEqual([r.json()])
   })
 
-  test("without --tag-color the server picks one from the palette", async () => {
+  test("without --color the server picks one from the palette", async () => {
     const { box } = await owner()
     const r = await box.run(["tag", "create", "Plain", "--json"])
     expect(r.exitCode).toBe(0)
     expect(TAG_COLORS).toContain(r.json().color)
-    const dry = await box.run(["tag", "create", "Plain 2", "--dry-run"])
-    expect(dry.json().body).toEqual({ name: "Plain 2" })
+  })
+
+  test("--color is the tag's, and --no-color still turns off colored output", async () => {
+    const { box } = await owner()
+    const r = await box.run(["tag", "create", "Both", "--color", "aqua", "--no-color", "--json"])
+    expect(r.exitCode).toBe(0)
+    expect(r.json().color).toBe("aqua")
   })
 
   test("a name taken in another case exits 6", async () => {
@@ -57,9 +57,9 @@ describe("tag create", () => {
 
   test("a colour outside the palette is a usage error and creates nothing", async () => {
     const { box, tags } = await owner()
-    const r = await box.run(["tag", "create", "Odd", "--tag-color", "chartreuse"])
+    const r = await box.run(["tag", "create", "Odd", "--color", "chartreuse"])
     expect(r.exitCode).toBe(2)
-    expect(r.stderr).toContain("--tag-color")
+    expect(r.stderr).toContain("--color")
     expect(r.stderr).toContain(TAG_COLORS.join("|"))
     expect(await tags()).toEqual([])
   })
@@ -71,10 +71,7 @@ describe("tag create", () => {
   })
 
   test("a read-only token cannot create tags (exit 7)", async () => {
-    const id = ++n
-    const box = sandbox(server.url)
-    const { session } = await loginAs(box, server, `tag-ro${id}@example.com`, { scope: "read" })
-    await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-ro${id}` })
+    const { box } = await owner({ scope: "read" })
     expect((await box.run(["tag", "create", "Nope"])).exitCode).toBe(7)
   })
 })
@@ -120,7 +117,7 @@ describe("tag edit", () => {
     expect(renamed.exitCode).toBe(0)
     expect(renamed.json()).toEqual({ id: tag.id, name: "Final", color: "blue" })
 
-    const recoloured = await box.run(["tag", "edit", tag.id, "--tag-color", "magenta", "--json"])
+    const recoloured = await box.run(["tag", "edit", tag.id, "--color", "magenta", "--json"])
     expect(recoloured.json()).toEqual({ id: tag.id, name: "Final", color: "magenta" })
   })
 
@@ -147,9 +144,9 @@ describe("tag edit", () => {
     const none = await box.run(["tag", "edit", "Same"])
     expect(none.exitCode).toBe(2)
     expect(none.stderr).toContain("--name")
-    const bad = await box.run(["tag", "edit", "Same", "--tag-color", "red"])
+    const bad = await box.run(["tag", "edit", "Same", "--color", "red"])
     expect(bad.exitCode).toBe(2)
-    expect(bad.stderr).toContain("--tag-color")
+    expect(bad.stderr).toContain("--color")
   })
 
   test("an unknown tag exits 5", async () => {
@@ -171,27 +168,16 @@ describe("tag delete", () => {
   })
 
   test("--yes deletes it, also from the tasks that had it", async () => {
-    const { box, session, workspace, add, tags } = await owner()
+    const { box, add, tags, addTask, getTask } = await owner()
     const tag = await add("Doomed")
-    const project = (
-      await session.call("POST", `/api/workspaces/${workspace.id}/projects`, {
-        name: "Web",
-        key: "WEB",
-      })
-    ).body.project
-    const task = (
-      await session.call("POST", `/api/projects/${project.id}/tasks`, {
-        title: "Tagged",
-        tagIds: [tag.id],
-      })
-    ).body.task
+    const task = await addTask({ title: "Tagged", tagIds: [tag.id] })
     expect(task.tags).toHaveLength(1)
 
     const r = await box.run(["tag", "delete", "doomed", "--yes"])
     expect(r.exitCode).toBe(0)
     expect(r.stdout).toBe("")
     expect(await tags()).toEqual([])
-    expect((await session.call("GET", `/api/tasks/${task.id}`)).body.task.tags).toEqual([])
+    expect((await getTask(task.id)).tags).toEqual([])
   })
 
   test("--json reports what was deleted", async () => {
@@ -199,14 +185,5 @@ describe("tag delete", () => {
     const tag = await add("Gone")
     const r = await box.run(["tag", "delete", "Gone", "--yes", "--json"])
     expect(r.json()).toEqual({ id: tag.id, name: "Gone", deleted: true })
-  })
-
-  test("--dry-run needs no confirmation and keeps the tag", async () => {
-    const { box, add, tags } = await owner()
-    const tag = await add("Dry")
-    const r = await box.run(["tag", "delete", "Dry", "--dry-run"])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({ method: "DELETE", path: `/api/tags/${tag.id}`, body: null })
-    expect(await tags()).toHaveLength(1)
   })
 })

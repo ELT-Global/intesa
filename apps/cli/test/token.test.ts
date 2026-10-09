@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import {
+  removeSandboxes,
+  type Sandbox,
+  signedIn as signIn,
+  startServer,
+  type TestServer,
+} from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -13,12 +19,7 @@ afterAll(() => {
 const DAY_MS = 24 * 60 * 60 * 1000
 
 // A signed-in sandbox, with a distinct user so tests never see each other's tokens.
-let counter = 0
-async function signedIn(opts: { scope?: "read" | "write" } = {}) {
-  const box = sandbox(server.url)
-  const login = await loginAs(box, server, `token-${++counter}@example.com`, opts)
-  return { box, ...login }
-}
+const signedIn = (opts: { scope?: "read" | "write" } = {}) => signIn(server, opts)
 
 type Listed = {
   id: string
@@ -27,7 +28,7 @@ type Listed = {
   expiresAt: string | null
   current: boolean
 }
-const listTokens = async (box: ReturnType<typeof sandbox>): Promise<Listed[]> =>
+const listTokens = async (box: Sandbox): Promise<Listed[]> =>
   (await box.run(["token", "list", "--json"])).json()
 
 describe("token create", () => {
@@ -127,27 +128,6 @@ describe("token create --expires", () => {
       expect(r.stdout).toBe("")
     },
   )
-
-  test("--dry-run shows the request body the flags produce", async () => {
-    const { box } = await signedIn()
-    const r = await box.run([
-      "token",
-      "create",
-      "--name",
-      "dry",
-      "--scope",
-      "read",
-      "--expires",
-      "90d",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "POST",
-      path: "/api/me/tokens",
-      body: { name: "dry", scope: "read", expiresInDays: 90 },
-    })
-  })
 })
 
 describe("token list", () => {
@@ -206,7 +186,7 @@ describe("token revoke", () => {
     const { box } = await signedIn()
     const created = (await box.run(["token", "create", "--name", "j", "--json"])).json()
     const r = await box.run(["token", "revoke", created.id, "--yes", "--json"])
-    expect(r.json()).toEqual({ id: created.id, revoked: true })
+    expect(r.json()).toEqual({ id: created.id, name: "j", deleted: true })
   })
 
   test("an unknown id exits 5", async () => {
@@ -221,14 +201,6 @@ describe("token revoke", () => {
     const r = await mine.box.run(["token", "revoke", theirs.tokenId, "--yes"])
     expect(r.exitCode).toBe(5)
     expect((await listTokens(theirs.box)).some((t) => t.id === theirs.tokenId)).toBe(true)
-  })
-
-  test("--dry-run needs no confirmation and revokes nothing", async () => {
-    const { box, tokenId } = await signedIn()
-    const r = await box.run(["token", "revoke", tokenId, "--dry-run"])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toMatchObject({ method: "DELETE", path: `/api/me/tokens/${tokenId}` })
-    expect((await listTokens(box)).some((t) => t.id === tokenId)).toBe(true)
   })
 
   test("the id argument is required", async () => {

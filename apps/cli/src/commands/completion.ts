@@ -1,6 +1,5 @@
 import { completionScript, SHELLS, type Shell } from "../registry/completion-scripts"
 import { defineCommand } from "../registry/define"
-import { allCommands } from "."
 
 export default defineCommand({
   name: "completion",
@@ -13,12 +12,12 @@ export default defineCommand({
     "fish:        run `intesa completion fish > ~/.config/fish/completions/intesa.fish`",
     "powershell:  add `intesa completion powershell | Out-String | Invoke-Expression` to $PROFILE",
     "",
-    "Command and flag names are in the script. Values such as ids are looked up as you press",
-    "tab, so they need a working login; if the lookup fails, nothing is suggested.",
+    "The script asks intesa for candidates as you press tab. Values such as ids are looked up",
+    "on the server, so they need a working login; if the lookup fails, nothing is suggested.",
   ].join("\n"),
   args: [{ name: "shell", required: true, enum: SHELLS }],
   examples: ["intesa completion bash", "intesa completion powershell"],
-  async run(ctx, { shell }) {
-    ctx.stdout(completionScript(shell as Shell, await allCommands()))
+  run(ctx, { shell }) {
+    ctx.stdout(completionScript(shell as Shell))
   },
 })

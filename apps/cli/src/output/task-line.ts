@@ -1,5 +1,6 @@
 import { styleText } from "node:util"
 import {
+  daysUntil,
   dueState,
   formatDay,
   PRIORITY_LABELS,
@@ -8,6 +9,7 @@ import {
   type TaskStatus,
 } from "@intesa/task-query"
 import type { Env } from "./mode"
+import { pad, truncate } from "./table"
 
 export type LineTask = {
   key: string
@@ -88,9 +90,7 @@ export const priorityText = (priority: TaskPriority, style: LineStyle) =>
 
 // "due today", "due in 3d", "overdue 2d": relative while it is close, a date further out.
 export function dueText(dueAt: string, status: TaskStatus, style: LineStyle, now = new Date()) {
-  const [y, m, d] = dueAt.split("-").map(Number) as [number, number, number]
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = Math.round((new Date(y, m - 1, d).getTime() - today.getTime()) / 86_400_000)
+  const days = daysUntil(dueAt, now)
   const text =
     days < 0
       ? `overdue ${-days}d`
@@ -109,16 +109,8 @@ export function dueText(dueAt: string, status: TaskStatus, style: LineStyle, now
       : text
 }
 
-// "@alan" for Alan Owner: short enough for a line, and what `-a alan` matches.
+// "@alan" for Alan Owner: short enough for a line.
 const handle = (name: string) => `@${(name.split(/\s+/)[0] ?? name).toLowerCase()}`
-
-function truncate(text: string, width: number) {
-  if (Bun.stringWidth(text) <= width) return text
-  return `${Bun.sliceAnsi(text, 0, Math.max(width - 1, 0))}…`
-}
-
-const pad = (text: string, width: number) =>
-  text + " ".repeat(Math.max(width - Bun.stringWidth(text), 0))
 
 // One line per task, like a board card:
 // WEB-12  ◐ In progress  Fix login redirect  ↑ High  @alan @mei  #auth  due in 2d  ☐ 1/3

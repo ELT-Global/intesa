@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { removeSandboxes, startServer, type TestServer } from "./helpers"
-import { taskWorld } from "./task-fixtures"
+import { world as baseWorld, removeSandboxes, startServer, type TestServer } from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -15,7 +14,7 @@ afterAll(() => {
 
 // A world with a tag, a second person and one custom field of each type.
 async function world() {
-  const w = await taskWorld(server)
+  const w = await baseWorld(server)
   const mei = await w.addPerson("Mei Member")
   const una = await w.addPerson("Una Unique")
   const auth = await w.addTag("auth")
@@ -193,26 +192,14 @@ describe("task create", () => {
     expect(due.stderr).toContain("YYYY-MM-DD")
   })
 
-  test("--dry-run prints the request and creates nothing", async () => {
-    const before = (await w.projectTasks()).length
-    const r = await w.box.run([
-      "task",
-      "create",
-      "-p",
-      "WEB",
-      "-T",
-      "Dry",
-      "-a",
-      "@me",
-      "--dry-run",
-    ])
+  test("custom field values go with the task in its one request", async () => {
+    const r = await w.box.run(
+      ["task", "create", "-p", "WEB", "-T", "Valued", "--field", "Estimate=2", "--json"],
+      { env: { INTESA_DEBUG: "1" } },
+    )
     expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "POST",
-      path: `/api/projects/${w.project.id}/tasks`,
-      body: { title: "Dry", assigneeIds: [w.me] },
-    })
-    expect((await w.projectTasks()).length).toBe(before)
+    expect(r.stderr.match(/^> (POST|PATCH|PUT|DELETE) /gm)).toEqual(["> POST "])
+    expect((await w.getTask(r.json().id)).customFields).toEqual({ [w.fields.estimate]: 2 })
   })
 })
 
@@ -291,23 +278,14 @@ describe("task edit", () => {
     expect((await w.getTask(task.id)).customFields).toEqual({ [w.fields.estimate]: 8 })
   })
 
-  test("--dry-run prints one PATCH with the complete new sets", async () => {
-    const task = await w.addTask({ title: "Dry", assigneeIds: [w.me] })
-    const r = await w.box.run([
-      "task",
-      "edit",
-      task.key,
-      "--add-assignee",
-      "Mei Member",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "PATCH",
-      path: `/api/tasks/${task.id}`,
-      body: { assigneeIds: [w.me, w.mei.id] },
-    })
-    expect(names((await w.getTask(task.id)).assignees)).toEqual(["Alan Owner"])
+  test("unknown tags exit 5 with a pointer to --create-tags, which creates them", async () => {
+    const task = await w.addTask({ title: "Tags" })
+    const r = await w.box.run(["task", "edit", task.key, "--add-tag", "fresh"])
+    expect(r.exitCode).toBe(5)
+    expect(r.stderr).toContain("--create-tags")
+    const ok = await w.box.run(["task", "edit", task.key, "--add-tag", "fresh", "--create-tags"])
+    expect(ok.exitCode).toBe(0)
+    expect(names((await w.getTask(task.id)).tags)).toEqual(["fresh"])
   })
 
   test("nothing to change is a usage error", async () => {

@@ -1,31 +1,29 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { CliError, usageError } from "../output/errors"
+import { cliError, usageError } from "../output/errors"
 import type { Env } from "../output/mode"
+import { splitCommand } from "./command"
 
-// Splits a command line into words; double or single quotes keep a path with spaces together.
-// There are no escapes, so Windows backslashes pass through untouched.
-export function splitCommand(line: string): string[] {
-  return [...line.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? "")
-}
-
-// The editor command: the `editor` config key, then VISUAL, then EDITOR. Without any of them
-// a person at a terminal gets the platform's plain editor; a script gets undefined, because
-// guessing one would hang it.
+// The editor command. INTESA_EDITOR is set on purpose for intesa alone, so it is used even
+// without a terminal (tests, scripted edits). Otherwise only a person at a terminal gets one:
+// the `editor` config key, then VISUAL, then EDITOR, else the platform's plain editor. A
+// script gets undefined, because an editor inherited from someone's shell (`code --wait`)
+// would hang it.
 export function editorCommand(opts: {
   env: Env
   configEditor?: string
   interactive: boolean
   platform?: string
 }): string[] | undefined {
+  if (opts.env.INTESA_EDITOR?.trim()) return splitCommand(opts.env.INTESA_EDITOR)
+  if (!opts.interactive) return undefined
   const custom = [opts.configEditor, opts.env.VISUAL, opts.env.EDITOR].find((e) => e?.trim())
   if (custom) return splitCommand(custom)
-  if (!opts.interactive) return undefined
   return [(opts.platform ?? process.platform) === "win32" ? "notepad" : "vi"]
 }
 
-// Opens `text` in the editor, in a temp file called `filename` (so syntax highlighting
+// Opens `text` in the editor, in a temp file named after `filename` (so syntax highlighting
 // follows its extension), and returns what was saved. The editor must block until closed,
 // e.g. `code --wait`.
 export async function editText(
@@ -35,12 +33,13 @@ export async function editText(
   const command = editorCommand(opts)
   if (!command) {
     throw usageError(
-      "no editor: set VISUAL or EDITOR, or run `intesa config set editor COMMAND`",
-      "Editors that fork into the background need a wait flag, e.g. `code --wait`.",
+      "no editor without a terminal",
+      "Set INTESA_EDITOR to edit from a script; editors that fork need a wait flag (`code --wait`).",
     )
   }
   const dir = mkdtempSync(join(tmpdir(), "intesa-edit-"))
-  const path = join(dir, opts.filename)
+  // Only plain characters: a `.cmd` editor on Windows would read & % ^ in the path as syntax.
+  const path = join(dir, opts.filename.replace(/[^\w.-]+/g, "_"))
   try {
     await Bun.write(path, text)
     let code: number
@@ -52,17 +51,14 @@ export async function editText(
       })
       code = await proc.exited
     } catch (err) {
-      throw new CliError(`could not start the editor "${command[0]}": ${(err as Error).message}`, {
-        code: "EDITOR_ERROR",
-        exitCode: 1,
-        hint: "Set VISUAL or EDITOR, or run `intesa config set editor COMMAND`.",
-      })
+      throw cliError(
+        "EDITOR_ERROR",
+        `could not start the editor "${command[0]}": ${(err as Error).message}`,
+        "Set VISUAL or EDITOR, or run `intesa config set editor COMMAND`.",
+      )
     }
     if (code !== 0) {
-      throw new CliError(`the editor exited with code ${code}; nothing was saved`, {
-        code: "EDITOR_ERROR",
-        exitCode: 1,
-      })
+      throw cliError("EDITOR_ERROR", `the editor exited with code ${code}; nothing was saved`)
     }
     return await Bun.file(path).text()
   } finally {

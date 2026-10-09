@@ -89,10 +89,11 @@ describe("auth login (device flow)", () => {
   test("an expired request exits 4", async () => {
     const box = sandbox(server.url)
     const login = box.start(["auth", "login", "--no-browser", "--json"], FAST)
-    await login.waitForStderr(CODE)
+    const [, code] = await login.waitForStderr(CODE)
     await server.db
       .updateTable("deviceAuthorizations")
       .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where("userCode", "=", code ?? "")
       .execute()
 
     expect(await login.exited).toBe(4)

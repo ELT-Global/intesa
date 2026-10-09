@@ -1,15 +1,15 @@
 import { PRIORITIES, STATUSES } from "@intesa/api/schemas"
 import { z } from "zod"
+import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
-import { askText } from "../../output/ask"
+import { askText } from "../../io/prompt"
 import { usageError } from "../../output/errors"
 import { defineCommand } from "../../registry/define"
 import {
   customFields,
   dueDate,
-  linker,
-  present,
   readBody,
+  showTasks,
   splitList,
   tagIds,
   taskArg,
@@ -28,6 +28,11 @@ const textFlags = {
     description: "Read the description from a file (- for stdin)",
   }),
 }
+
+const createTags = z
+  .boolean()
+  .default(false)
+  .meta({ description: "Create tags that do not exist yet" })
 
 const fieldFlag = z.array(z.string()).default([]).meta({
   placeholder: "NAME=VALUE",
@@ -64,10 +69,7 @@ export const create = defineCommand({
       .array(z.string())
       .default([])
       .meta({ short: "t", placeholder: "tag", description: "Add tags" }),
-    createTags: z
-      .boolean()
-      .default(false)
-      .meta({ description: "Create tags that do not exist yet" }),
+    createTags,
     parent: z
       .string()
       .optional()
@@ -95,7 +97,8 @@ export const create = defineCommand({
     const parent = flags.parent === undefined ? undefined : await r.task(flags.parent)
     // A subtask lives in its parent's project unless -p says otherwise (the server then
     // rejects the mismatch).
-    const projectId = parent && !ctx.globals.project ? parent.projectId : (await r.project()).id
+    const project = parent && !ctx.globals.project ? parent.project : await r.project()
+    const projectId = project.id
     const values = await customFields(ctx, projectId, flags.field)
     const assigneeIds = await userIds(ctx, splitList(flags.assignee))
     const tags = await tagIds(ctx, splitList(flags.tag), flags.createTags)
@@ -112,19 +115,12 @@ export const create = defineCommand({
         parentTaskId: parent?.id,
         ...(assigneeIds.length > 0 && { assigneeIds }),
         ...(tags.length > 0 && { tagIds: tags }),
+        ...(Object.keys(values).length > 0 && { customFields: values }),
       },
     })
-    let { task } = await res.json()
-    // Creation takes no custom field values; they follow in a second request.
-    if (Object.keys(values).length > 0) {
-      const patched = await client.api.tasks[":taskId"].$patch({
-        param: { taskId: task.id },
-        json: { customFields: values },
-      })
-      task = (await patched.json()).task
-    }
-    return present(ctx, (await linker(ctx))(task))
+    return (await webLinks(ctx, project.workspaceId)).task((await res.json()).task)
   },
+  human: showTasks,
 })
 
 export const edit = defineCommand({
@@ -159,6 +155,7 @@ export const edit = defineCommand({
       .array(z.string())
       .default([])
       .meta({ placeholder: "tag", description: "Remove a tag" }),
+    createTags,
     field: fieldFlag,
     clearField: z
       .array(z.string())
@@ -210,7 +207,7 @@ export const edit = defineCommand({
     const nextTags = labels
       ? nextSet(
           task.tags.map((g) => g.id),
-          await tagIds(ctx, splitList(flags.addTag)),
+          await tagIds(ctx, splitList(flags.addTag), flags.createTags),
           await tagIds(ctx, splitList(flags.removeTag)),
         )
       : undefined
@@ -228,6 +225,7 @@ export const edit = defineCommand({
         ...(Object.keys(values).length > 0 && { customFields: values }),
       },
     })
-    return present(ctx, (await linker(ctx))((await res.json()).task))
+    return (await webLinks(ctx, task.project.workspaceId)).task((await res.json()).task)
   },
+  human: showTasks,
 })

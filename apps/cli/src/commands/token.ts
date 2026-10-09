@@ -1,7 +1,7 @@
 import { TOKEN_SCOPES } from "@intesa/api/schemas"
 import { z } from "zod"
-import { askText, confirmDestructive } from "../output/ask"
-import { usageError } from "../output/errors"
+import { askText, confirmDestructive } from "../io/prompt"
+import { notFound, usageError } from "../output/errors"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const MAX_DAYS = 3650
@@ -19,10 +19,9 @@ function expiresInDays(value: string | undefined): number | undefined {
   return n
 }
 
-async function tokenIds(ctx: Ctx, { word }: { word: string }) {
+const myTokens = async (ctx: Ctx) => {
   const { client } = await ctx.http()
-  const { tokens } = await (await client.api.me.tokens.$get()).json()
-  return tokens.map((t) => t.id).filter((id) => id.startsWith(word))
+  return (await (await client.api.me.tokens.$get()).json()).tokens
 }
 
 const list = defineCommand({
@@ -35,11 +34,7 @@ const list = defineCommand({
     "tokens are never shown again after they are created.",
   output: "apiToken",
   examples: ["intesa token list", "intesa token list --json --fields id,name,expiresAt"],
-  async run(ctx) {
-    const { client } = await ctx.http()
-    const res = await client.api.me.tokens.$get()
-    return (await res.json()).tokens
-  },
+  run: myTokens,
 })
 
 const create = defineCommand({
@@ -84,11 +79,11 @@ const create = defineCommand({
       json: { name, scope: flags.scope, ...(days === undefined ? {} : { expiresInDays: days }) },
     })
     const created = await res.json()
-    if (ctx.globals.json) return created
-    // Just the token, so `$(intesa token create ...)` works; the reminder goes to stderr.
-    ctx.stdout(`${created.token}\n`)
     if (!ctx.globals.quiet) ctx.stderr("This token will not be shown again. Store it now.\n")
+    return created
   },
+  // Just the token, so `$(intesa token create ...)` works.
+  human: (_ctx, created) => `${created.token}\n`,
 })
 
 const revoke = defineCommand({
@@ -101,17 +96,22 @@ const revoke = defineCommand({
       name: "id",
       required: true,
       description: "Token id",
-      complete: tokenIds,
+      complete: async (ctx: Ctx, { word }: { word: string }) =>
+        (await myTokens(ctx)).map((t) => t.id).filter((id) => id.startsWith(word)),
     },
   ],
+  output: "deleted",
   examples: ["intesa token revoke 3f2c0d1e-...", "intesa token revoke 3f2c0d1e-... --yes"],
   async run(ctx, { id }) {
-    await confirmDestructive(ctx, `Revoke token ${id}?`)
+    const token = (await myTokens(ctx)).find((t) => t.id === id)
+    if (!token) throw notFound(`no token with id ${id}`, "Find ids with `intesa token list`.")
+    await confirmDestructive(ctx, `Revoke token ${token.name} (…${token.lastFour})?`)
     const { client } = await ctx.http()
     await client.api.me.tokens[":tokenId"].$delete({ param: { tokenId: id } })
-    if (ctx.globals.json) return { id, revoked: true }
-    if (!ctx.globals.quiet) ctx.stderr(`Revoked token ${id}\n`)
+    ctx.done(`Revoked token ${token.name}`)
+    return { id, name: token.name, deleted: true }
   },
+  human: () => "",
 })
 
 export default defineGroup({

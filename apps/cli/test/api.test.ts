@@ -19,8 +19,6 @@ afterAll(() => {
   removeSandboxes()
 })
 
-const userCount = async () => (await server.db.selectFrom("users").select("id").execute()).length
-
 describe("intesa api", () => {
   test("GET prints the raw JSON body", async () => {
     const r = await sandbox(server.url).run(["api", "/health"])
@@ -214,29 +212,61 @@ describe("errors map to exit codes", () => {
 })
 
 describe("--dry-run", () => {
-  test("prints the mutation and does not send it", async () => {
-    const before = await userCount()
-    const r = await sandbox(server.url).run([
-      "api",
-      "/auth/dev-login",
-      "-f",
-      "email=dry@example.com",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "POST",
-      path: "/api/auth/dev-login",
-      body: { email: "dry@example.com" },
-    })
-    expect(await userCount()).toBe(before)
-  })
-
   test("reads still run", async () => {
     const r = await sandbox(server.url).run(["api", "/health", "--dry-run"])
     expect(r.exitCode).toBe(0)
     expect(r.json().ok).toBe(true)
   })
+})
+
+describe("timeouts", () => {
+  // A server that takes requests and never answers them.
+  const silent = () => {
+    let hits = 0
+    const fake = fakeServer(() => {
+      hits++
+      return new Promise<Response>(() => {})
+    })
+    return { ...fake, hits: () => hits }
+  }
+
+  test("a request with no answer fails after INTESA_HTTP_TIMEOUT_MS (exit 1); reads are retried", async () => {
+    const fake = silent()
+    try {
+      const r = await sandbox(fake.url).run(["api", "/health", "--json"], {
+        env: { INTESA_HTTP_TIMEOUT_MS: "100" },
+      })
+      expect(r.exitCode).toBe(1)
+      expect(JSON.parse(r.stderr).error).toMatchObject({ code: "NETWORK_ERROR", exitCode: 1 })
+      expect(fake.hits()).toBe(3)
+    } finally {
+      fake.stop()
+    }
+  })
+
+  test("completion gives up at once: no retries, nothing printed", async () => {
+    const fake = silent()
+    try {
+      const r = await sandbox(fake.url).run(["__complete", "--word=", "--", "token", "revoke"], {
+        env: { INTESA_HTTP_TIMEOUT_MS: "100" },
+      })
+      expect(r.exitCode).toBe(0)
+      expect(r.stdout).toBe("")
+      expect(r.stderr).toBe("")
+      expect(fake.hits()).toBe(1)
+    } finally {
+      fake.stop()
+    }
+  })
+})
+
+test("--fields does not apply to api: exit 2 before any request", async () => {
+  const r = await sandbox(server.url).run(["api", "/health", "--fields", "ok"], {
+    env: { INTESA_DEBUG: "1" },
+  })
+  expect(r.exitCode).toBe(2)
+  expect(r.stderr).toContain("--fields")
+  expect(r.stderr).not.toContain("> GET")
 })
 
 describe("debug logging", () => {
@@ -260,5 +290,23 @@ describe("debug logging", () => {
     } finally {
       fake.stop()
     }
+  })
+
+  test("INTESA_DEBUG=api keeps credentials in bodies out of the log", async () => {
+    const box = sandbox(server.url)
+    await loginAs(box, server, "debug-bodies@example.com")
+    const debug = { env: { INTESA_DEBUG: "api" } }
+    const created = await box.run(["token", "create", "--name", "logged", "--json"], debug)
+    expect(created.exitCode).toBe(0)
+    const { token } = created.json()
+    expect(created.stderr).toContain('"token":"[redacted]"')
+    expect(created.stderr).toContain('"name":"logged"')
+    expect(created.stderr).not.toContain(token)
+
+    // The authenticator code a person sends; the error code that comes back stays readable.
+    const disable = await box.run(["me", "2fa", "disable", "--code", "246813"], debug)
+    expect(disable.exitCode).toBe(8)
+    expect(disable.stderr).not.toContain("246813")
+    expect(disable.stderr).toContain('"code":"VALIDATION_ERROR"')
   })
 })

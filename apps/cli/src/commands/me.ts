@@ -1,6 +1,8 @@
 import { z } from "zod"
-import { openBrowser } from "../io/browser"
-import { askText } from "../output/ask"
+import { links } from "../client/links"
+import { openOrPrint } from "../io/browser"
+import { askText } from "../io/prompt"
+import { asTable } from "../output/render"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const view = defineCommand({
@@ -32,7 +34,7 @@ const edit = defineCommand({
       (await askText(ctx, {
         flag: "--name",
         message: "Display name",
-        initialValue: (await (await client.api.me.$get()).json()).user.name,
+        initialValue: async () => (await (await client.api.me.$get()).json()).user.name,
         validate: (v) => (v.trim() ? undefined : "Enter a name"),
       }))
     return (await (await client.api.me.$patch({ json: { name } })).json()).user
@@ -42,20 +44,14 @@ const edit = defineCommand({
 // An API token cannot enrol an authenticator, so enabling happens in the web app.
 async function enableInWebApp(ctx: Ctx) {
   const { client, host } = await ctx.http()
-  const url = `${host}/settings`
   if ((await (await client.api.me.$get()).json()).user.totpEnabled) {
     ctx.stderr("Two-factor sign-in is already enabled.\n")
-    return ctx.globals.json ? { totpEnabled: true } : undefined
+    return { totpEnabled: true }
   }
   ctx.stderr("Two-factor sign-in is set up in the web app, where you scan the QR code.\n")
-  const person = Boolean(process.stdin.isTTY && process.stderr.isTTY)
-  if (person && openBrowser(url, { env: ctx.env, configBrowser: ctx.config.browser })) {
-    ctx.stderr(`Opening ${url} in your browser…\n`)
-  } else {
-    ctx.stderr(`Open ${url} in your browser to turn it on.\n`)
-  }
-  if (ctx.globals.json) return { url }
-  ctx.stdout(`${url}\n`)
+  const url = links.settings(host)
+  openOrPrint(ctx, url, " to turn it on")
+  return { url }
 }
 
 async function disableTwoFactor(ctx: Ctx, code: string | undefined) {
@@ -97,8 +93,15 @@ const twoFa = defineCommand({
     "intesa me 2fa enable --json",
     "intesa me 2fa disable --code 123456",
   ],
-  run: (ctx, { action }, flags) =>
+  run: (ctx, { action }, flags): Promise<Record<string, unknown>> =>
     action === "enable" ? enableInWebApp(ctx) : disableTwoFactor(ctx, flags.code),
+  // The settings link on its own line, for copying; after disable, the account.
+  human: (ctx, data) =>
+    typeof data.url === "string"
+      ? `${data.url}\n`
+      : "id" in data
+        ? asTable(ctx.mode, data, "twoFactor")
+        : "",
 })
 
 export default defineGroup({

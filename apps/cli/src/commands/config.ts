@@ -1,7 +1,9 @@
+import { dryRunWrite } from "../client/http"
 import {
   CONFIG_DEFAULTS,
   CONFIG_KEYS,
   type ConfigKey,
+  configFile,
   configKeyHelp,
   parseConfigKey,
   parseConfigValue,
@@ -19,13 +21,13 @@ const get = defineCommand({
   summary: "Print the value of a configuration key",
   description: `Print the value of a configuration key; nothing when it is unset.\n\nKeys:\n${keyList}`,
   args: [{ name: "key", required: true }],
+  output: "config",
   examples: ["intesa config get editor", "intesa config get host --json"],
   run(ctx, { key }) {
     const k = parseConfigKey(key)
-    const value = effective(ctx.config, k)
-    if (ctx.globals.json) return { key: k, value }
-    if (value !== null) ctx.stdout(`${value}\n`)
+    return { key: k, value: effective(ctx.config, k) }
   },
+  human: (_ctx, { value }) => (value === null ? "" : `${value}\n`),
 })
 
 const list = defineCommand({
@@ -47,6 +49,7 @@ const set = defineCommand({
     { name: "key", required: true },
     { name: "value", required: true },
   ],
+  output: "config",
   examples: [
     "intesa config set host https://pm.example.com",
     "intesa config set editor 'code --wait'",
@@ -54,10 +57,13 @@ const set = defineCommand({
   ],
   run(ctx, { key, value }) {
     const k = parseConfigKey(key)
-    const config = readConfig(ctx.configDir)
-    config[k] = parseConfigValue(k, value) as never
+    const config = { ...readConfig(ctx.configDir), [k]: parseConfigValue(k, value) }
+    if (ctx.globals.dryRun) dryRunWrite(ctx, configFile(ctx.configDir), config)
     writeConfig(ctx.configDir, config)
+    ctx.done(`Set ${k} to ${config[k]}`)
+    return { key: k, value: config[k] }
   },
+  human: () => "",
 })
 
 export default defineGroup({

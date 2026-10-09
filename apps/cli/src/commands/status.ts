@@ -1,10 +1,9 @@
-import { styleText } from "node:util"
 import { dayFromToday, formatDay, PRIORITY_LABELS, STATUS_LABELS } from "@intesa/task-query"
-import { links, resolver } from "../client/resolve"
-import { formatTable } from "../output/table"
+import { webLinks } from "../client/links"
+import { resolver } from "../client/resolve"
+import { rows, section } from "../output/render"
 import { type Ctx, defineCommand } from "../registry/define"
 
-type Row = Record<string, unknown>
 type Task = {
   key: string
   title: string
@@ -12,37 +11,34 @@ type Task = {
   priority: keyof typeof PRIORITY_LABELS | null
   dueAt: string | null
 }
-type Home = { projects: Row[]; assigned: Task[]; dueSoon: Task[] }
+type Home = { projects: Record<string, unknown>[]; assigned: Task[]; dueSoon: Task[] }
 
 // The web Home page's panels, as sections of aligned rows (TSV rows when piped).
-function format(ctx: Ctx, home: Home, only: string[] | undefined) {
-  const table = { tty: ctx.mode.tty, width: ctx.mode.width, header: false }
-  const heading = (text: string) => (ctx.mode.color ? styleText("bold", text) : text)
+function format(ctx: Ctx, home: Home) {
+  const { mode } = ctx
   const tasks = (list: Task[]) =>
-    formatTable(
+    rows(
+      mode,
       list.map((t) => ({
         key: t.key,
         status: STATUS_LABELS[t.status],
         title: t.title,
         priority: t.priority ? PRIORITY_LABELS[t.priority] : "",
-        due: t.dueAt ? (ctx.mode.tty ? `due ${formatDay(t.dueAt)}` : t.dueAt) : "",
+        due: t.dueAt ? (mode.tty ? `due ${formatDay(t.dueAt)}` : t.dueAt) : "",
       })),
       ["key", "status", "title", "priority", "due"],
-      table,
     )
-  const sections: [keyof Home, string, string, string][] = [
+  const sections: [string, string, string][] = [
     [
-      "projects",
       "Recent projects",
       "Nothing here yet. Create a project with `intesa project create NAME`.",
-      formatTable(home.projects, ["key", "name", "description"], table),
+      rows(mode, home.projects, ["key", "name", "description"]),
     ],
-    ["assigned", "Assigned to you", "Nothing assigned to you right now.", tasks(home.assigned)],
-    ["dueSoon", "Due soon", "Nothing due in the next week.", tasks(home.dueSoon)],
+    ["Assigned to you", "Nothing assigned to you right now.", tasks(home.assigned)],
+    ["Due soon", "Nothing due in the next week.", tasks(home.dueSoon)],
   ]
   return sections
-    .filter(([name]) => !only || only.includes(name))
-    .map(([, title, empty, body]) => `${heading(title)}\n${body || `${empty}\n`}`)
+    .map(([title, empty, body]) => section(mode, title, body || `${empty}\n`))
     .join("\n")
 }
 
@@ -63,23 +59,12 @@ export default defineCommand({
       // The local date, so "due soon" means the day the person is looking at.
       query: { today: dayFromToday(0) },
     })
-    const home = await res.json()
-    const withUrl = <T extends { id: string; projectId: string }>(t: T) => ({
-      ...t,
-      url: links.task(http.host, ws.slug, t),
-    })
-    const data = {
-      projects: home.projects.map((p) => ({ ...p, url: links.project(http.host, ws.slug, p.id) })),
-      assigned: home.assigned.map(withUrl),
-      dueSoon: home.dueSoon.map(withUrl),
+    const [home, link] = await Promise.all([res.json(), webLinks(ctx, ws.id)])
+    return {
+      projects: home.projects.map(link.project),
+      assigned: home.assigned.map(link.task),
+      dueSoon: home.dueSoon.map(link.task),
     }
-    if (ctx.globals.json) return data
-    ctx.stdout(
-      format(
-        ctx,
-        data,
-        ctx.globals.fields?.split(",").map((f) => f.trim()),
-      ),
-    )
   },
+  human: format,
 })

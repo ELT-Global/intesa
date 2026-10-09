@@ -1,18 +1,26 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { dayFromToday, TASK_STATUSES } from "@intesa/task-query"
-import { removeSandboxes, startServer, type TestServer } from "./helpers"
-import { keysOf, lines, type TaskWorld, taskWorld } from "./task-fixtures"
+import {
+  keysOf,
+  lines,
+  removeSandboxes,
+  startServer,
+  type TestServer,
+  type World,
+  world,
+} from "./helpers"
 
 let server: TestServer
-let w: TaskWorld
+let w: World
+let mei: { id: string; name: string; email: string }
 const tomorrow = dayFromToday(1)
 const yesterday = dayFromToday(-1)
 
 // WEB: one top-level task per column plus a completed one and a subtask; API: two of mine.
 beforeAll(async () => {
   server = await startServer()
-  w = await taskWorld(server)
-  const mei = await w.addPerson("Mei Member")
+  w = await world(server)
+  mei = await w.addPerson("Mei Member")
   const auth = await w.addTag("auth")
   const bug = await w.addTag("bug")
   const login = await w.addTask({
@@ -80,16 +88,34 @@ describe("task list", () => {
     expect(await list("-p", "WEB", "--status", "review")).toEqual(["WEB-5"])
   })
 
-  test("--assignee: me, unassigned or a name", async () => {
+  test("--assignee: me, unassigned, an email or a name", async () => {
     expect(await list("-p", "WEB", "-a", "me")).toEqual(["WEB-1", "WEB-5"])
     expect(await list("-p", "WEB", "-a", "@me")).toEqual(["WEB-1", "WEB-5"])
     expect(await list("-p", "WEB", "-a", "unassigned")).toEqual(["WEB-4"])
-    expect(await list("-p", "WEB", "-a", "Mei Member")).toEqual(["WEB-2", "WEB-5"])
-    expect(await list("-p", "WEB", "-a", "mei,unassigned")).toEqual(["WEB-4", "WEB-2", "WEB-5"])
+    expect(await list("-p", "WEB", "-a", "mei member")).toEqual(["WEB-2", "WEB-5"])
+    expect(await list("-p", "WEB", "-a", mei.email)).toEqual(["WEB-2", "WEB-5"])
+    expect(await list("-p", "WEB", "-a", "Mei Member,unassigned")).toEqual([
+      "WEB-4",
+      "WEB-2",
+      "WEB-5",
+    ])
+  })
+
+  test("people and tags are named exactly, like task create: nobody matching exits 5", async () => {
+    for (const args of [
+      ["-a", "nobody@example.com"],
+      ["-a", "mei"],
+      ["-t", "nosuchtag"],
+    ]) {
+      const r = await w.box.run(["task", "list", "-p", "WEB", ...args])
+      expect(r.exitCode, args.join(" ")).toBe(5)
+      expect(r.stdout).toBe("")
+    }
   })
 
   test("--tag, --priority and --due", async () => {
     expect(await list("-p", "WEB", "-t", "auth")).toEqual(["WEB-1"])
+    expect(await list("-p", "WEB", "-t", "AUTH,bug")).toEqual(["WEB-1", "WEB-2"])
     expect(await list("-p", "WEB", "--priority", "high,urgent")).toEqual(["WEB-1", "WEB-5"])
     expect(await list("-p", "WEB", "--priority", "none")).toEqual(["WEB-2"])
     expect(await list("-p", "WEB", "--due", "overdue")).toEqual(["WEB-2"])
@@ -142,12 +168,7 @@ describe("task list", () => {
     ])
     expect(await list("-p", "WEB", "--sort", "due")).toEqual(["WEB-2", "WEB-1", "WEB-5", "WEB-4"])
     expect((await list("-p", "WEB", "--sort", "updated"))[0]).toBe("WEB-2")
-    expect(await list("-p", "WEB", "--sort", "status")).toEqual([
-      "WEB-4",
-      "WEB-1",
-      "WEB-2",
-      "WEB-5",
-    ])
+    expect(await list("-p", "WEB", "--sort", "board")).toEqual(["WEB-4", "WEB-1", "WEB-2", "WEB-5"])
   })
 
   test("--limit applies after filtering and sorting", async () => {
@@ -207,6 +228,7 @@ describe("task list", () => {
       ["--priority", "huge"],
       ["--due", "someday"],
       ["--sort", "random"],
+      ["--sort", "status"],
       ["--limit", "0"],
       ["--mine", "--parent", "WEB-1"],
     ]) {

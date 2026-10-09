@@ -3,14 +3,15 @@ import { basename, join, resolve } from "node:path"
 import { artifactFileError } from "@intesa/api/artifacts"
 import { z } from "zod"
 import type { Http } from "../client/http"
-import { notFound, resolver } from "../client/resolve"
-import { openBrowser } from "../io/browser"
+import { links } from "../client/links"
+import { pickOne, resolver } from "../client/resolve"
+import { openOrPrint } from "../io/browser"
 import { editText } from "../io/editor"
-import { isInteractive } from "../output/ask"
-import { CliError, formatError, usageError } from "../output/errors"
-import { selectFields } from "../output/json"
-import { FIELD_SETS, render } from "../output/render"
+import { personPresent } from "../io/prompt"
+import { CliError, formatError, invalid, prefixed, usageError } from "../output/errors"
+import { renderMarkdown } from "../output/markdown"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
+import { taskArg } from "./task/shared"
 
 type Artifact = {
   id: string
@@ -23,23 +24,15 @@ type Artifact = {
 
 const MARKDOWN = "text/markdown"
 
-// The artifact's own address, as the web app links to it.
-const rawUrl = (host: string, taskId: string, id?: string) =>
-  `${host}/api/tasks/${encodeURIComponent(taskId)}/artifacts${id ? `/${encodeURIComponent(id)}` : ""}`
-
 const withUrl = (http: Http, taskId: string, artifact: Artifact) => ({
   ...artifact,
-  url: rawUrl(http.host, taskId, artifact.id),
+  url: links.artifact(http.host, taskId, artifact.id),
 })
-
-// Local checks mirror the server's rules, so they fail with the server's exit code (8).
-const invalid = (message: string) =>
-  new CliError(message, { code: "VALIDATION_ERROR", exitCode: 8 })
 
 type LocalFile = { path: string; name: string }
 
 // Everything the server would reject without reading the content: a missing file is a usage
-// error, an unsupported or oversized one a validation error.
+// error, an unsupported or oversized one a validation error, as on the server.
 function checkFile(path: string): LocalFile {
   const name = basename(path)
   let stat: ReturnType<typeof statSync>
@@ -53,13 +46,6 @@ function checkFile(path: string): LocalFile {
   if (problem) throw invalid(`${name}: ${problem}`)
   return { path, name }
 }
-
-const prefixed = (name: string, err: CliError) =>
-  new CliError(`${name}: ${err.message}`, {
-    code: err.code,
-    exitCode: err.exitCode,
-    hint: err.hint,
-  })
 
 // The multipart upload the web sends. No content type is set on the file: the server derives
 // it from the extension and checks the bytes.
@@ -80,38 +66,22 @@ const listArtifacts = async (http: Http, taskId: string) =>
   (await (await http.client.api.tasks[":taskId"].artifacts.$get({ param: { taskId } })).json())
     .artifacts as Artifact[]
 
-// Exact id, then exact name, then case-insensitive name. The first step that finds anything
-// decides; several matches in it are never guessed between.
-function pick(artifacts: Artifact[], ref: string): Artifact {
-  const wanted = ref.toLowerCase()
-  const steps = [
-    artifacts.filter((a) => a.id === ref),
-    artifacts.filter((a) => a.name === ref),
-    artifacts.filter((a) => a.name.toLowerCase() === wanted),
-  ]
-  for (const matches of steps) {
-    const [first] = matches
-    if (matches.length === 1 && first) return first
-    if (matches.length > 1) {
-      throw usageError(
-        `"${ref}" matches several artifacts: ${matches.map((a) => `${a.name} (${a.id})`).join(", ")}`,
-        "Pass the artifact id instead.",
-      )
-    }
-  }
-  throw notFound(
-    `no artifact matches "${ref}"`,
-    artifacts.length
-      ? `This task's artifacts: ${artifacts.map((a) => a.name).join(", ")}.`
-      : "This task has no artifacts.",
-  )
-}
-
+// By id, exact name, then name in any case.
 async function find(ctx: Ctx, taskRef: string, ref: string) {
   const task = await resolver(ctx).task(taskRef)
   const http = await ctx.http()
-  const artifact = pick(await listArtifacts(http, task.id), ref)
-  return { http, task, artifact, url: rawUrl(http.host, task.id, artifact.id) }
+  const artifacts = await listArtifacts(http, task.id)
+  const artifact = pickOne(artifacts, ref, {
+    noun: "artifact",
+    ids: (a) => [a.id],
+    names: (a) => [a.name],
+    label: (a) => `${a.name} (${a.id})`,
+    exactCase: true,
+    hint: artifacts.length
+      ? `This task's artifacts: ${artifacts.map((a) => a.name).join(", ")}.`
+      : "This task has no artifacts.",
+  })
+  return { http, task, artifact, url: links.artifact(http.host, task.id, artifact.id) }
 }
 
 const requireMarkdown = (artifact: Artifact, verb: string) => {
@@ -120,11 +90,6 @@ const requireMarkdown = (artifact: Artifact, verb: string) => {
   }
 }
 
-const taskArg = {
-  name: "task",
-  required: true,
-  description: "Task key (WEB-12), id or link",
-} as const
 const artifactArg = {
   name: "artifact",
   required: true,
@@ -145,20 +110,6 @@ const list = defineCommand({
     return (await listArtifacts(http, task.id)).map((a) => withUrl(http, task.id, a))
   },
 })
-
-// An upload that failed part-way still prints what did go up, then reports the failure.
-function printUploaded(ctx: Ctx, uploaded: unknown[]) {
-  if (uploaded.length === 0) return
-  ctx.stdout(
-    render(uploaded, {
-      output: "artifact",
-      fields: selectFields(ctx.globals.fields, FIELD_SETS.artifact.fields),
-      json: ctx.globals.json,
-      quiet: ctx.globals.quiet,
-      mode: ctx.mode,
-    }),
-  )
-}
 
 const upload = defineCommand({
   name: "upload",
@@ -202,8 +153,8 @@ const upload = defineCommand({
       for (const file of files) {
         try {
           const content = await Bun.file(file.path).bytes()
-          const artifact = await send(http, "POST", rawUrl(http.host, task.id), file.name, content)
-          uploaded.push(withUrl(http, task.id, artifact))
+          const url = links.artifact(http.host, task.id)
+          uploaded.push(withUrl(http, task.id, await send(http, "POST", url, file.name, content)))
         } catch (err) {
           // Anything but a CliError (e.g. --dry-run finishing) is not an upload failure.
           if (!(err instanceof CliError)) throw err
@@ -215,12 +166,16 @@ const upload = defineCommand({
 
     const [first] = failures
     if (!first) return uploaded
-    printUploaded(ctx, uploaded)
-    if (!flags.continueOnError) throw first
+    const result = uploaded.length > 0 ? uploaded : undefined
+    if (!flags.continueOnError) {
+      const { code, exitCode, hint } = first
+      throw new CliError(first.message, { code, exitCode, hint, result })
+    }
     for (const failure of failures) ctx.stderr(formatError(failure, ctx.globals.json))
     throw new CliError(`${failures.length} of ${paths.length} files were not uploaded`, {
       code: first.code,
       exitCode: first.exitCode,
+      result,
     })
   },
 })
@@ -274,19 +229,19 @@ const download = defineCommand({
       })
     }
     await Bun.write(path, await http.request(url))
-    if (ctx.globals.json) return { ...withUrl(http, task.id, artifact), path }
-    if (!ctx.globals.quiet)
-      ctx.stderr(`Saved ${artifact.name} (${artifact.size} bytes) to ${path}\n`)
+    ctx.done(`Saved ${artifact.name} (${artifact.size} bytes) to ${path}`)
+    return { ...withUrl(http, task.id, artifact), path }
   },
+  human: () => "",
 })
 
 const view = defineCommand({
   name: "view",
   summary: "Show a Markdown artifact or open any other in the browser",
   description:
-    "Print a Markdown artifact's text. Any other format is opened in the browser, which needs\n" +
-    "you to be signed in to the web app; when output is not a terminal, or with --no-browser,\n" +
-    "its link is printed instead.",
+    "Print a Markdown artifact's text, rendered on a terminal. Any other format is opened in\n" +
+    "the browser, which needs you to be signed in to the web app; when there is no terminal,\n" +
+    "or with --no-browser, its link is printed instead.",
   args: [taskArg, artifactArg],
   flags: z.object({
     browser: z.boolean().default(true).meta({ description: "Do not open the browser" }),
@@ -298,25 +253,18 @@ const view = defineCommand({
     "intesa artifact view WEB-12 spec.pdf",
     "intesa artifact view WEB-12 spec.pdf --no-browser",
   ],
-  async run(ctx, { task: taskRef, artifact: ref }, flags) {
+  async run(ctx, { task: taskRef, artifact: ref }) {
     const { http, task, artifact, url } = await find(ctx, taskRef, ref)
     const result = withUrl(http, task.id, artifact)
-    const { json, quiet, fields } = ctx.globals
-    const structured = json || quiet || fields !== undefined
-    if (artifact.mimeType === MARKDOWN) {
-      const content = await (await http.request(url)).text()
-      if (structured) return { ...result, content }
-      ctx.stdout(content)
-      return
+    if (artifact.mimeType !== MARKDOWN) return result
+    return { ...result, content: await (await http.request(url)).text() }
+  },
+  human(ctx, artifact, flags) {
+    if ("content" in artifact) {
+      return ctx.mode.tty ? renderMarkdown(artifact.content, ctx.mode) : artifact.content
     }
-    if (structured) return result
-    if (flags.browser && isInteractive(ctx)) {
-      if (openBrowser(url, { env: ctx.env, configBrowser: ctx.config.browser })) {
-        ctx.stderr(`Opening ${url} in your browser…\n`)
-        return
-      }
-    }
-    ctx.stdout(`${url}\n`)
+    if (flags.browser && openOrPrint(ctx, artifact.url)) return ""
+    return `${artifact.url}\n`
   },
 })
 
@@ -325,10 +273,11 @@ const edit = defineCommand({
   summary: "Edit a Markdown artifact in your editor",
   description:
     "Open a Markdown artifact in your editor and save it back when it changed. The editor is\n" +
-    "the `editor` config key, else VISUAL, else EDITOR; it must wait until the file is closed\n" +
-    "(`code --wait`). Without any of them, a terminal gets notepad (Windows) or vi, and a\n" +
-    "script exits 2. Saving replaces the stored text; there is no merge with edits made\n" +
-    "elsewhere in the meantime.",
+    "INTESA_EDITOR, else the `editor` config key, else VISUAL, else EDITOR, else notepad\n" +
+    "(Windows) or vi; it must wait until the file is closed (`code --wait`). Without a\n" +
+    "terminal only INTESA_EDITOR is used, and otherwise the command exits 2: scripts use\n" +
+    "`intesa artifact replace`. Saving replaces the stored text; there is no merge with edits\n" +
+    "made elsewhere in the meantime.",
   args: [taskArg, artifactArg],
   context: ["workspace", "project"],
   output: "artifact",
@@ -337,6 +286,13 @@ const edit = defineCommand({
     "EDITOR='code --wait' intesa a edit WEB-12 notes.md",
   ],
   async run(ctx, { task: taskRef, artifact: ref }) {
+    const interactive = personPresent(ctx)
+    if (!interactive && !ctx.env.INTESA_EDITOR?.trim()) {
+      throw usageError(
+        "artifact edit needs a terminal for the editor",
+        "Use `intesa artifact replace TASK ARTIFACT FILE` from scripts, or set INTESA_EDITOR.",
+      )
+    }
     const { http, task, artifact, url } = await find(ctx, taskRef, ref)
     requireMarkdown(artifact, "edited")
     const original = await (await http.request(url)).text()
@@ -344,11 +300,11 @@ const edit = defineCommand({
       filename: artifact.name,
       env: ctx.env,
       configEditor: ctx.config.editor,
-      interactive: isInteractive(ctx),
+      interactive,
     })
     if (edited === original) {
       ctx.stderr("No changes\n")
-      return ctx.globals.json ? withUrl(http, task.id, artifact) : undefined
+      return withUrl(http, task.id, artifact)
     }
     return withUrl(http, task.id, await send(http, "PUT", url, artifact.name, edited))
   },

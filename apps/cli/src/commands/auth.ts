@@ -1,11 +1,19 @@
 import { hostname } from "node:os"
+import { join } from "node:path"
 import { z } from "zod"
 import { requireHost } from "../client/context"
-import { createHttp, debugLevel, type Http } from "../client/http"
-import { readConfig, readHosts, writeConfig, writeHosts } from "../config/config"
+import {
+  createHttp,
+  DryRunDone,
+  debugLevel,
+  dryRunWrite,
+  type Http,
+  timeoutMs,
+} from "../client/http"
+import { cacheWorkspace, readConfig, readHosts, writeConfig } from "../config/config"
 import { forgetToken, readToken, type Storage, saveToken } from "../config/secrets"
-import { openBrowser } from "../io/browser"
-import { CliError, LOGIN_HINT, usageError } from "../output/errors"
+import { openOrPrint } from "../io/browser"
+import { CliError, cliError, notLoggedIn, usageError } from "../output/errors"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const clientName = () =>
@@ -21,10 +29,10 @@ const httpFor = (ctx: Ctx, host: string, token?: string) =>
     debug: debugLevel(ctx.env, ctx.globals.debug),
     stdout: ctx.stdout,
     stderr: ctx.stderr,
+    timeoutMs: timeoutMs(ctx.env),
   })
 
-const notLoggedIn = (host: string) =>
-  new CliError(`not logged in to ${host}`, { code: "UNAUTHORIZED", exitCode: 4, hint: LOGIN_HINT })
+const loggedOut = (host: string) => notLoggedIn(`not logged in to ${host}`)
 
 // What `auth status` prints; also `auth login --json`.
 async function describeLogin(ctx: Ctx, host: string, token: string, storage: Storage) {
@@ -63,12 +71,8 @@ async function deviceLogin(ctx: Ctx, http: Http, browser: boolean): Promise<Issu
   const start = await res.json()
   const url = start.verificationUriComplete
   ctx.stderr(`! First copy your one-time code: ${start.userCode}\n`)
-  const person = Boolean(process.stdin.isTTY && process.stderr.isTTY)
-  if (browser && person && openBrowser(url, { env: ctx.env, configBrowser: ctx.config.browser })) {
-    ctx.stderr(`Opening ${url} in your browser…\n`)
-  } else {
-    ctx.stderr(`Open ${url} in your browser to approve this sign-in.\n`)
-  }
+  if (browser) openOrPrint(ctx, url, " to approve this sign-in")
+  else ctx.stderr(`Open ${url} in your browser to approve this sign-in.\n`)
   ctx.stderr("Waiting for approval…\n")
 
   // INTESA_DEVICE_POLL_MS replaces the server's interval and its slow_down step (tests).
@@ -77,11 +81,11 @@ async function deviceLogin(ctx: Ctx, http: Http, browser: boolean): Promise<Issu
   let wait = fast > 0 ? fast : start.interval * 1000
   const deadline = Date.now() + start.expiresIn * 1000
   const expired = () =>
-    new CliError("the sign-in request expired before it was approved", {
-      code: "DEVICE_CODE_EXPIRED",
-      exitCode: 4,
-      hint: "Run `intesa auth login` again.",
-    })
+    cliError(
+      "DEVICE_CODE_EXPIRED",
+      "the sign-in request expired before it was approved",
+      "Run `intesa auth login` again.",
+    )
   for (;;) {
     await Bun.sleep(wait)
     if (Date.now() >= deadline) throw expired()
@@ -93,7 +97,7 @@ async function deviceLogin(ctx: Ctx, http: Http, browser: boolean): Promise<Issu
       return { token, user, tokenId, kind: "cli", scope: "write" }
     }
     if (poll.status === "denied") {
-      throw new CliError("the sign-in request was denied", { code: "ACCESS_DENIED", exitCode: 4 })
+      throw cliError("ACCESS_DENIED", "the sign-in request was denied")
     }
     if (poll.status === "expired") throw expired()
     if (poll.status === "slow_down") wait += step
@@ -152,17 +156,14 @@ async function tokenFromStdin(ctx: Ctx, host: string): Promise<Issued> {
 async function rememberWorkspace(ctx: Ctx, host: string, token: string, previousUser?: string) {
   const { client } = httpFor(ctx, host, token)
   const { workspaces } = await (await client.api.workspaces.$get()).json()
-  const hosts = readHosts(ctx.configDir)
-  const entry = hosts[host]
-  if (!entry) return
   const [only] = workspaces
-  if (workspaces.length === 1 && only) entry.workspace = { slug: only.slug, id: only.id }
-  else if (previousUser !== entry.user) delete entry.workspace
-  writeHosts(ctx.configDir, hosts)
+  const user = readHosts(ctx.configDir)[host]?.user
+  if (workspaces.length === 1 && only) cacheWorkspace(ctx.configDir, host, only)
+  else if (previousUser !== user) cacheWorkspace(ctx.configDir, host, undefined)
   const config = readConfig(ctx.configDir)
   if (workspaces.length === 1 && only && !config.workspace) {
     writeConfig(ctx.configDir, { ...config, workspace: only.slug })
-    ctx.stderr(`✓ Default workspace set to ${only.slug}\n`)
+    ctx.done(`Default workspace set to ${only.slug}`)
   }
 }
 
@@ -219,6 +220,10 @@ const login = defineCommand({
         ? await devLogin(anonymous, flags.email)
         : await deviceLogin(ctx, anonymous, flags.browser)
 
+    if (ctx.globals.dryRun) {
+      const { token: _, ...signedIn } = issued
+      dryRunWrite(ctx, join(ctx.configDir, "hosts.json"), { [host]: signedIn })
+    }
     const previousUser = readHosts(ctx.configDir)[host]?.user
     const storage = await saveToken(
       ctx.configDir,
@@ -231,12 +236,15 @@ const login = defineCommand({
         warn: (message) => ctx.stderr(`! ${message}\n`),
       },
     )
-    ctx.stderr(`✓ Logged in to ${host} as ${issued.user.name} (${issued.user.email})\n`)
+    ctx.done(`Logged in to ${host} as ${issued.user.name} (${issued.user.email})`)
     await rememberWorkspace(ctx, host, issued.token, previousUser)
     if (ctx.env.INTESA_TOKEN) {
       ctx.stderr("! INTESA_TOKEN is set, and is used instead of the stored token\n")
     }
-    if (ctx.globals.json) return describeLogin(ctx, host, issued.token, storage)
+    // The status costs two more requests, so only when it is asked for.
+    if (ctx.globals.json || ctx.globals.fields !== undefined) {
+      return describeLogin(ctx, host, issued.token, storage)
+    }
   },
 })
 
@@ -250,7 +258,7 @@ const logout = defineCommand({
   async run(ctx) {
     const host = requireHost(ctx.context())
     const stored = await readToken(ctx.configDir, host, { ...ctx.env, INTESA_TOKEN: undefined })
-    if (!stored && !readHosts(ctx.configDir)[host]) throw notLoggedIn(host)
+    if (!stored && !readHosts(ctx.configDir)[host]) throw loggedOut(host)
     if (stored) {
       try {
         await httpFor(ctx, host, stored.token).client.api.me.tokens.current.$delete()
@@ -259,8 +267,9 @@ const logout = defineCommand({
         ctx.stderr("! The server no longer accepted the token\n")
       }
     }
+    if (ctx.globals.dryRun) throw new DryRunDone()
     await forgetToken(ctx.configDir, host, ctx.env)
-    ctx.stderr(`✓ Logged out of ${host}\n`)
+    ctx.done(`Logged out of ${host}`)
     if (ctx.env.INTESA_TOKEN) ctx.stderr("! INTESA_TOKEN is still set\n")
   },
 })
@@ -277,7 +286,7 @@ const status = defineCommand({
   async run(ctx) {
     const host = requireHost(ctx.context())
     const credentials = await readToken(ctx.configDir, host, ctx.env)
-    if (!credentials) throw notLoggedIn(host)
+    if (!credentials) throw loggedOut(host)
     return describeLogin(ctx, host, credentials.token, credentials.storage)
   },
 })
@@ -286,14 +295,15 @@ const token = defineCommand({
   name: "token",
   summary: "Print the active token",
   description: "Print the token intesa uses for the server, for piping into other tools.",
+  output: "authToken",
   examples: ["intesa auth token", 'curl -H "Authorization: Bearer $(intesa auth token)" …'],
   async run(ctx) {
     const host = requireHost(ctx.context())
     const credentials = await readToken(ctx.configDir, host, ctx.env)
-    if (!credentials) throw notLoggedIn(host)
-    if (ctx.globals.json) return { token: credentials.token }
-    ctx.stdout(`${credentials.token}\n`)
+    if (!credentials) throw loggedOut(host)
+    return { token: credentials.token }
   },
+  human: (_ctx, { token }) => `${token}\n`,
 })
 
 export default defineGroup({

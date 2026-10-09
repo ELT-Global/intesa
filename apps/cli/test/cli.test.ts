@@ -72,7 +72,14 @@ describe("help", () => {
 
   test("help environment documents the variables", async () => {
     const r = await sandbox().run(["help", "environment"])
-    for (const name of ["INTESA_TOKEN", "INTESA_HOST", "INTESA_CONFIG_DIR", "INTESA_SECRETS"]) {
+    for (const name of [
+      "INTESA_TOKEN",
+      "INTESA_HOST",
+      "INTESA_CONFIG_DIR",
+      "INTESA_SECRETS",
+      "INTESA_HTTP_TIMEOUT_MS",
+      "INTESA_EDITOR",
+    ]) {
       expect(r.stdout).toContain(name)
     }
   })

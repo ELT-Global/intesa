@@ -129,6 +129,41 @@ describe("parseCommand", () => {
     expect(() => parseCommand(move, ["T", "--no-label"])).toThrow("unknown flag: --no-label")
   })
 
+  test("a flag without a default must be given, and the error says so", () => {
+    const pick = defineCommand({
+      name: "pick",
+      summary: "Pick",
+      flags: z.object({ kind: z.enum(["a", "b"]), note: z.string() }),
+      run() {},
+    })
+    expect(() => parseCommand(pick, ["--note", "x"])).toThrow("missing --kind (one of a|b)")
+    expect(() => parseCommand(pick, ["--kind", "a"])).toThrow("missing --note")
+    expect(parseCommand(pick, ["--kind", "b", "--note", "x"]).flags).toEqual({
+      kind: "b",
+      note: "x",
+    })
+  })
+
+  test("--no-color is the only global spelling, so commands may have a --color", () => {
+    const paint = defineCommand({
+      name: "paint",
+      summary: "Paint",
+      flags: z.object({ color: z.enum(["red", "blue"]).optional() }),
+      run() {},
+    })
+    const { globals, flags } = parseCommand(paint, ["--color", "red", "--no-color"])
+    expect(flags.color).toBe("red")
+    expect(globals.color).toBe(false)
+    expect(parseCommand(paint, []).globals.color).toBe(true)
+    expect(usageError(["T", "--color"])).toBe("unknown flag: --color")
+    // Their --no-color would be the global's.
+    for (const color of [z.string().nullable().optional(), z.boolean().default(false)]) {
+      expect(() =>
+        defineCommand({ name: "x", summary: "X", flags: z.object({ color }), run() {} }),
+      ).toThrow("--no-color")
+    }
+  })
+
   test("command flags may not shadow global flags", () => {
     expect(() =>
       defineCommand({ name: "x", summary: "X", flags: z.object({ host: z.string() }), run() {} }),

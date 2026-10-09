@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { type ResolvedContext, requireHost, resolveContext } from "./client/context"
-import { createHttp, DryRunDone, debugLevel, type Http } from "./client/http"
+import { createHttp, DryRunDone, debugLevel, type Http, timeoutMs } from "./client/http"
 import { nouns, resolveWords } from "./commands"
 import { readConfig, readHosts } from "./config/config"
 import { configDir } from "./config/paths"
@@ -9,7 +9,8 @@ import { CliError, formatError, usageError } from "./output/errors"
 import { selectFields, toJson } from "./output/json"
 import { detectMode, type Env } from "./output/mode"
 import { FIELD_SETS, render } from "./output/render"
-import { type Ctx, defineCommand, type Globals } from "./registry/define"
+import { complete } from "./registry/completion"
+import { type Command, type Ctx, defineCommand, type Globals, globalFlags } from "./registry/define"
 import { commandHelp, groupHelp, rootHelp, topicHelp } from "./registry/help"
 import { commandWordIndexes, parseCommand } from "./registry/parse"
 import { VERSION } from "./version"
@@ -22,7 +23,8 @@ const print = (text: string) => {
   return 0
 }
 
-function createCtx(globals: Globals, env: Env): Ctx {
+// `quick` is for completion: a short timeout and no retries, since someone is waiting at tab.
+function createCtx(globals: Globals, env: Env, opts: { quick?: boolean } = {}): Ctx {
   const dir = configDir(env)
   const config = readConfig(dir)
   const mode = detectMode(env, { color: globals.color, configColor: config.color })
@@ -56,21 +58,48 @@ function createCtx(globals: Globals, env: Env): Ctx {
           debug: debugLevel(env, globals.debug),
           stdout,
           stderr,
+          timeoutMs: opts.quick ? Math.min(timeoutMs(env), 2000) : timeoutMs(env),
+          retry: !opts.quick,
         })
       })()
       return http
     },
     stdout,
     stderr,
+    done: (message) => {
+      if (!globals.quiet) stderr(`✓ ${message}\n`)
+    },
     readStdin: () => Bun.stdin.text(),
   }
   return ctx
 }
 
+// --json, -q and --fields print the data as such; otherwise the command's own format, if it
+// has one, else a table.
+async function present(ctx: Ctx, cmd: Command, data: unknown, flags: unknown) {
+  const { json, quiet } = ctx.globals
+  const fields = selectFields(ctx.globals.fields, cmd.output && FIELD_SETS[cmd.output].fields)
+  if (cmd.human && !json && !quiet && !fields) return cmd.human(ctx, data as never, flags as never)
+  return render(data, { output: cmd.output, fields, json, quiet, mode: ctx.mode })
+}
+
 async function main(argv: string[], env: Env): Promise<number> {
+  // Called by the completion scripts on every tab press: quiet, quick and never failing.
+  if (argv[0] === "__complete") {
+    try {
+      stdout(
+        await complete(argv.slice(1), (typed) =>
+          createCtx(globalFlags.parse(typed), env, { quick: true }),
+        ),
+      )
+    } catch {}
+    return 0
+  }
+
   const flagArgs = argv.slice(0, argv.includes("--") ? argv.indexOf("--") : undefined)
   let json = flagArgs.includes("--json")
   const color = () => detectMode(env, { color: !flagArgs.includes("--no-color") }).color
+  let show: ((data: unknown) => Promise<void>) | undefined
   try {
     const indexes = commandWordIndexes(argv)
     const words = indexes.map((i) => argv[i] ?? "")
@@ -111,6 +140,7 @@ async function main(argv: string[], env: Env): Promise<number> {
       return print(commandHelp(cmd, path, color()))
     }
 
+    const usage = `Run \`intesa ${path.join(" ")} --help\` for usage.`
     const used = new Set(indexes.slice(0, found.consumed))
     let parsed: ReturnType<typeof parseCommand>
     try {
@@ -120,23 +150,22 @@ async function main(argv: string[], env: Env): Promise<number> {
       )
     } catch (err) {
       if (!(err instanceof CliError) || err.hint) throw err
-      throw usageError(err.message, `Run \`intesa ${path.join(" ")} --help\` for usage.`)
+      throw usageError(err.message, usage)
     }
     const { globals, flags, args } = parsed
     json = globals.json
     if (globals.version) return print(`intesa version ${VERSION}\n`)
-
-    const fields = selectFields(
-      globals.fields,
-      cmd.output ? FIELD_SETS[cmd.output].fields : undefined,
-    )
-    const ctx = createCtx(globals, env)
-    const result = await cmd.run(ctx, args as never, flags)
-    if (result !== undefined) {
-      stdout(
-        render(result, { output: cmd.output, fields, json, quiet: globals.quiet, mode: ctx.mode }),
-      )
+    if (globals.fields !== undefined && !cmd.output) {
+      throw usageError(`--fields does not apply to \`intesa ${path.join(" ")}\``, usage)
     }
+    // Checked before anything runs, so a typo never follows a write.
+    selectFields(globals.fields, cmd.output && FIELD_SETS[cmd.output].fields)
+
+    const ctx = createCtx(globals, env)
+    show = async (data) => {
+      if (data !== undefined) stdout(await present(ctx, cmd, data, flags))
+    }
+    await show(await cmd.run(ctx, args as never, flags))
     return 0
   } catch (err) {
     if (err instanceof DryRunDone) return 0
@@ -147,9 +176,10 @@ async function main(argv: string[], env: Env): Promise<number> {
             code: "INTERNAL",
             exitCode: 1,
           })
+    if (e.result !== undefined) await show?.(e.result).catch(() => {})
     stderr(formatError(e, json))
-    if (!(err instanceof CliError) && env.INTESA_DEBUG && err instanceof Error)
-      stderr(`${err.stack}\n`)
+    const debug = debugLevel(env, flagArgs.includes("--debug")) !== "off"
+    if (!(err instanceof CliError) && debug && err instanceof Error) stderr(`${err.stack}\n`)
     return e.exitCode
   }
 }

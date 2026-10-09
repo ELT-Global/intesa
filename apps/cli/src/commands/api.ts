@@ -1,23 +1,11 @@
 import { z } from "zod"
+import { readInput, splitPair } from "../io/input"
 import { usageError } from "../output/errors"
 import { type Ctx, defineCommand } from "../registry/define"
 
-function keyValue(input: string, flag: string): [string, string] {
-  const at = input.indexOf("=")
-  if (at <= 0) throw usageError(`${flag} expects key=value, got "${input}"`)
-  return [input.slice(0, at), input.slice(at + 1)]
-}
-
-async function readSource(ctx: Ctx, path: string, flag: string) {
-  if (path === "-") return ctx.readStdin()
-  const file = Bun.file(path)
-  if (!(await file.exists())) throw usageError(`${flag}: no such file "${path}"`)
-  return file.text()
-}
-
 // `-F` values: literals become JSON values, `@file` reads a file and `@-` reads stdin.
 async function typedValue(ctx: Ctx, value: string): Promise<unknown> {
-  if (value.startsWith("@")) return readSource(ctx, value.slice(1), "--field")
+  if (value.startsWith("@")) return readInput(ctx, value.slice(1), "--field")
   if (value === "true") return true
   if (value === "false") return false
   if (value === "null") return null
@@ -84,11 +72,11 @@ export default defineCommand({
   async run(ctx, { path }, flags) {
     const params: Record<string, unknown> = {}
     for (const f of flags.rawField) {
-      const [k, v] = keyValue(f, "--raw-field")
+      const [k, v] = splitPair(f, "--raw-field")
       params[k] = v
     }
     for (const f of flags.field) {
-      const [k, v] = keyValue(f, "--field")
+      const [k, v] = splitPair(f, "--field")
       params[k] = await typedValue(ctx, v)
     }
     const hasParams = Object.keys(params).length > 0
@@ -103,7 +91,7 @@ export default defineCommand({
       for (const [k, v] of Object.entries(params)) url.searchParams.append(k, String(v))
     }
     if (flags.input !== undefined) {
-      body = await readSource(ctx, flags.input, "--input")
+      body = await readInput(ctx, flags.input, "--input")
       headers.set("content-type", "application/json")
     } else if (hasParams && !inQuery) {
       body = JSON.stringify(params)

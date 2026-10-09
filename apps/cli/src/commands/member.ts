@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { resolver } from "../client/resolve"
-import { confirmDestructive } from "../output/ask"
+import { confirmDestructive } from "../io/prompt"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const ROLES = ["owner", "member"] as const
@@ -87,6 +87,7 @@ const remove = defineCommand({
     "on a terminal; otherwise --yes is required.",
   args: [memberArg],
   context: ["workspace"],
+  output: "deleted",
   examples: ["intesa member remove ada@example.com", "intesa member remove ada@example.com --yes"],
   async run(ctx, { member: ref }) {
     const r = resolver(ctx)
@@ -96,9 +97,10 @@ const remove = defineCommand({
     await http.client.api.workspaces[":workspaceId"].members[":memberId"].$delete({
       param: { workspaceId: id, memberId: member.id },
     })
-    ctx.stderr(`✓ Removed ${member.email} from ${slug}\n`)
-    if (ctx.globals.json) return { id: member.id, email: member.email, removed: true }
+    ctx.done(`Removed ${member.email} from ${slug}`)
+    return { id: member.id, email: member.email, deleted: true }
   },
+  human: () => "",
 })
 
 const leave = defineCommand({
@@ -108,6 +110,7 @@ const leave = defineCommand({
     "Leave the current workspace. The last owner cannot leave. Asks first on a terminal;\n" +
     "otherwise --yes is required.",
   context: ["workspace"],
+  output: "deleted",
   examples: ["intesa member leave -w acme", "intesa member leave -w acme --yes"],
   async run(ctx) {
     const r = resolver(ctx)
@@ -117,9 +120,10 @@ const leave = defineCommand({
     await http.client.api.workspaces[":workspaceId"].members[":memberId"].$delete({
       param: { workspaceId: id, memberId: member.id },
     })
-    ctx.stderr(`✓ Left workspace ${slug}\n`)
-    if (ctx.globals.json) return { id: member.id, email: member.email, left: true }
+    ctx.done(`Left workspace ${slug}`)
+    return { id: member.id, email: member.email, deleted: true }
   },
+  human: () => "",
 })
 
 export default defineGroup({

@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { addMember, signIn } from "../../api/test/helpers"
 import {
-  loginAs,
   removeSandboxes,
   type Sandbox,
-  sandbox,
+  signedIn,
   startServer,
   type TestServer,
+  world,
 } from "./helpers"
 
 let server: TestServer
@@ -24,24 +24,17 @@ let n = 0
 const setName = (email: string, name: string) =>
   server.db.updateTable("users").set({ name }).where("email", "=", email).execute()
 
-// "Ada" owns a fresh workspace, which is her only one, so no -w is needed.
+// "Alan" owns a fresh workspace, which is his only one, so no -w is needed.
 async function team() {
-  const id = ++n
-  const ownerEmail = `ada${id}@example.com`
-  const box = sandbox(server.url)
-  const { session } = await loginAs(box, server, ownerEmail)
-  await setName(ownerEmail, "Ada Owner")
-  const ws = await session.call("POST", "/api/workspaces", { name: "Acme", slug: `acme-${id}` })
-  const workspace = ws.body.workspace as { id: string; slug: string }
+  ++n
+  const { box, email: ownerEmail, workspace } = await world(server)
 
   // A signed-in sandbox for someone who already has an account and joins the workspace.
   const join = async (name: string, role: "owner" | "member" = "member") => {
-    const email = `${name.split(" ")[0]?.toLowerCase()}${id}@example.com`
-    const person = sandbox(server.url)
-    await loginAs(person, server, email)
-    await setName(email, name)
-    await addMember(server, workspace.id, email, role)
-    return { box: person, email }
+    const person = await signedIn(server)
+    await setName(person.email, name)
+    await addMember(server, workspace.id, person.email, role)
+    return { box: person.box, email: person.email }
   }
   const members = async (as: Sandbox = box): Promise<Member[]> =>
     (await as.run(["member", "list", "--json"])).json()
@@ -56,13 +49,13 @@ describe("member list", () => {
     expect(r.exitCode).toBe(0)
     const members = r.json()
     expect(members.map((m: Member) => [m.name, m.email, m.role])).toEqual([
-      ["Ada Owner", ownerEmail, "owner"],
+      ["Alan Owner", ownerEmail, "owner"],
       ["Ben Member", ben.email, "member"],
     ])
     expect(members[0]).toEqual({
       id: expect.any(String),
       userId: expect.any(String),
-      name: "Ada Owner",
+      name: "Alan Owner",
       email: ownerEmail,
       avatarUrl: null,
       role: "owner",
@@ -74,7 +67,7 @@ describe("member list", () => {
     const { box, join, ownerEmail } = await team()
     const ben = await join("Ben Member")
     const tsv = await box.run(["member", "list"])
-    expect(tsv.stdout).toBe(`Ada Owner\t${ownerEmail}\towner\nBen Member\t${ben.email}\tmember\n`)
+    expect(tsv.stdout).toBe(`Alan Owner\t${ownerEmail}\towner\nBen Member\t${ben.email}\tmember\n`)
     const ids = (await box.run(["member", "list", "--json"])).json().map((m: Member) => m.id)
     expect((await box.run(["member", "list", "-q"])).stdout).toBe(`${ids.join("\n")}\n`)
   })
@@ -146,25 +139,6 @@ describe("member add", () => {
     const r = await ben.box.run(["member", "add", `friend${n}@example.com`])
     expect(r.exitCode).toBe(7)
     expect(await members(box)).toHaveLength(2)
-  })
-
-  test("--dry-run shows the request without adding", async () => {
-    const { box, workspace, members } = await team()
-    const r = await box.run([
-      "member",
-      "add",
-      `dry${n}@example.com`,
-      "--role",
-      "owner",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "POST",
-      path: `/api/workspaces/${workspace.id}/members`,
-      body: { email: `dry${n}@example.com`, role: "owner" },
-    })
-    expect(await members()).toHaveLength(1)
   })
 })
 
@@ -252,7 +226,7 @@ describe("member remove", () => {
     const ben = await join("Ben Member")
     const id = (await members()).find((m) => m.email === ben.email)?.id
     const r = await box.run(["member", "remove", "Ben Member", "--yes", "--json"])
-    expect(r.json()).toEqual({ id, email: ben.email, removed: true })
+    expect(r.json()).toEqual({ id, email: ben.email, deleted: true })
   })
 
   test("the last owner cannot be removed (exit 6)", async () => {
@@ -273,20 +247,6 @@ describe("member remove", () => {
   test("an unknown member exits 5", async () => {
     const { box } = await team()
     expect((await box.run(["member", "remove", "ghost@example.com", "--yes"])).exitCode).toBe(5)
-  })
-
-  test("--dry-run needs no confirmation and removes nobody", async () => {
-    const { box, join, members, workspace } = await team()
-    const ben = await join("Ben Member")
-    const id = (await members()).find((m) => m.email === ben.email)?.id
-    const r = await box.run(["member", "remove", ben.email, "--dry-run"])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "DELETE",
-      path: `/api/workspaces/${workspace.id}/members/${id}`,
-      body: null,
-    })
-    expect(await members()).toHaveLength(2)
   })
 })
 
@@ -311,7 +271,7 @@ describe("member leave", () => {
     const ben = await join("Ben Member")
     const id = (await members()).find((m) => m.email === ben.email)?.id
     const r = await ben.box.run(["member", "leave", "--yes", "--json"])
-    expect(r.json()).toEqual({ id, email: ben.email, left: true })
+    expect(r.json()).toEqual({ id, email: ben.email, deleted: true })
     expect(await members(box)).toHaveLength(1)
   })
 

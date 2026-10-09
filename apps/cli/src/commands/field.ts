@@ -1,20 +1,22 @@
 import { FIELD_TYPES } from "@intesa/api/schemas"
 import { z } from "zod"
 import { resolver } from "../client/resolve"
-import { confirmDestructive } from "../output/ask"
+import { confirmDestructive } from "../io/prompt"
 import { usageError } from "../output/errors"
+import { wordsStarting } from "../registry/completion"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
 const fieldArg = {
   name: "field",
   required: true,
   description: "Field name (any case) or id",
-  // A name with spaces would be split by the shell, so only single words are offered.
   complete: async (ctx: Ctx, { word }: { word: string }) => {
     const r = resolver(ctx)
-    return (await r.fields((await r.project()).id))
-      .map((f) => f.name)
-      .filter((n) => !/\s/.test(n) && n.toLowerCase().startsWith(word.toLowerCase()))
+    const fields = await r.fields((await r.project()).id)
+    return wordsStarting(
+      fields.map((f) => f.name),
+      word,
+    )
   },
 } as const
 
@@ -44,10 +46,7 @@ const create = defineCommand({
     "they should appear. Required means a value, once set, cannot be cleared.",
   args: [{ name: "name", required: true }],
   flags: z.object({
-    type: z
-      .enum(FIELD_TYPES)
-      .optional()
-      .meta({ placeholder: "type", description: "What the field holds (required)" }),
+    type: z.enum(FIELD_TYPES).meta({ placeholder: "type", description: "What the field holds" }),
     option: z
       .array(z.string())
       .optional()
@@ -61,7 +60,6 @@ const create = defineCommand({
     "intesa field create Stage --type select --option Alpha --option Beta --required",
   ],
   async run(ctx, { name }, flags) {
-    if (!flags.type) throw usageError(`missing --type (one of ${FIELD_TYPES.join("|")})`)
     const options = trimmed(flags.option)
     if (flags.type === "select" && options.length === 0) {
       throw usageError("a select field needs at least one --option")
@@ -164,6 +162,7 @@ const remove = defineCommand({
     "terminal; otherwise --yes is required.",
   args: [fieldArg],
   context: ["workspace", "project"],
+  output: "deleted",
   examples: ["intesa field delete Estimate -p WEB", "intesa field delete Estimate --yes"],
   async run(ctx, { field: ref }) {
     const r = resolver(ctx)
@@ -171,9 +170,10 @@ const remove = defineCommand({
     await confirmDestructive(ctx, `Delete field ${field.name} and its values on all tasks?`)
     const http = await ctx.http()
     await http.client.api["custom-fields"][":fieldId"].$delete({ param: { fieldId: field.id } })
-    ctx.stderr(`✓ Deleted field ${field.name}\n`)
-    if (ctx.globals.json) return { id: field.id, name: field.name, deleted: true }
+    ctx.done(`Deleted field ${field.name}`)
+    return { id: field.id, name: field.name, deleted: true }
   },
+  human: () => "",
 })
 
 export default defineGroup({

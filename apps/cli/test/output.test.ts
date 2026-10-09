@@ -1,6 +1,32 @@
 import { describe, expect, test } from "bun:test"
+import { browserCommand } from "../src/io/browser"
 import { project, selectFields } from "../src/output/json"
 import { formatTable } from "../src/output/table"
+
+describe("browserCommand", () => {
+  const url = "https://pm.example.com/w/acme/home?a=1&b=2"
+
+  test("BROWSER may be a quoted path with spaces, plus arguments", () => {
+    const env = { BROWSER: '"C:\\Program Files\\Google\\chrome.exe" --new-window' }
+    expect(browserCommand(url, { env, platform: "win32" })).toEqual([
+      "C:\\Program Files\\Google\\chrome.exe",
+      "--new-window",
+      url,
+    ])
+  })
+
+  test("otherwise the platform's opener, which takes the URL as one argument", () => {
+    expect(browserCommand(url, { env: {}, platform: "win32" })).toEqual([
+      "rundll32",
+      "url.dll,FileProtocolHandler",
+      url,
+    ])
+    expect(browserCommand(url, { env: {}, configBrowser: "firefox", platform: "linux" })).toEqual([
+      "firefox",
+      url,
+    ])
+  })
+})
 
 describe("formatTable", () => {
   const rows = [
@@ -39,6 +65,20 @@ describe("formatTable", () => {
 
   test("no rows, no output", () => {
     expect(formatTable([], ["key"], { tty: true, width: 80 })).toBe("")
+  })
+
+  test("people, tags and other named things show as their names", () => {
+    const row = {
+      assignees: [
+        { id: "u1", name: "Alan Owner" },
+        { id: "u2", name: "Mei" },
+      ],
+      project: { id: "p1", name: "Web" },
+      counts: { todo: 2 },
+    }
+    expect(formatTable([row], ["assignees", "project", "counts"], { tty: false, width: 80 })).toBe(
+      'Alan Owner,Mei\tWeb\t{"todo":2}\n',
+    )
   })
 })
 

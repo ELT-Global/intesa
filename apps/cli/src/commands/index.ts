@@ -7,8 +7,6 @@ export type NounEntry = {
   name: string
   aliases?: string[]
   summary: string
-  // Left out of help, `intesa schema` and completion scripts (plumbing such as `__complete`).
-  hidden?: boolean
   load: () => Promise<Noun>
 }
 
@@ -92,12 +90,6 @@ export const nouns: NounEntry[] = [
     summary: "Generate a shell completion script",
     load: () => import("./completion").then((m) => m.default),
   },
-  {
-    name: "__complete",
-    summary: "Print completion candidates for the words typed so far",
-    hidden: true,
-    load: () => import("./complete").then((m) => m.default),
-  },
 ]
 
 export const named = (name: string) => (n: { name: string; aliases?: string[] }) =>
@@ -142,7 +134,7 @@ export async function resolveWords(words: string[]): Promise<Resolved> {
 // Loads every module; only `intesa schema` needs the whole tree.
 export async function allCommands() {
   const out: { cmd: Command; path: string[]; names: string[][] }[] = []
-  for (const entry of nouns.filter((n) => !n.hidden)) {
+  for (const entry of nouns) {
     const noun = await entry.load()
     const own = [noun.name, ...(noun.aliases ?? [])]
     if (noun.kind === "command") out.push({ cmd: noun, path: [noun.name], names: [own] })

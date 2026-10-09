@@ -1,6 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { removeSandboxes, startServer, type TestServer } from "./helpers"
-import { lines, type TaskWorld, taskWorld } from "./task-fixtures"
+import {
+  fakeServer,
+  lines,
+  removeSandboxes,
+  startServer,
+  type TestServer,
+  type World,
+  world,
+} from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -12,16 +19,16 @@ afterAll(() => {
 })
 
 // A column, top to bottom, as the CLI lists it in board order.
-const column = async (w: TaskWorld, status: string) =>
+const column = async (w: World, status: string) =>
   lines((await w.box.run(["task", "list", "-p", "WEB", "-s", status, "-q"])).stdout)
 
-const statusOf = async (w: TaskWorld, id: string) => (await w.getTask(id)).status
+const statusOf = async (w: World, id: string) => (await w.getTask(id)).status
 
 describe("task move: placement", () => {
-  let w: TaskWorld
+  let w: World
   let first: { id: string }
   beforeAll(async () => {
-    w = await taskWorld(server)
+    w = await world(server)
     // New tasks go to the top: the todo column reads WEB-4, WEB-3, WEB-2, WEB-1.
     first = await w.addTask({ title: "One" })
     for (const title of ["Two", "Three", "Four"]) await w.addTask({ title })
@@ -68,7 +75,7 @@ describe("task move: placement", () => {
 describe("task move: subtasks", () => {
   // A parent with one todo and one complete subtask.
   async function family() {
-    const w = await taskWorld(server)
+    const w = await world(server)
     const parent = await w.addTask({ title: "Parent" })
     const todo = await w.addTask({ title: "Kid todo", parentTaskId: parent.id })
     const done = await w.addTask({ title: "Kid done", parentTaskId: parent.id, status: "complete" })
@@ -124,25 +131,42 @@ describe("task move: subtasks", () => {
     ])
   })
 
-  test("--dry-run prints the parent's PATCH only and sends nothing", async () => {
+  test("a subtask that fails to move does not stop the others; the result and every failure are printed", async () => {
     const { w, parent, todo } = await family()
-    const r = await w.box.run([
-      "task",
-      "move",
-      parent.key,
-      "complete",
-      "--subtasks",
-      "match",
-      "--dry-run",
-    ])
-    expect(r.exitCode).toBe(0)
-    expect(r.json()).toEqual({
-      method: "PATCH",
-      path: `/api/tasks/${parent.id}`,
-      body: { status: "complete" },
+    const other = await w.addTask({ title: "Kid two", parentTaskId: parent.id })
+    // The real server, except that moving `todo` is refused.
+    const proxy = fakeServer((req) => {
+      const url = new URL(req.url)
+      if (req.method === "PATCH" && url.pathname === `/api/tasks/${todo.id}`) {
+        return Response.json({ code: "CONFLICT", message: "Locked" }, { status: 409 })
+      }
+      const forwarded = new Request(`${server.url}${url.pathname}${url.search}`, req)
+      // Uncompressed, so the response can be handed back as it is.
+      forwarded.headers.set("accept-encoding", "identity")
+      return fetch(forwarded)
     })
+    try {
+      const r = await w.box.run(
+        ["task", "move", parent.key, "review", "--subtasks", "match", "--json"],
+        { env: { INTESA_HOST: proxy.url, INTESA_TOKEN: w.token } },
+      )
+      expect(r.exitCode).toBe(6)
+      expect(r.json()).toMatchObject({ key: parent.key, status: "review" })
+      expect(r.json().subtasksOutOfSync).toEqual([{ key: todo.key, status: "todo" }])
+      expect(r.stderr).toContain(`${todo.key}: Locked`)
+      expect(await statusOf(w, other.id)).toBe("review")
+      expect(await statusOf(w, todo.id)).toBe("todo")
+    } finally {
+      proxy.stop()
+    }
+  })
+
+  test("--subtasks ask without a terminal exits 2 before anything moves", async () => {
+    const { w, parent } = await family()
+    const r = await w.box.run(["task", "move", parent.key, "review", "--subtasks", "ask"])
+    expect(r.exitCode).toBe(2)
+    expect(r.stderr).toContain("terminal")
     expect(await statusOf(w, parent.id)).toBe("todo")
-    expect(await statusOf(w, todo.id)).toBe("todo")
   })
 
   test("done takes --subtasks too", async () => {
@@ -155,7 +179,7 @@ describe("task move: subtasks", () => {
 
 describe("task start, review, done", () => {
   test("move to in progress, review and complete", async () => {
-    const w = await taskWorld(server)
+    const w = await world(server)
     const task = await w.addTask({ title: "Flow" })
     const start = await w.box.run(["task", "start", task.key, "--json"])
     expect(start.json()).toMatchObject({ key: task.key, status: "in_progress" })
@@ -168,7 +192,7 @@ describe("task start, review, done", () => {
 
 describe("task assign, unassign", () => {
   test("@me by default; names add to or remove from the current assignees", async () => {
-    const w = await taskWorld(server)
+    const w = await world(server)
     await w.addPerson("Mei Member")
     const task = await w.addTask({ title: "Who" })
     const names = async () =>
@@ -188,7 +212,7 @@ describe("task assign, unassign", () => {
   })
 
   test("an unknown person exits 5 and changes nothing", async () => {
-    const w = await taskWorld(server)
+    const w = await world(server)
     const task = await w.addTask({ title: "Who", assigneeIds: [w.me] })
     expect((await w.box.run(["task", "assign", task.key, "Nobody"])).exitCode).toBe(5)
     expect((await w.getTask(task.id)).assignees).toHaveLength(1)
@@ -197,7 +221,7 @@ describe("task assign, unassign", () => {
 
 describe("task delete", () => {
   test("needs --yes without a terminal and warns that subtasks go too", async () => {
-    const w = await taskWorld(server)
+    const w = await world(server)
     const parent = await w.addTask({ title: "Parent" })
     const kid = await w.addTask({ title: "Kid", parentTaskId: parent.id })
     await w.addTask({ title: "Kid 2", parentTaskId: parent.id })
@@ -216,10 +240,23 @@ describe("task delete", () => {
     expect(await w.getTask(kid.id)).toBeUndefined()
   })
 
-  test("--json reports what was deleted", async () => {
-    const w = await taskWorld(server)
+  test("--json reports what was deleted, -q its key", async () => {
+    const w = await world(server)
     const task = await w.addTask({ title: "Gone" })
     const r = await w.box.run(["task", "delete", task.key, "--yes", "--json"])
     expect(r.json()).toEqual({ id: task.id, key: task.key, deleted: true })
+    const other = await w.addTask({ title: "Also gone" })
+    const quiet = await w.box.run(["task", "delete", other.key, "--yes", "-q"])
+    expect(quiet.stdout).toBe(`${other.key}\n`)
+    expect(quiet.stderr).toBe("")
+  })
+
+  test("an unknown --fields name exits 2 before anything is deleted", async () => {
+    const w = await world(server)
+    const task = await w.addTask({ title: "Kept" })
+    const r = await w.box.run(["task", "delete", task.key, "--yes", "--json", "--fields", "bogus"])
+    expect(r.exitCode).toBe(2)
+    expect(r.stdout).toBe("")
+    expect(await w.getTask(task.id)).toBeDefined()
   })
 })

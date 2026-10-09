@@ -6,17 +6,23 @@ const GAP = 2
 export function cell(value: unknown): string {
   if (value === null || value === undefined) return ""
   if (Array.isArray(value)) return value.map(cell).join(",")
-  if (typeof value === "object") return JSON.stringify(value)
+  if (typeof value === "object") {
+    // People, tags, projects: what they are called reads better than their JSON.
+    const { name } = value as { name?: unknown }
+    return typeof name === "string" ? cell(name) : JSON.stringify(value)
+  }
   // Tabs and newlines would break TSV rows and table alignment alike.
   return String(value).replace(/[\t\r\n]+/g, " ")
 }
 
-function truncate(text: string, width: number) {
+// Cuts text to a display width, ending in "…" when anything was cut.
+export function truncate(text: string, width: number) {
   if (Bun.stringWidth(text) <= width) return text
   return width <= 1 ? "…".slice(0, width) : `${Bun.sliceAnsi(text, 0, width - 1)}…`
 }
 
-const pad = (text: string, width: number) => text + " ".repeat(width - Bun.stringWidth(text))
+export const pad = (text: string, width: number) =>
+  text + " ".repeat(Math.max(width - Bun.stringWidth(text), 0))
 
 // On a terminal: a header and aligned columns fitted to the width, shrinking the widest
 // column first. Piped: TSV with no header or truncation, so scripts can rely on it.

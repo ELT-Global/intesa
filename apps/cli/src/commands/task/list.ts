@@ -1,21 +1,15 @@
-import { isRealDate } from "@intesa/api/schemas"
-import {
-  compileSearch,
-  PRIORITY_RANK,
-  parseTerms,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-} from "@intesa/task-query"
+import { isRealDate, PRIORITIES, STATUSES } from "@intesa/api/schemas"
+import { compileSearch, normalise, PRIORITY_RANK, parseTerms } from "@intesa/task-query"
 import { z } from "zod"
+import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
 import { usageError } from "../../output/errors"
-import { defineCommand } from "../../registry/define"
-import { linker, present, splitList, type TaskSummary } from "./shared"
+import { type Ctx, defineCommand } from "../../registry/define"
+import { showTasks, splitList, type TaskSummary, tagIds, userIds } from "./shared"
 
-const SORTS = ["board", "due", "priority", "status", "updated"] as const
+const SORTS = ["board", "due", "priority", "updated"] as const
 const DUE_WORDS = ["overdue", "soon", "today", "none"]
-
-const normalise = (s: string) => s.toLowerCase().replace(/[\s-]+/g, "_")
+const NOBODY = ["unassigned", "none"]
 
 function checked(flag: string, values: string[], allowed: readonly string[], extra = "") {
   for (const v of values) {
@@ -44,7 +38,8 @@ type Flags = {
 }
 
 // The filter flags are sugar for the search syntax: they compile to the terms the web search
-// box understands and are matched by the same code, together with -Q.
+// box understands and are matched by the same code, together with -Q. People and tags are
+// best given as ids (see `filterIds`), which the search matches exactly.
 export function compileQuery(flags: Flags) {
   const due = flags.due === undefined ? [] : [flags.due.toLowerCase()]
   if (due[0] && !DUE_WORDS.includes(due[0]) && !isRealDate(due[0])) {
@@ -53,13 +48,13 @@ export function compileQuery(flags: Flags) {
     )
   }
   let query = [
-    term("status", checked("status", splitList(flags.status), TASK_STATUSES)),
+    term("status", checked("status", splitList(flags.status), STATUSES)),
     term(
       "assignee",
       splitList(flags.assignee).map((a) => (a === "@me" ? "me" : a)),
     ),
     term("tag", splitList(flags.tag)),
-    term("priority", checked("priority", splitList(flags.priority), [...TASK_PRIORITIES, "none"])),
+    term("priority", checked("priority", splitList(flags.priority), [...PRIORITIES, "none"])),
     term("due", due),
     flags.query ?? "",
   ]
@@ -73,7 +68,24 @@ export function compileQuery(flags: Flags) {
   return { query, wantsMe }
 }
 
-const statusIndex = (t: TaskSummary) => TASK_STATUSES.indexOf(t.status)
+// -a and -t name people and tags the way `task create` does (exit 5 for nobody), as ids;
+// me and unassigned stay as they are.
+async function filterIds(ctx: Ctx, flags: Flags) {
+  const people = splitList(flags.assignee)
+  const special = (p: string) => p === "me" || p === "@me" || NOBODY.includes(p.toLowerCase())
+  return {
+    assignee: [
+      ...people.filter(special),
+      ...(await userIds(
+        ctx,
+        people.filter((p) => !special(p)),
+      )),
+    ],
+    tag: await tagIds(ctx, splitList(flags.tag)),
+  }
+}
+
+const statusIndex = (t: TaskSummary) => STATUSES.indexOf(t.status)
 // Missing values sort last.
 const nullsLast =
   <V extends string | number>(value: (t: TaskSummary) => V | null) =>
@@ -88,7 +100,6 @@ const nullsLast =
 
 const ORDER: Record<(typeof SORTS)[number], ((a: TaskSummary, b: TaskSummary) => number) | null> = {
   board: null,
-  status: null,
   due: nullsLast((t) => t.dueAt),
   priority: nullsLast((t) => (t.priority ? PRIORITY_RANK[t.priority] : null)),
   updated: (a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0),
@@ -104,8 +115,9 @@ export const list = defineCommand({
     "--parent lists a task's subtasks.\n\n" +
     "Filtering uses the web search syntax: -Q takes a query as typed in the search box\n" +
     '(free text, "phrases", status:a,b, assignee:me, tag:x, priority:none, due:soon, has:due,\n' +
-    "no:tag, -negation) and the filter flags add the same terms. Completed tasks are hidden\n" +
-    "unless --include-complete is given or a status is named.",
+    "no:tag, -negation) and the filter flags add the same terms. -a and -t name people and\n" +
+    "tags exactly, as `task create` does. Completed tasks are hidden unless\n" +
+    "--include-complete is given or a status is named.",
   flags: z.object({
     mine: z
       .boolean()
@@ -121,12 +133,12 @@ export const list = defineCommand({
       .meta({
         short: "s",
         placeholder: "status",
-        description: `Only these statuses (${TASK_STATUSES.join(", ")})`,
+        description: `Only these statuses (${STATUSES.join(", ")})`,
       }),
     assignee: z.array(z.string()).optional().meta({
       short: "a",
-      placeholder: "name",
-      description: "Only tasks assigned to these people: me, unassigned or a name",
+      placeholder: "person",
+      description: "Only tasks assigned to these people: me, unassigned, an email or a name",
     }),
     tag: z
       .array(z.string())
@@ -137,7 +149,7 @@ export const list = defineCommand({
       .optional()
       .meta({
         placeholder: "priority",
-        description: `Only these priorities (${TASK_PRIORITIES.join(", ")}, none)`,
+        description: `Only these priorities (${PRIORITIES.join(", ")}, none)`,
       }),
     due: z.string().optional().meta({
       placeholder: "when",
@@ -171,13 +183,17 @@ export const list = defineCommand({
     if (flags.mine && ctx.globals.project) {
       throw usageError("--mine lists tasks across projects; leave out -p")
     }
-    const { query, wantsMe } = compileQuery(flags)
+    compileQuery(flags) // Bad values fail before any request.
+    const { query, wantsMe } = compileQuery({ ...flags, ...(await filterIds(ctx, flags)) })
     const r = resolver(ctx)
     const { client } = await ctx.http()
 
     let tasks: TaskSummary[]
+    let workspaceId: string | undefined
     if (flags.parent !== undefined) {
-      tasks = (await r.task(flags.parent)).subtasks
+      const parent = await r.task(flags.parent)
+      tasks = parent.subtasks
+      workspaceId = parent.project.workspaceId
     } else if (flags.mine) {
       const { id } = await r.workspace()
       const res = await client.api.workspaces[":workspaceId"]["my-tasks"].$get({
@@ -198,7 +214,8 @@ export const list = defineCommand({
     )
     const order = ORDER[flags.sort]
     if (order) shown.sort(order)
-    const withUrl = await linker(ctx)
-    return present(ctx, shown.slice(0, flags.limit).map(withUrl))
+    const link = await webLinks(ctx, workspaceId)
+    return shown.slice(0, flags.limit).map(link.task)
   },
+  human: showTasks,
 })

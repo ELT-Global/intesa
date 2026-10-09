@@ -1,6 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { resolve } from "node:path"
 import { nouns } from "../src/commands"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import {
+  lines,
+  loginAs,
+  removeSandboxes,
+  type Sandbox,
+  sandbox,
+  startServer,
+  type TestServer,
+  world,
+} from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -12,28 +22,19 @@ afterAll(() => {
 })
 
 const SHELLS = ["bash", "zsh", "fish", "powershell"]
-const lines = (text: string) => text.split("\n").filter(Boolean)
 
 // `intesa __complete --word=<partial> -- <words before it>`: what the scripts call.
-const complete = (box: ReturnType<typeof sandbox>, word: string, ...words: string[]) =>
+const complete = (box: Sandbox, word: string, ...words: string[]) =>
   box.run(["__complete", `--word=${word}`, "--", ...words])
 
 describe("intesa completion", () => {
-  test.each(SHELLS)("%s: prints a script that lists every command", async (shell) => {
+  test.each(SHELLS)("%s: prints a script that asks `intesa __complete`", async (shell) => {
     const r = await sandbox().run(["completion", shell])
     expect(r.exitCode).toBe(0)
     expect(r.stderr).toBe("")
-    for (const noun of nouns) expect(r.stdout).toContain(noun.name)
-  })
-
-  test.each(SHELLS)("%s: calls the hidden __complete command for dynamic values", async (shell) => {
-    const r = await sandbox().run(["completion", shell])
-    expect(r.stdout).toContain("__complete")
-  })
-
-  test("the bash script", async () => {
-    const r = await sandbox().run(["completion", "bash"])
-    expect(r.stdout).toMatchSnapshot()
+    expect(r.stdout).toContain("intesa __complete")
+    // An empty word survives Windows PowerShell only inside `--word=`.
+    expect(r.stdout).toContain("--word=")
   })
 
   test("the shell is required and validated", async () => {
@@ -51,8 +52,8 @@ describe("intesa completion", () => {
   })
 })
 
-// The bash script is exercised for real where a working bash exists: the part of the script
-// that needs no round trip (commands, subcommands, first flags) must complete on its own.
+// The bash script is exercised for real where a working bash exists, with `intesa` a
+// function that runs this checkout.
 const bash = await (async () => {
   const path = Bun.which("bash")
   if (!path) return undefined
@@ -67,56 +68,67 @@ const bash = await (async () => {
   }
 })()
 
-async function bashComplete(words: string[]) {
-  const script = (await sandbox().run(["completion", "bash"])).stdout
-  const cword = words.length - 1
-  const call = [
-    `COMP_WORDS=(${words.map((w) => `'${w}'`).join(" ")})`,
-    `COMP_CWORD=${cword}`,
-    "_intesa",
-    `printf "%s\\n" "\${COMPREPLY[@]}"`,
-  ].join("\n")
-  const proc = Bun.spawn([bash as string, "-s"], {
-    stdin: new Blob([`${script}\n${call}\n`]),
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const out = await new Response(proc.stdout).text()
-  await proc.exited
-  return lines(out.replaceAll("\r", ""))
-}
-
 describe.skipIf(!bash)("bash script", () => {
+  let script = ""
+  let box: Sandbox
+  beforeAll(async () => {
+    box = sandbox()
+    script = (await box.run(["completion", "bash"])).stdout
+  })
+
+  async function bashComplete(words: string[]) {
+    const unix = (path: string) => path.replaceAll("\\", "/")
+    const main = unix(resolve(import.meta.dir, "../src/main.ts"))
+    const call = [
+      `intesa() { "${unix(process.execPath)}" "${main}" "$@"; }`,
+      `COMP_WORDS=(${words.map((w) => `'${w}'`).join(" ")})`,
+      `COMP_CWORD=${words.length - 1}`,
+      "_intesa",
+      `printf "%s\\n" "\${COMPREPLY[@]}"`,
+    ].join("\n")
+    const proc = Bun.spawn([bash as string, "-s"], {
+      stdin: new Blob([`${script}\n${call}\n`]),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, INTESA_CONFIG_DIR: box.configDir, MSYS_NO_PATHCONV: "1" },
+    })
+    const out = await new Response(proc.stdout).text()
+    await proc.exited
+    return lines(out.replaceAll("\r", ""))
+  }
+
   test("completes command names, with aliases", async () => {
-    const found = await bashComplete(["intesa", "to"])
-    expect(found).toEqual(["token"])
+    expect(await bashComplete(["intesa", "to"])).toEqual(["token"])
     expect(await bashComplete(["intesa", ""])).toEqual(
-      expect.arrayContaining(["api", "config", "me"]),
+      expect.arrayContaining(["api", "config", "me", "ws"]),
     )
   })
 
-  test("completes a group's subcommands and aliases", async () => {
-    expect((await bashComplete(["intesa", "token", ""])).sort()).toEqual(
-      ["create", "list", "ls", "revoke"].sort(),
-    )
-    expect(await bashComplete(["intesa", "token", "cr"])).toEqual(["create"])
-  })
-
-  test("completes a command's flags, own and global", async () => {
-    const found = await bashComplete(["intesa", "token", "create", "--"])
-    expect(found).toEqual(
+  test("completes a group's subcommands, flags and flag values", async () => {
+    expect((await bashComplete(["intesa", "token", ""])).sort()).toEqual([
+      "create",
+      "list",
+      "ls",
+      "revoke",
+    ])
+    const flags = await bashComplete(["intesa", "token", "create", "--"])
+    expect(flags).toEqual(
       expect.arrayContaining(["--name", "--scope", "--expires", "--json", "--dry-run"]),
     )
-    expect(found).not.toContain("--code")
+    expect(flags).not.toContain("--code")
+    expect(await bashComplete(["intesa", "token", "create", "--scope", ""])).toEqual([
+      "read",
+      "write",
+    ])
   })
 })
 
 describe("__complete", () => {
-  test("lists the commands, never the hidden one", async () => {
+  test("lists the commands, never itself", async () => {
     const r = await complete(sandbox(), "")
     expect(r.exitCode).toBe(0)
     const found = lines(r.stdout)
-    for (const noun of nouns.filter((n) => !n.hidden)) expect(found).toContain(noun.name)
+    for (const noun of nouns) expect(found).toContain(noun.name)
     expect(found).not.toContain("__complete")
   })
 
@@ -188,6 +200,11 @@ describe("__complete", () => {
       expect(r.stdout).toBe("")
       expect(r.stderr).toBe("")
     }
+    for (const argv of [["__complete", "--bogus"], ["__complete", "-w"], ["__complete"]]) {
+      const r = await box.run(argv)
+      expect(r.exitCode, argv.join(" ")).toBe(0)
+      expect(r.stderr).toBe("")
+    }
   })
 
   test("a missing --word is treated as empty", async () => {
@@ -206,6 +223,24 @@ describe("__complete", () => {
       expect(all.sort()).toEqual([created.id, tokenId].sort())
       const some = lines((await complete(box, created.id.slice(0, 8), "token", "revoke")).stdout)
       expect(some).toEqual([created.id])
+    })
+
+    test("values are looked up where -w and -p on the line say", async () => {
+      const w = await world(server)
+      await w.addTag("home")
+      const other = (
+        await w.session.call("POST", "/api/workspaces", { name: "Other", slug: `other-${w.id}` })
+      ).body.workspace
+      await w.session.call("POST", `/api/workspaces/${other.id}/tags`, { name: "away" })
+      await w.session.call("POST", `/api/workspaces/${other.id}/projects`, {
+        name: "Api",
+        key: "API",
+      })
+      const tags = (...words: string[]) => complete(w.box, "", "tag", "delete", ...words)
+      expect(lines((await tags("-w", other.slug)).stdout)).toEqual(["away"])
+      expect(lines((await tags(`--workspace=${w.workspace.slug}`)).stdout)).toEqual(["home"])
+      const keys = await complete(w.box, "", "-w", other.slug, "project", "view")
+      expect(lines(keys.stdout)).toEqual(["API"])
     })
 
     test("a failing source (not signed in) prints nothing, quietly", async () => {

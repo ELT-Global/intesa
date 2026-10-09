@@ -30,6 +30,23 @@ describe("intesa schema", () => {
     }
   })
 
+  test("lists every error code with its exit code, the CLI's own included", async () => {
+    const { errorCodes } = (await sandbox().run(["schema", "api"])).json()
+    const exitOf = (code: string) =>
+      errorCodes.find((e: { code: string }) => e.code === code)?.exitCode
+    expect(exitOf("NOT_FOUND")).toBe(5)
+    expect(exitOf("USAGE_ERROR")).toBe(2)
+    expect(exitOf("NOT_LOGGED_IN")).toBe(4)
+    for (const code of ["EDITOR_ERROR", "ACCESS_DENIED", "DEVICE_CODE_EXPIRED", "CANCELLED"]) {
+      expect(exitOf(code)).toBeNumber()
+    }
+  })
+
+  test("flags without a default are required", async () => {
+    const [create] = (await sandbox().run(["schema", "field", "create"])).json().commands
+    expect(create.flags.required).toEqual(["type"])
+  })
+
   test("documents output fields for commands that have them", async () => {
     const r = await sandbox().run(["schema", "config", "list"])
     expect(r.json().commands).toHaveLength(1)

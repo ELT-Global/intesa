@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { createTestApp, signIn } from "../../api/test/helpers"
+import { addMember, createTestApp, signIn, userId } from "../../api/test/helpers"
 import { saveToken } from "../src/config/secrets"
 
 const MAIN = resolve(import.meta.dir, "../src/main.ts")
@@ -21,6 +21,8 @@ export type RunOptions = {
   env?: Record<string, string | undefined>
   cwd?: string
   stdin?: string
+  // Options for bun itself, before the script (e.g. --preload).
+  bunArgs?: string[]
 }
 
 // Variables from the developer's shell that would change what the CLI does.
@@ -73,7 +75,7 @@ export function sandbox(host?: string): Sandbox {
     })
     for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k]
 
-    return Bun.spawn([process.execPath, MAIN, ...args], {
+    return Bun.spawn([process.execPath, ...(opts.bunArgs ?? []), MAIN, ...args], {
       cwd: opts.cwd ?? cwd,
       env,
       stdin: opts.stdin === undefined ? "ignore" : new Blob([opts.stdin]),
@@ -163,3 +165,87 @@ export async function loginAs(
   )
   return { token, tokenId: id, session }
 }
+
+let n = 0
+
+// A sandbox signed in as a new user, "Alan Owner", with a token of `scope`. `id` is unique
+// per call, for slugs and emails.
+export async function signedIn(server: TestServer, opts: { scope?: "read" | "write" } = {}) {
+  const id = `u${++n}-${crypto.randomUUID().slice(0, 6)}`
+  const box = sandbox(server.url)
+  const email = `${id}@example.com`
+  const login = await loginAs(box, server, email, opts)
+  await login.session.call("PATCH", "/api/me", { name: "Alan Owner" })
+  return { id, box, email, me: await userId(server, email), ...login }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: tests read arbitrary response shapes
+type Json = any
+
+// A signed-in user who owns one workspace ("Acme", their only one, so no -w is needed) with a
+// project WEB ("Web"), plus shortcuts that seed data straight through the API.
+export async function world(server: TestServer, opts: { scope?: "read" | "write" } = {}) {
+  const user = await signedIn(server, opts)
+  const { id, session } = user
+  const workspace = (await session.call("POST", "/api/workspaces", { name: "Acme", slug: id })).body
+    .workspace as { id: string; slug: string }
+
+  const addProject = async (name: string, key: string) =>
+    (await session.call("POST", `/api/workspaces/${workspace.id}/projects`, { name, key })).body
+      .project as { id: string; key: string; name: string }
+  const project = await addProject("Web", "WEB")
+
+  const addTask = async (body: Record<string, unknown>, projectId = project.id): Promise<Json> => {
+    const res = await session.call("POST", `/api/projects/${projectId}/tasks`, body)
+    if (res.status !== 201) throw new Error(`task creation failed: ${JSON.stringify(res.body)}`)
+    return res.body.task
+  }
+  const getTask = async (taskId: string): Promise<Json> =>
+    (await session.call("GET", `/api/tasks/${taskId}`)).body?.task
+  const patchTask = async (taskId: string, body: Record<string, unknown>) =>
+    session.call("PATCH", `/api/tasks/${taskId}`, body)
+  const addTag = async (name: string, color?: string) =>
+    (await session.call("POST", `/api/workspaces/${workspace.id}/tags`, { name, color })).body
+      .tag as { id: string; name: string; color: string }
+  const tags = async () =>
+    (await session.call("GET", `/api/workspaces/${workspace.id}/tags`)).body.tags as {
+      id: string
+      name: string
+    }[]
+  const addField = async (body: Record<string, unknown>, projectId = project.id) =>
+    (await session.call("POST", `/api/projects/${projectId}/custom-fields`, body)).body.field as {
+      id: string
+      name: string
+      // biome-ignore lint/suspicious/noExplicitAny: as the API returns it
+      [key: string]: any
+    }
+  // Another person in the workspace.
+  const addPerson = async (name: string) => {
+    const personEmail = `${name.split(" ")[0]?.toLowerCase()}-${id}@example.com`
+    await signIn(server.app, personEmail, name)
+    const personId = await addMember(server, workspace.id, personEmail)
+    return { id: personId, name, email: personEmail }
+  }
+  const projectTasks = async (projectId = project.id): Promise<Json[]> =>
+    (await session.call("GET", `/api/projects/${projectId}/tasks`)).body.tasks
+
+  return {
+    ...user,
+    workspace,
+    project,
+    addProject,
+    addTask,
+    getTask,
+    patchTask,
+    addTag,
+    tags,
+    addField,
+    addPerson,
+    projectTasks,
+  }
+}
+
+export type World = Awaited<ReturnType<typeof world>>
+
+export const keysOf = (rows: { key: string }[]) => rows.map((r) => r.key)
+export const lines = (text: string) => text.split("\n").filter(Boolean)

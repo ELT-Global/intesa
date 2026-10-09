@@ -1,21 +1,13 @@
-import { styleText } from "node:util"
 import { STATUSES } from "@intesa/api/schemas"
 import { STATUS_LABELS } from "@intesa/task-query"
 import { z } from "zod"
-import { writeLocalFile } from "../client/context"
-import { links, resolver } from "../client/resolve"
-import { readConfig, writeConfig } from "../config/config"
-import { confirmDestructive } from "../output/ask"
+import { saveDefault } from "../client/context"
+import { webLinks } from "../client/links"
+import { resolver } from "../client/resolve"
+import { confirmDestructive } from "../io/prompt"
 import { usageError } from "../output/errors"
-import { formatTable } from "../output/table"
+import { rows, section } from "../output/render"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
-
-type Project = { id: string; key: string; name: string; description: string | null }
-
-async function withUrl<P extends Project>(ctx: Ctx, project: P) {
-  const [{ host }, { slug }] = await Promise.all([ctx.http(), resolver(ctx).workspace()])
-  return { ...project, url: links.project(host, slug, project.id) }
-}
 
 const keys = async (ctx: Ctx, { word }: { word: string }) =>
   (await resolver(ctx).projects()).map((p) => p.key).filter((k) => k.startsWith(word.toUpperCase()))
@@ -34,19 +26,22 @@ const list = defineCommand({
   output: "project",
   examples: ["intesa project list", "intesa p list --json --fields key,name"],
   async run(ctx) {
-    const projects = await resolver(ctx).projects()
-    return Promise.all(projects.map((p) => withUrl(ctx, p)))
+    const [projects, link] = await Promise.all([resolver(ctx).projects(), webLinks(ctx)])
+    return projects.map(link.project)
   },
 })
 
-type View = Awaited<ReturnType<typeof withUrl<Project>>> & {
+type View = {
+  name: string
+  key: string
+  url: string
+  description: string | null
   taskCounts: Record<string, number>
   customFields: { name: string; type: string; required: boolean; options: string[] }[]
 }
 
 function formatView(ctx: Ctx, view: View) {
-  const table = { tty: ctx.mode.tty, width: ctx.mode.width, header: false }
-  const heading = (text: string) => (ctx.mode.color ? styleText("bold", text) : text)
+  const { mode } = ctx
   const counts = STATUSES.map((s) => ({ status: STATUS_LABELS[s], n: view.taskCounts[s] ?? 0 }))
   const fields = view.customFields.map((f) => ({
     name: f.name,
@@ -55,12 +50,14 @@ function formatView(ctx: Ctx, view: View) {
     options: f.options.join(", "),
   }))
   return [
-    `${heading(`${view.name} (${view.key})`)}\n${view.url}\n`,
+    section(mode, `${view.name} (${view.key})`, `${view.url}\n`),
     ...(view.description ? [`${view.description}\n`] : []),
-    `${heading("TASKS")}\n${formatTable(counts, ["status", "n"], table)}`,
-    `${heading("CUSTOM FIELDS")}\n${
-      fields.length ? formatTable(fields, ["name", "type", "required", "options"], table) : "None\n"
-    }`,
+    section(mode, "TASKS", rows(mode, counts, ["status", "n"])),
+    section(
+      mode,
+      "CUSTOM FIELDS",
+      fields.length ? rows(mode, fields, ["name", "type", "required", "options"]) : "None\n",
+    ),
   ].join("\n")
 }
 
@@ -78,18 +75,17 @@ const view = defineCommand({
     const r = resolver(ctx)
     const project = await r.project(key)
     const http = await ctx.http()
-    const [tasksRes, customFields] = await Promise.all([
+    const [tasksRes, customFields, link] = await Promise.all([
       http.client.api.projects[":projectId"].tasks.$get({ param: { projectId: project.id } }),
       r.fields(project.id),
+      webLinks(ctx),
     ])
     const taskCounts: Record<string, number> = Object.fromEntries(STATUSES.map((s) => [s, 0]))
     for (const t of (await tasksRes.json()).tasks)
       taskCounts[t.status] = (taskCounts[t.status] ?? 0) + 1
-    const result: View = { ...(await withUrl(ctx, project)), taskCounts, customFields }
-    const { json, quiet, fields } = ctx.globals
-    if (json || quiet || fields) return result
-    ctx.stdout(formatView(ctx, result))
+    return { ...link.project(project), taskCounts, customFields }
   },
+  human: formatView,
 })
 
 const create = defineCommand({
@@ -116,7 +112,7 @@ const create = defineCommand({
       param: { workspaceId: id },
       json: { name, key: flags.key?.toUpperCase(), description: flags.description },
     })
-    return withUrl(ctx, (await res.json()).project)
+    return (await webLinks(ctx)).project((await res.json()).project)
   },
 })
 
@@ -145,7 +141,7 @@ const edit = defineCommand({
       param: { projectId: project.id },
       json: { name: flags.name, description: flags.description },
     })
-    return withUrl(ctx, (await res.json()).project)
+    return (await webLinks(ctx)).project((await res.json()).project)
   },
 })
 
@@ -157,6 +153,7 @@ const remove = defineCommand({
     "Asks first on a terminal; otherwise --yes is required.",
   args: [{ name: "key", required: true, description: "Project key, e.g. WEB", complete: keys }],
   context: ["workspace"],
+  output: "deleted",
   examples: ["intesa project delete WEB", "intesa p delete WEB --yes"],
   async run(ctx, { key }) {
     const project = await resolver(ctx).project(key)
@@ -166,9 +163,10 @@ const remove = defineCommand({
     )
     const http = await ctx.http()
     await http.client.api.projects[":projectId"].$delete({ param: { projectId: project.id } })
-    ctx.stderr(`✓ Deleted project ${project.key}\n`)
-    if (ctx.globals.json) return { id: project.id, key: project.key, deleted: true }
+    ctx.done(`Deleted project ${project.key}`)
+    return { id: project.id, key: project.key, deleted: true }
   },
+  human: () => "",
 })
 
 const use = defineCommand({
@@ -185,18 +183,19 @@ const use = defineCommand({
       .meta({ description: "Write .intesa.json in the current directory" }),
   }),
   context: ["workspace"],
+  output: "projectDefault",
   examples: ["intesa project use WEB", "intesa p use WEB --local"],
   async run(ctx, { key }, flags) {
     const project = await resolver(ctx).project(key)
-    if (flags.local) {
-      const path = writeLocalFile(ctx.cwd, { project: project.key })
-      ctx.stderr(`✓ Using project ${project.key} in this directory (${path})\n`)
-    } else {
-      writeConfig(ctx.configDir, { ...readConfig(ctx.configDir), project: project.key })
-      ctx.stderr(`✓ Default project set to ${project.key}\n`)
-    }
-    if (ctx.globals.json) return { project: project.key, id: project.id, local: flags.local }
+    const file = saveDefault(ctx, "project", project.key, flags.local)
+    ctx.done(
+      flags.local
+        ? `Using project ${project.key} in this directory (${file})`
+        : `Default project set to ${project.key}`,
+    )
+    return { id: project.id, key: project.key, file }
   },
+  human: () => "",
 })
 
 export default defineGroup({

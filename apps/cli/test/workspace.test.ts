@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { addMember } from "../../api/test/helpers"
 import { readHosts } from "../src/config/config"
-import { loginAs, removeSandboxes, sandbox, startServer, type TestServer } from "./helpers"
+import { removeSandboxes, sandbox, signedIn, startServer, type TestServer } from "./helpers"
 
 let server: TestServer
 beforeAll(async () => {
@@ -17,15 +17,14 @@ afterAll(() => {
 let n = 0
 // A signed-in sandbox whose user owns workspaces with these names (slugs are made unique).
 async function userWith(names: string[]) {
-  const email = `ws${++n}@example.com`
-  const box = sandbox(server.url)
-  const { session } = await loginAs(box, server, email)
+  ++n
+  const user = await signedIn(server)
   const workspaces: { id: string; name: string; slug: string }[] = []
   for (const name of names) {
-    const r = await session.call("POST", "/api/workspaces", { name, slug: `${name}-${n}` })
+    const r = await user.session.call("POST", "/api/workspaces", { name, slug: `${name}-${n}` })
     workspaces.push(r.body.workspace)
   }
-  return { box, session, email, workspaces }
+  return { ...user, workspaces }
 }
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8"))
@@ -53,12 +52,12 @@ describe("workspace list", () => {
     expect(r.stdout).toBe(`${workspaces[0]?.slug}\tgamma\towner\n`)
   })
 
-  test("--fields and -q", async () => {
+  test("--fields, and -q prints the slugs other commands take", async () => {
     const { box, workspaces } = await userWith(["delta"])
     const fields = await box.run(["ws", "list", "--json", "--fields", "slug"])
     expect(fields.json()).toEqual([{ slug: workspaces[0]?.slug }])
     const quiet = await box.run(["ws", "list", "-q"])
-    expect(quiet.stdout).toBe(`${workspaces[0]?.id}\n`)
+    expect(quiet.stdout).toBe(`${workspaces[0]?.slug}\n`)
   })
 })
 

@@ -1,6 +1,8 @@
 import { isRealDate } from "@intesa/api/schemas"
-import { links, type Resolver, resolver } from "../../client/resolve"
+import { type Resolver, resolver } from "../../client/resolve"
+import { readInput, splitPair } from "../../io/input"
 import { CliError, usageError } from "../../output/errors"
+import { asTable } from "../../output/render"
 import { formatTaskLines, type LineStyle, supportsUnicode } from "../../output/task-line"
 import type { Arg, Ctx } from "../../registry/define"
 
@@ -14,42 +16,17 @@ export const lineStyle = (ctx: Ctx): LineStyle => ({
   width: ctx.mode.width,
 })
 
-// Adds the web link that "Copy link" gives for each task.
-export async function linker(ctx: Ctx) {
-  const [{ host }, { slug }] = await Promise.all([ctx.http(), resolver(ctx).workspace()])
-  return <T extends { id: string; projectId: string }>(task: T) => ({
-    ...task,
-    url: links.task(host, slug, task),
-  })
-}
-
-type Shown = TaskSummary & { url: string }
-
-// JSON and -q get the tasks as they are; a terminal gets card lines; piped output gets TSV
-// rows with people and tags as plain names.
-export function present<T extends Shown>(ctx: Ctx, data: T | T[]) {
-  const { json, quiet, fields } = ctx.globals
-  if (json || quiet) return data
+// How tasks read: a terminal gets card lines, piped output a TSV row per task.
+export function showTasks(ctx: Ctx, data: TaskSummary | TaskSummary[]) {
   const list = Array.isArray(data) ? data : [data]
-  if (ctx.mode.tty && !fields) {
-    if (list.length === 0) ctx.stderr("No tasks found.\n")
-    ctx.stdout(formatTaskLines(list, lineStyle(ctx)))
-    return
-  }
-  return list.map((t) => ({
-    ...t,
-    assignees: t.assignees.map((a) => a.name),
-    tags: t.tags.map((g) => g.name),
-  }))
+  if (!ctx.mode.tty) return asTable(ctx.mode, list, "task")
+  if (list.length === 0) ctx.stderr("No tasks found.\n")
+  return formatTaskLines(list, lineStyle(ctx))
 }
 
 // Task keys of the current project (or the -p typed on the command line), for completion.
-export async function taskKeys(ctx: Ctx, { word, words }: { word: string; words: string[] }) {
-  const at = words.findLastIndex((w) => w === "-p" || w === "--project")
-  const typed =
-    (at >= 0 ? words[at + 1] : undefined) ??
-    words.findLast((w) => w.startsWith("--project="))?.slice("--project=".length)
-  const project = await resolver(ctx).project(typed)
+export async function taskKeys(ctx: Ctx, { word }: { word: string }) {
+  const project = await resolver(ctx).project()
   const { client } = await ctx.http()
   const res = await client.api.projects[":projectId"].tasks.$get({
     param: { projectId: project.id },
@@ -82,16 +59,17 @@ export async function userIds(ctx: Ctx, refs: string[]) {
   return ids
 }
 
-// Tags by name or id. Unknown names are created when `create` is set, after every other
-// name has resolved, so a typo elsewhere does not leave new tags behind.
-export async function tagIds(ctx: Ctx, refs: string[], create = false) {
+// Tags by name or id. With `create` set, unknown names are created, after every other name
+// has resolved, so a typo elsewhere does not leave new tags behind; with it unset (false)
+// the error says how to create them.
+export async function tagIds(ctx: Ctx, refs: string[], create?: boolean) {
   const r = resolver(ctx)
   const found: (string | undefined)[] = []
   for (const ref of refs) {
     try {
       found.push((await r.tag(ref)).id)
     } catch (err) {
-      if (!(err instanceof CliError) || err.exitCode !== 5) throw err
+      if (!(err instanceof CliError) || err.exitCode !== 5 || create === undefined) throw err
       if (!create) {
         throw new CliError(err.message, {
           code: err.code,
@@ -136,10 +114,7 @@ export async function readBody(ctx: Ctx, flags: { body?: string; bodyFile?: stri
     throw usageError("--body and --body-file conflict: pass one")
   }
   if (flags.bodyFile === undefined) return flags.body
-  if (flags.bodyFile === "-") return ctx.readStdin()
-  const file = Bun.file(flags.bodyFile)
-  if (!(await file.exists())) throw usageError(`--body-file: no such file "${flags.bodyFile}"`)
-  return file.text()
+  return readInput(ctx, flags.bodyFile, "--body-file")
 }
 
 // A typed value from the command line, checked here so a mistake fails before any write.
@@ -173,18 +148,14 @@ function fieldValue(field: FieldDef, raw: string): unknown {
   }
 }
 
-// `--field NAME=VALUE` and `--clear-field NAME` as the API's customFields patch (by field id).
+// `--field NAME=VALUE` and `--clear-field NAME` as the API's customFields (by field id).
 export async function customFields(
   ctx: Ctx,
   projectId: string,
   set: readonly string[],
   clear: readonly string[] = [],
 ) {
-  const pairs = set.map((entry) => {
-    const at = entry.indexOf("=")
-    if (at <= 0) throw usageError(`--field expects NAME=VALUE, got "${entry}"`)
-    return [entry.slice(0, at), entry.slice(at + 1)] as const
-  })
+  const pairs = set.map((entry) => splitPair(entry, "--field"))
   const r = resolver(ctx)
   const values: Record<string, unknown> = {}
   for (const [name, raw] of pairs) {

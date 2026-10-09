@@ -1,16 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { removeSandboxes, startServer, type TestServer } from "./helpers"
-import { keysOf, type TaskWorld, taskWorld } from "./task-fixtures"
+import { keysOf, removeSandboxes, startServer, type TestServer, type World, world } from "./helpers"
 
 let server: TestServer
-let w: TaskWorld
+let w: World
 // biome-ignore lint/suspicious/noExplicitAny: API response shapes
 let parent: any
 let estimateId: string
 
 beforeAll(async () => {
   server = await startServer()
-  w = await taskWorld(server)
+  w = await world(server)
   const auth = await w.addTag("auth")
   parent = await w.addTask({
     title: "Plan the launch",
@@ -141,6 +140,27 @@ describe("task references", () => {
       const r = await w.box.run(["task", "view", ...args, "--json", "--fields", "id"])
       expect(r.exitCode, args.join(" ")).toBe(0)
       expect(r.json().id).toBe(parent.id)
+    }
+  })
+
+  test("a task in another workspace links to that workspace, with no workspace chosen", async () => {
+    const two = await world(server)
+    const elsewhere = (
+      await two.session.call("POST", "/api/workspaces", { name: "Beta", slug: `beta-${two.id}` })
+    ).body.workspace
+    const project = (
+      await two.session.call("POST", `/api/workspaces/${elsewhere.id}/projects`, {
+        name: "Api",
+        key: "API",
+      })
+    ).body.project
+    const task = await two.addTask({ title: "Over there" }, project.id)
+    const expected = `${server.url}/w/${elsewhere.slug}/projects/${project.id}?task=${task.id}`
+    // Two workspaces and no default: only the task's own workspace can be meant.
+    for (const args of [[task.id], [task.id, "-w", two.workspace.slug]]) {
+      const r = await two.box.run(["task", "view", ...args, "--json", "--fields", "url"])
+      expect(r.exitCode, args.join(" ")).toBe(0)
+      expect(r.json().url).toBe(expected)
     }
   })
 

@@ -1,5 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { z } from "zod"
 import { CliError, usageError } from "../output/errors"
 
@@ -65,20 +65,41 @@ function readJson<T>(path: string, schema: z.ZodType<T>, empty: T): T {
   return parsed.data
 }
 
-function writeJson(dir: string, name: string, value: unknown) {
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, name)
-  // hosts.json can hold a token, so both files are private to the user. The mode only
-  // applies on creation; chmod covers files that already existed.
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
-  chmodSync(path, 0o600)
+// Written beside the file and renamed over it, so a crash or a second intesa writing at the
+// same time never leaves half a file behind.
+export function writeJsonFile(path: string, value: unknown, mode?: number) {
+  mkdirSync(dirname(path), { recursive: true })
+  const temp = `${path}.${process.pid}.tmp`
+  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, mode ? { mode } : {})
+  if (mode) chmodSync(temp, mode)
+  renameSync(temp, path)
 }
 
-export const readConfig = (dir: string) => readJson(join(dir, "config.json"), configSchema, {})
+// hosts.json can hold a token, so both files are private to the user.
+const writeJson = (dir: string, name: string, value: unknown) =>
+  writeJsonFile(join(dir, name), value, 0o600)
+
+export const configFile = (dir: string) => join(dir, "config.json")
+export const readConfig = (dir: string) => readJson(configFile(dir), configSchema, {})
 export const writeConfig = (dir: string, config: Config) => writeJson(dir, "config.json", config)
 export const readHosts = (dir: string) => readJson(join(dir, "hosts.json"), hostsSchema, {})
 export const writeHosts = (dir: string, hosts: Record<string, HostEntry>) =>
   writeJson(dir, "hosts.json", hosts)
+
+// A host's last used workspace, which saves looking its slug up. Kept only for a host with
+// stored credentials (an entry also marks "logged in"); undefined forgets it.
+export function cacheWorkspace(
+  dir: string,
+  host: string,
+  ws: { slug: string; id: string } | undefined,
+) {
+  const hosts = readHosts(dir)
+  const entry = hosts[host]
+  if (!entry || (entry.workspace?.id === ws?.id && entry.workspace?.slug === ws?.slug)) return
+  if (ws) entry.workspace = { slug: ws.slug, id: ws.id }
+  else delete entry.workspace
+  writeHosts(dir, hosts)
+}
 
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/
 
