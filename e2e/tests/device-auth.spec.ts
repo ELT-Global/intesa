@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { signIn, uniqueEmail } from "../support/auth"
 import { pollDeviceToken, startDeviceRequest } from "../support/device"
+import { totp } from "../support/totp"
 
 test("approving a device request hands the terminal a working token", async ({ page, request }) => {
   const email = uniqueEmail("device")
@@ -75,15 +76,54 @@ test("too many wrong codes show a rate-limit message", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText(/too many attempts/i)
 })
 
-test("a signed-out visit goes through sign-in first", async ({ page }) => {
-  await page.goto("/device?code=BCDF-GHJK")
+test("a signed-out visit goes through sign-in and comes back with the code", async ({ page }) => {
+  const device = await startDeviceRequest(page)
+  await page.goto(`/device?code=${device.userCode}`)
   await expect(page).toHaveURL(/\/login$/)
   await expect(page.getByRole("heading", { name: "Sign in to Intesa." })).toBeVisible()
 
   await page.getByLabel("Email").fill(uniqueEmail("late"))
   await page.getByRole("button", { name: "Sign in" }).click()
-  await expect(page).not.toHaveURL(/\/login/)
 
-  await page.goto("/device?code=BCDF-GHJK")
-  await expect(page.getByLabel("Device code")).toHaveValue("BCDF-GHJK")
+  await expect(page).toHaveURL(`/device?code=${device.userCode}`)
+  await expect(page.getByLabel("Device code")).toHaveValue(device.userCode)
+  await page.getByRole("button", { name: "Continue" }).click()
+  await expect(page.getByRole("heading", { name: `Approve ${device.clientName}?` })).toBeVisible()
 })
+
+test("the code survives the two-factor step too", async ({ page }) => {
+  const email = uniqueEmail("late2fa")
+  await signIn(page, { email })
+  const setup = await page.request.post("/api/me/2fa/setup")
+  const { secret } = (await setup.json()) as { secret: string }
+  const enable = await page.request.post("/api/me/2fa/enable", { data: { code: totp(secret) } })
+  expect(enable.ok()).toBe(true)
+  await page.request.post("/api/auth/logout")
+
+  const device = await startDeviceRequest(page)
+  await page.goto(`/device?code=${device.userCode}`)
+  await expect(page).toHaveURL(/\/login$/)
+  await page.getByLabel("Email").fill(email)
+  await page.getByRole("button", { name: "Sign in" }).click()
+  await expect(page).toHaveURL(/\/login\/2fa$/)
+  await page.getByLabel("Authentication code").fill(totp(secret))
+  await page.getByRole("button", { name: "Verify" }).click()
+
+  await expect(page).toHaveURL(`/device?code=${device.userCode}`)
+  await expect(page.getByLabel("Device code")).toHaveValue(device.userCode)
+})
+
+for (const target of ["//evil.example/steal", "https://evil.example/steal"]) {
+  test(`a remembered destination of ${target} is ignored after sign-in`, async ({ page }) => {
+    await page.goto("/login")
+    await page.evaluate((value) => sessionStorage.setItem("intesa-return-to", value), target)
+
+    await page.getByLabel("Email").fill(uniqueEmail("open"))
+    await page.getByRole("button", { name: "Sign in" }).click()
+
+    // A new user's normal landing page, on this origin.
+    await expect(page).toHaveURL(/\/new-workspace$/)
+    expect(new URL(page.url()).hostname).toBe("localhost")
+    expect(await page.evaluate(() => sessionStorage.getItem("intesa-return-to"))).toBeNull()
+  })
+}
