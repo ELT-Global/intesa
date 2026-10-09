@@ -378,3 +378,48 @@ describe("project task list", () => {
     expect(bodies).toEqual({ "With notes": "Cover the API", "Without notes": null })
   })
 })
+
+describe("task by key", () => {
+  const byKey = (workspaceId: string, key: string) =>
+    `/api/workspaces/${workspaceId}/tasks/by-key/${key}`
+
+  test("returns the same detail as the task route, ignoring case, for subtasks too", async () => {
+    const { owner, workspaceId, project, create } = await setup()
+    const parent = await create({ title: "Parent" })
+    const child = await create({ title: "Child", parentTaskId: parent.id })
+
+    for (const task of [parent, child]) {
+      const res = await owner.call("GET", byKey(workspaceId, task.key.toLowerCase()))
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual((await owner.call("GET", `/api/tasks/${task.id}`)).body)
+    }
+    expect(child.key).toBe(`${project.key}-2`)
+  })
+
+  test("unknown keys, unknown projects and malformed keys are 404", async () => {
+    const { owner, workspaceId, project, create } = await setup()
+    await create()
+    for (const key of [`${project.key}-2`, "ZZZZ-1", `${project.key}-0`, "nonsense"]) {
+      const res = await owner.call("GET", byKey(workspaceId, key))
+      expect([key, res.status]).toEqual([key, 404])
+      expect(res.body.code).toBe("NOT_FOUND")
+    }
+  })
+
+  test("only resolves within the given workspace, and only for its members", async () => {
+    const { t, owner, workspaceId, project, create } = await setup()
+    const mine = await create({ title: "Mine" })
+    // Another workspace with a project of the same key.
+    const other = await setupProject(t, "other@example.com")
+    expect(other.project.key).toBe(project.key)
+    const theirs = await other.owner.call("POST", `/api/projects/${other.project.id}/tasks`, {
+      title: "Theirs",
+    })
+
+    const own = await owner.call("GET", byKey(workspaceId, mine.key))
+    expect(own.body.task.title).toBe("Mine")
+    const foreign = await owner.call("GET", byKey(other.workspaceId, theirs.body.task.key))
+    expect(foreign.status).toBe(404)
+    expect(foreign.body.code).toBe("NOT_FOUND")
+  })
+})

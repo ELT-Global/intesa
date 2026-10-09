@@ -5,6 +5,12 @@ export const PRIORITIES = ["low", "medium", "high", "urgent"] as const
 
 const MAX_CUSTOM_FIELDS_PER_PATCH = 50
 
+export const FIELD_TYPES = ["text", "number", "boolean", "date", "select"] as const
+// blocked_by is the reverse view of blocks; it is accepted on input and never stored.
+export const RELATION_TYPES = ["blocks", "blocked_by", "related"] as const
+
+export type FieldType = (typeof FIELD_TYPES)[number]
+export type RelationType = (typeof RELATION_TYPES)[number]
 export type Status = (typeof STATUSES)[number]
 export type Priority = (typeof PRIORITIES)[number]
 

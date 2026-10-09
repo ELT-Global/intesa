@@ -2,10 +2,7 @@ import type { Selectable } from "kysely"
 import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import type { CustomFieldDefinitionTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
-import { isRealDate } from "./schemas"
-
-export const FIELD_TYPES = ["text", "number", "boolean", "date", "select"] as const
-export type FieldType = (typeof FIELD_TYPES)[number]
+import { type FieldType, isRealDate } from "./schemas"
 
 type FieldRow = Selectable<CustomFieldDefinitionTable>
 

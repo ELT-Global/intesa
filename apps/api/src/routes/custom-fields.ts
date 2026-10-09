@@ -4,13 +4,8 @@ import { type AppEnv, requireUser } from "../auth/middleware"
 import type { Deps } from "../deps"
 import { validate } from "../lib/validate"
 import { requireProject } from "../projects/service"
-import {
-  createField,
-  FIELD_TYPES,
-  listFields,
-  requireField,
-  updateField,
-} from "../tasks/custom-fields"
+import { createField, listFields, requireField, updateField } from "../tasks/custom-fields"
+import { FIELD_TYPES } from "../tasks/schemas"
 
 const name = z.string().trim().min(1).max(60)
 const options = z.array(z.string().trim().min(1).max(60)).max(50)

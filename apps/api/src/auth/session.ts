@@ -4,13 +4,23 @@ import type { Selectable } from "kysely"
 import type { Config } from "../config"
 import { type Db, now } from "../db"
 import type { UserTable } from "../db/schema"
+import type { TokenScope } from "../schemas"
 
 export const SESSION_COOKIE = "intesa_session"
 const SESSION_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export type User = Selectable<UserTable>
-export type SessionInfo = { tokenHash: string; pendingTwoFactor: boolean }
+// How the request is signed in: a browser session cookie or an API token (Authorization:
+// Bearer). Tokens are only ever minted from a full session, so they are never pending 2FA.
+export type CookieSession = { kind: "cookie"; tokenHash: string; pendingTwoFactor: boolean }
+export type TokenSession = {
+  kind: "token"
+  tokenId: string
+  scope: TokenScope
+  pendingTwoFactor: false
+}
+export type SessionInfo = CookieSession | TokenSession
 
 const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url")
 
@@ -59,7 +69,7 @@ export function clearSessionCookie(c: Context, config: Config) {
 export async function loadSession(
   db: Db,
   c: Context,
-): Promise<{ user: User; session: SessionInfo } | null> {
+): Promise<{ user: User; session: CookieSession } | null> {
   const token = getCookie(c, SESSION_COOKIE)
   if (!token) return null
   const tokenHash = await hashToken(token)
@@ -85,7 +95,7 @@ export async function loadSession(
       .where("tokenHash", "=", tokenHash)
       .execute()
   }
-  return { user, session: { tokenHash, pendingTwoFactor: pendingTwoFactor === 1 } }
+  return { user, session: { kind: "cookie", tokenHash, pendingTwoFactor: pendingTwoFactor === 1 } }
 }
 
 export async function deleteSessionFromRequest(db: Db, c: Context) {

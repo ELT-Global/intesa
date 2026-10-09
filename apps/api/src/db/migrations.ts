@@ -337,10 +337,44 @@ const artifacts: Migration = {
   },
 }
 
+const apiTokensAndDeviceAuth: Migration = {
+  async up(db) {
+    await db.schema
+      .createTable("api_tokens")
+      .addColumn("id", text, (c) => c.primaryKey())
+      .addColumn("user_id", text, (c) => c.notNull().references("users.id").onDelete("cascade"))
+      .addColumn("name", text, notNull)
+      .addColumn("kind", text, (c) => c.notNull().check(sql`kind in ('cli', 'pat')`))
+      .addColumn("scope", text, (c) => c.notNull().check(sql`scope in ('read', 'write')`))
+      .addColumn("token_hash", text, (c) => c.notNull().unique())
+      .addColumn("last_four", text, notNull)
+      .addColumn("created_at", text, notNull)
+      .addColumn("last_used_at", text)
+      .addColumn("expires_at", text)
+      .execute()
+    await db.schema.createIndex("api_tokens_user_id").on("api_tokens").column("user_id").execute()
+
+    await db.schema
+      .createTable("device_authorizations")
+      .addColumn("device_code_hash", text, (c) => c.primaryKey())
+      .addColumn("user_code", text, (c) => c.notNull().unique())
+      .addColumn("client_name", text, notNull)
+      .addColumn("status", text, (c) =>
+        c.notNull().check(sql`status in ('pending', 'approved', 'denied')`),
+      )
+      .addColumn("user_id", text, (c) => c.references("users.id").onDelete("cascade"))
+      .addColumn("created_at", text, notNull)
+      .addColumn("expires_at", text, notNull)
+      .addColumn("last_polled_at", text)
+      .execute()
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
   "0003_custom_field_names_related_order": customFieldNamesAndRelated,
   "0004_task_position": taskPosition,
   "0005_artifacts": artifacts,
+  "0006_api_tokens_device_auth": apiTokensAndDeviceAuth,
 }

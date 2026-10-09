@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import { createApp } from "../src/app"
 import { createDb, migrate } from "../src/db"
-import { signIn } from "./helpers"
+import { clientWithToken, signIn } from "./helpers"
 
 // These tests break their database on purpose, so they always get a private in-memory one.
 async function createTestApp() {
@@ -55,6 +55,22 @@ describe("request logging", () => {
     expect(raw).not.toContain("intesa_session")
     expect(raw).not.toContain(token)
     expect(logged().join(" ")).not.toContain(token)
+  })
+
+  test("a failing bearer-authenticated request never logs the token", async () => {
+    const t = await createTestApp()
+    const me = await signIn(t.app, "bearer-log@example.com")
+    const { token } = (await me.call("POST", "/api/me/tokens", { name: "cli" })).body
+    expect(token).toStartWith("intesa_pat_")
+    await t.db.schema.dropTable("api_tokens").execute()
+
+    const res = await clientWithToken(t.app, token).call("GET", "/api/me")
+    expect(res.status).toBe(500)
+    expect(logged().some((l) => l.includes("request failed"))).toBe(true)
+    const all = logged().join(" ")
+    expect(all).not.toContain(token)
+    expect(all).not.toContain(token.slice("intesa_pat_".length))
+    expect(all.toLowerCase()).not.toContain("authorization")
   })
 
   test("client errors are not logged", async () => {

@@ -1,11 +1,8 @@
 import { sql } from "kysely"
 import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
-import type { Status } from "./schemas"
+import type { RelationType, Status } from "./schemas"
 import type { TaskRef, TaskRow } from "./service"
-
-export const RELATION_TYPES = ["blocks", "blocked_by", "related"] as const
-export type RelationType = (typeof RELATION_TYPES)[number]
 
 // Refs are always scoped to one workspace, so an id from elsewhere can never leak a title.
 export async function loadTaskRefs(db: Db, workspaceId: string, ids: string[]): Promise<TaskRef[]> {

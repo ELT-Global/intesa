@@ -5,7 +5,8 @@ import { now } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
-import { createProject, KEY_PATTERN, requireProject, toProjectJson } from "../projects/service"
+import { createProject, requireProject, toProjectJson } from "../projects/service"
+import { PROJECT_KEY_PATTERN } from "../schemas"
 import { createTaskBody } from "../tasks/schemas"
 import { createTask, listProjectTaskSummaries, loadTaskSummaries } from "../tasks/service"
 import { requireMembership } from "../workspaces/membership"
@@ -17,7 +18,7 @@ const createBody = z.object({
   name,
   key: z
     .string()
-    .regex(KEY_PATTERN, "Key must be 2-5 characters (A-Z, 0-9) starting with a letter")
+    .regex(PROJECT_KEY_PATTERN, "Key must be 2-5 characters (A-Z, 0-9) starting with a letter")
     .optional(),
   description: description.nullish(),
 })

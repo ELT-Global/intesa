@@ -71,10 +71,23 @@ export type Client = {
 }
 
 export function clientWithCookie(app: TestApp["app"], cookie: string): Client {
+  return clientWithHeaders(app, cookie ? { cookie } : {})
+}
+
+// Sends an API token as a bearer header, optionally alongside a session cookie.
+export function clientWithToken(app: TestApp["app"], token: string, cookie = ""): Client {
+  return clientWithHeaders(app, {
+    authorization: `Bearer ${token}`,
+    ...(cookie ? { cookie } : {}),
+  })
+}
+
+function clientWithHeaders(app: TestApp["app"], extra: Record<string, string>): Client {
+  const cookie = extra.cookie ?? ""
   const request: Client["request"] = async (path, init = {}) =>
     app.request(path, {
       ...init,
-      headers: { ...(init.headers as Record<string, string>), ...(cookie ? { cookie } : {}) },
+      headers: { ...(init.headers as Record<string, string>), ...extra },
     })
   const call: Client["call"] = async (method, path, body) => {
     const res = await request(path, {

@@ -1,3 +1,5 @@
+import type { TokenKind, TokenScope } from "../schemas"
+
 // Column names are camelCase here; CamelCasePlugin maps them to snake_case in SQL.
 export type UserTable = {
   id: string
@@ -17,6 +19,36 @@ export type SessionTable = {
   pendingTwoFactor: number
   expiresAt: string
   createdAt: string
+}
+
+// Bearer tokens for the CLI and scripts. Like sessions, only the SHA-256 of the token is kept.
+export type ApiTokenTable = {
+  id: string
+  userId: string
+  name: string
+  kind: TokenKind
+  scope: TokenScope
+  tokenHash: string
+  // The token's last four characters, so people can tell their tokens apart.
+  lastFour: string
+  createdAt: string
+  lastUsedAt: string | null
+  // Null never expires.
+  expiresAt: string | null
+}
+
+// A pending device sign-in. The device holds the device code (stored hashed); the person
+// approving types the short user code. The token is minted when the device collects it.
+export type DeviceAuthorizationTable = {
+  deviceCodeHash: string
+  userCode: string
+  clientName: string
+  status: "pending" | "approved" | "denied"
+  // Who approved or denied it.
+  userId: string | null
+  createdAt: string
+  expiresAt: string
+  lastPolledAt: string | null
 }
 
 export type WorkspaceTable = {
@@ -123,6 +155,8 @@ export type Database = {
   }
   users: UserTable
   sessions: SessionTable
+  apiTokens: ApiTokenTable
+  deviceAuthorizations: DeviceAuthorizationTable
   workspaces: WorkspaceTable
   workspaceMembers: WorkspaceMemberTable
   projects: ProjectTable

@@ -26,8 +26,6 @@ export const toProjectJson = (p: ProjectRow): ProjectJson => ({
   updatedAt: p.updatedAt,
 })
 
-export const KEY_PATTERN = /^[A-Z][A-Z0-9]{1,4}$/
-
 // Initials of the words ("Website Redesign" -> WR); a single word uses its leading
 // letters. Always 2-5 characters starting with a letter.
 export function deriveKeyBase(name: string): string {

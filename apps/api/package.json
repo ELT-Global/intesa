@@ -1,10 +1,12 @@
 {
   "name": "@intesa/api",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/app.ts",
-    "./artifacts": "./src/artifacts/formats.ts"
+    "./artifacts": "./src/artifacts/formats.ts",
+    "./schemas": "./src/schemas.ts"
   },
   "types": "./src/app.ts",
   "scripts": {

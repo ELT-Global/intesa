@@ -3,6 +3,7 @@ import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import type { ProjectRow } from "../projects/service"
+import { TASK_KEY_PATTERN } from "../schemas"
 import type { Role } from "../workspaces/membership"
 import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
 import { byBoardOrder, positionFor } from "./order"
@@ -272,6 +273,25 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     ...relationships,
     customFields,
   }
+}
+
+// Resolves a KEY-n identifier within one workspace; the caller checks membership first.
+export async function findTaskIdByKey(
+  db: Db,
+  workspaceId: string,
+  key: string,
+): Promise<string | undefined> {
+  const [, projectKey, number] = TASK_KEY_PATTERN.exec(key) ?? []
+  if (!projectKey || !number) return undefined
+  const row = await db
+    .selectFrom("tasks")
+    .innerJoin("projects", "projects.id", "tasks.projectId")
+    .select("tasks.id")
+    .where("projects.workspaceId", "=", workspaceId)
+    .where("projects.key", "=", projectKey.toUpperCase())
+    .where("tasks.number", "=", Number(number))
+    .executeTakeFirst()
+  return row?.id
 }
 
 // Authorization for task-scoped routes (member of the task's workspace, else NOT_FOUND).

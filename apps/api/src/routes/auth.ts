@@ -10,6 +10,7 @@ import {
   deleteSessionFromRequest,
   setSessionCookie,
 } from "../auth/session"
+import { bearerToken, revokeTokenByValue } from "../auth/tokens"
 import { verifyTotp } from "../auth/totp"
 import { findOrCreateUser, toUserJson } from "../auth/users"
 import { googleEnabled } from "../config"
@@ -111,6 +112,13 @@ export function authRoutes({ db, config, attempts }: Deps) {
       return c.json({ user: toUserJson(user) })
     })
     .post("/logout", async (c) => {
+      // Signs out whatever the request is authenticated with; a bearer token is revoked and any
+      // browser session sent alongside it is left alone.
+      const bearer = bearerToken(c)
+      if (bearer !== undefined) {
+        if (bearer) await revokeTokenByValue(db, bearer)
+        return c.body(null, 204)
+      }
       await deleteSessionFromRequest(db, c)
       clearSessionCookie(c, config)
       return c.body(null, 204)

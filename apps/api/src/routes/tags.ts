@@ -5,9 +5,8 @@ import { isUniqueViolation, newId, now } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
+import { TAG_COLORS } from "../schemas"
 import { requireMembership } from "../workspaces/membership"
-
-export const TAG_COLORS = ["blue", "orange", "aqua", "violet", "magenta", "gray"] as const
 
 const name = z.string().trim().min(1).max(40)
 const color = z.enum(TAG_COLORS)
