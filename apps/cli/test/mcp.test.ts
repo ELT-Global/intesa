@@ -2,6 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { join, resolve } from "node:path"
 import { z } from "zod"
 import pkg from "../package.json"
+import { allCommands } from "../src/commands"
+import { serve } from "../src/mcp/server"
+import { buildTools, TOOL_KINDS, type Tool, toArgv } from "../src/mcp/tools"
+import type { Command } from "../src/registry/define"
 import { removeSandboxes, startServer, type TestServer, type World, world } from "./helpers"
 
 // `intesa mcp` is spawned like an MCP client would: JSON-RPC lines are written to its stdin
@@ -145,6 +149,11 @@ describe("intesa mcp", () => {
       const second = connect(w)
       expect((await second.initialize(offered)).result.protocolVersion).toBe(offered)
       await second.close()
+
+      // The version with JSON-RPC batches is not one: this server answers one message a line.
+      const third = connect(w)
+      expect((await third.initialize("2025-03-26")).result.protocolVersion).not.toBe("2025-03-26")
+      await third.close()
     },
     TIMEOUT,
   )
@@ -176,7 +185,6 @@ describe("intesa mcp", () => {
         "project_list",
         "member_remove",
         "status",
-        "api",
       ]) {
         expect(names).toContain(name)
       }
@@ -189,6 +197,10 @@ describe("intesa mcp", () => {
         "auth_logout",
         "auth_token",
         "config_set",
+        // Raw requests could mint tokens, delete without confirm or send local files.
+        "api",
+        "token_create",
+        "me_2fa",
       ]) {
         expect(names).not.toContain(name)
       }
@@ -220,6 +232,11 @@ describe("intesa mcp", () => {
       expect(remove.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
       expect(remove.inputSchema.properties.confirm).toMatchObject({ type: "boolean" })
       expect(remove.inputSchema.required).toEqual(["task"])
+      // Overwriting a local file or an artifact's content cannot be undone either.
+      for (const name of ["artifact_download", "artifact_replace"]) {
+        expect(byName(name).annotations, name).toMatchObject({ destructiveHint: true })
+        expect(byName(name).inputSchema.properties.confirm, name).toBeDefined()
+      }
     },
     TIMEOUT,
   )
@@ -379,7 +396,8 @@ describe("intesa mcp", () => {
       const task = await w.addTask({ title: "Noisy" })
       const c = connect(w)
       // Sent in one go, then EOF: a deletion that confirms on stderr, a failure, a dry run, a
-      // malformed line and a notification. Each request is answered before the server exits.
+      // malformed line and a notification. Each request is answered before the server exits;
+      // the malformed line at once, the tool calls in order.
       const batch = [
         { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
         { jsonrpc: "2.0", method: "notifications/initialized" },
@@ -407,10 +425,56 @@ describe("intesa mcp", () => {
       const end = await c.close()
       expect(end.exitCode).toBe(0)
       const replies = end.lines.map((l) => JSON.parse(l))
-      expect(replies.map((r) => r.id)).toEqual([1, 2, 3, null, 4])
-      expect(replies[1].result.content[1].text).toContain(task.key)
-      expect(replies[2].result.isError).toBe(true)
-      expect(replies[4].result.isError).toBe(false)
+      expect(replies.map((r) => r.id).sort()).toEqual([1, 2, 3, 4, null])
+      const byId = (id: number | null) => replies.find((r) => r.id === id)
+      expect(byId(null).error.code).toBe(-32700)
+      expect(replies.filter((r) => typeof r.id === "number" && r.id > 1).map((r) => r.id)).toEqual([
+        2, 3, 4,
+      ])
+      expect(byId(2).result.content[1].text).toContain(task.key)
+      expect(byId(3).result.isError).toBe(true)
+      expect(byId(4).result.isError).toBe(false)
+    },
+    TIMEOUT,
+  )
+
+  test(
+    "no tool reads or writes a file in the config directory, where the token may be",
+    async () => {
+      const w = await world(server)
+      const task = await w.addTask({ title: "Leaky" })
+      const c = connect(w)
+      await c.initialize()
+      const hosts = join(w.box.configDir, "hosts.json")
+      expect(await Bun.file(hosts).exists()).toBe(true)
+      const before = await Bun.file(hosts).text()
+
+      const upload = await c.call("artifact_upload", { task: task.key, file: [hosts] })
+      expect(upload.isError).toBe(true)
+      expect(upload.data().error).toMatchObject({ code: "USAGE_ERROR", exitCode: 2 })
+      expect(upload.data().error.message).toContain("config directory")
+      const download = await c.call("artifact_download", {
+        task: task.key,
+        artifact: "notes.md",
+        output: w.box.configDir,
+        force: true,
+        confirm: true,
+      })
+      expect(download.isError).toBe(true)
+      expect(download.data().error.message).toContain("config directory")
+      const body = await c.call("task_create", {
+        title: "Leak",
+        project: "WEB",
+        "body-file": join(w.box.configDir, ".", "hosts.json"),
+      })
+      expect(body.isError).toBe(true)
+      expect(body.data().error.message).toContain("config directory")
+      await c.close()
+
+      expect(await Bun.file(hosts).text()).toBe(before)
+      expect((await w.projectTasks()).map((t: Json) => t.title)).toEqual(["Leaky"])
+      const stored = await w.session.call("GET", `/api/tasks/${task.id}/artifacts`)
+      expect(stored.body.artifacts).toEqual([])
     },
     TIMEOUT,
   )
@@ -431,4 +495,131 @@ describe("intesa mcp", () => {
     },
     TIMEOUT,
   )
+})
+
+describe("tools", () => {
+  test("every command is classified, and only commands are", async () => {
+    const commands = (await allCommands()).map(({ path }) => path.join(" "))
+    expect(Object.keys(TOOL_KINDS).sort()).toEqual([...commands].sort())
+  })
+
+  test("a command that is not classified is not offered", () => {
+    const cmd = { name: "frob", summary: "Frob", run() {} } as unknown as Command
+    expect(buildTools([{ cmd, path: ["frob"] }])).toEqual([])
+  })
+
+  test("a call naming its own workspace does not get the server's project", async () => {
+    const tool = buildTools(await allCommands()).find((t) => t.definition.name === "task_list")
+    if (!tool) throw new Error("no task_list")
+    const defaults = { workspace: "acme", project: "WEB" }
+    expect(toArgv(tool, {}, defaults)).toEqual(
+      expect.arrayContaining(["--workspace=acme", "--project=WEB"]),
+    )
+    const own = toArgv(tool, { workspace: "other" }, defaults)
+    expect(own).toContain("--workspace=other")
+    expect(own.some((a) => a.startsWith("--project"))).toBe(false)
+    expect(toArgv(tool, { workspace: "other", project: "OPS" }, defaults)).toContain(
+      "--project=OPS",
+    )
+  })
+})
+
+// The server loop on its own, with a tool whose calls finish when the test says so.
+describe("serve", () => {
+  function harness() {
+    const sent: Json[] = []
+    const calls: { args: Json; finish: () => void }[] = []
+    let feed!: ReadableStreamDefaultController<Uint8Array>
+    const input = new ReadableStream<Uint8Array>({
+      start: (c) => {
+        feed = c
+      },
+    })
+    const tool = { cmd: {}, path: ["slow"], definition: { name: "slow" } } as unknown as Tool
+    const served = serve(
+      {
+        tools: [tool],
+        call: (_tool, args) =>
+          new Promise((resolve) => {
+            calls.push({
+              args,
+              finish: () => resolve({ content: [{ type: "text", text: "done" }], isError: false }),
+            })
+          }),
+        send: (line) => sent.push(JSON.parse(line)),
+        log: () => {},
+      },
+      input,
+    )
+    const write = (msg: object) => {
+      const line = JSON.stringify(Array.isArray(msg) ? msg : { jsonrpc: "2.0", ...msg })
+      feed.enqueue(new TextEncoder().encode(`${line}\n`))
+    }
+    const until = async (check: () => boolean) => {
+      for (let i = 0; i < 200 && !check(); i++) await Bun.sleep(5)
+      expect(check()).toBe(true)
+    }
+    const end = async () => {
+      feed.close()
+      await served
+    }
+    return { sent, calls, write, until, end }
+  }
+  const call = (id: number, n: number) => ({
+    id,
+    method: "tools/call",
+    params: { name: "slow", arguments: { n } },
+  })
+
+  test("ping and tools/list are answered while a call runs", async () => {
+    const h = harness()
+    h.write(call(1, 1))
+    await h.until(() => h.calls.length === 1)
+    h.write({ id: 2, method: "ping" })
+    h.write({ id: 3, method: "tools/list" })
+    await h.until(() => h.sent.length === 2)
+    expect(h.sent.map((m) => m.id)).toEqual([2, 3])
+    h.calls[0]?.finish()
+    await h.end()
+    expect(h.sent.map((m) => m.id)).toEqual([2, 3, 1])
+  })
+
+  test("calls run one at a time, in the order they came", async () => {
+    const h = harness()
+    h.write(call(1, 1))
+    h.write(call(2, 2))
+    await h.until(() => h.calls.length === 1)
+    await Bun.sleep(20)
+    expect(h.calls).toHaveLength(1)
+    h.calls[0]?.finish()
+    await h.until(() => h.calls.length === 2)
+    expect(h.calls.map((c) => c.args.n)).toEqual([1, 2])
+    h.calls[1]?.finish()
+    await h.end()
+    expect(h.sent.map((m) => m.id)).toEqual([1, 2])
+  })
+
+  test("a cancelled call that has not started never runs, and no request cancelled is answered", async () => {
+    const h = harness()
+    h.write(call(1, 1))
+    h.write(call(2, 2))
+    h.write(call(3, 3))
+    await h.until(() => h.calls.length === 1)
+    h.write({ method: "notifications/cancelled", params: { requestId: 2, reason: "no" } })
+    h.write({ method: "notifications/cancelled", params: { requestId: 1 } })
+    await Bun.sleep(20)
+    h.calls[0]?.finish()
+    await h.until(() => h.calls.length === 2)
+    h.calls[1]?.finish()
+    await h.end()
+    expect(h.calls.map((c) => c.args.n)).toEqual([1, 3])
+    expect(h.sent.map((m) => m.id)).toEqual([3])
+  })
+
+  test("a batch is an invalid request", async () => {
+    const h = harness()
+    h.write([{ jsonrpc: "2.0", id: 1, method: "ping" }])
+    await h.end()
+    expect(h.sent).toMatchObject([{ id: null, error: { code: -32600 } }])
+  })
 })

@@ -89,11 +89,9 @@ export const create = defineCommand({
     if (flags.title === undefined && !isInteractive(ctx)) {
       throw usageError("missing --title (required when not interactive)")
     }
-    const form =
-      flags.title === undefined ? await (await import("./form")).createForm(ctx, flags) : undefined
-    const title = flags.title ?? form?.title ?? ""
-    const body = form?.body ?? (await readBody(ctx, flags))
-    const dueAt = dueDate(flags.due ?? form?.due)
+    // The flags are checked first, so a typo in one does not throw away a filled-in form.
+    dueDate(flags.due)
+    const given = await readBody(ctx, flags)
     const r = resolver(ctx)
     const parent = flags.parent === undefined ? undefined : await r.task(flags.parent)
     // A subtask lives in its parent's project unless -p says otherwise (the server then
@@ -101,10 +99,14 @@ export const create = defineCommand({
     const project = parent && !ctx.globals.project ? parent.project : await r.project()
     const projectId = project.id
     const values = await customFields(ctx, projectId, flags.field)
-    const assigneeIds = await userIds(ctx, [
-      ...splitList(flags.assignee),
-      ...(form?.assignees ?? []),
-    ])
+    const people = await userIds(ctx, splitList(flags.assignee))
+
+    const form =
+      flags.title === undefined ? await (await import("./form")).createForm(ctx, flags) : undefined
+    const title = flags.title ?? form?.title ?? ""
+    const body = form?.body ?? given
+    const dueAt = dueDate(flags.due ?? form?.due)
+    const assigneeIds = [...people, ...(await userIds(ctx, form?.assignees ?? []))]
     // Tags named in the form were picked or typed as new ones, so they are created.
     const tags = await tagIds(
       ctx,

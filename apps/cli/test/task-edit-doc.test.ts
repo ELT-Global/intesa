@@ -137,6 +137,25 @@ describe("task edit in the editor", () => {
     expect(saved.customFields).toEqual({ [estimateId]: 5 })
   })
 
+  test("a field named with = and a text value with a comma", async () => {
+    const ops = await w.addProject("Ops", "OPS")
+    const size = await w.addField({ name: "Size=Est", type: "number" }, ops.id)
+    const notes = await w.addField({ name: "Notes", type: "text" }, ops.id)
+    const task = await w.addTask(
+      { title: "Weigh it", customFields: { [notes.id]: "red, green" } },
+      ops.id,
+    )
+    const r = await edit(task.key, [
+      ["Size=Est: null", "Size=Est: 4"],
+      ['Notes: "red, green"', 'Notes: "red, green, blue"'],
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
+    expect((await w.getTask(task.id)).customFields).toEqual({
+      [size.id]: 4,
+      [notes.id]: "red, green, blue",
+    })
+  })
+
   test("an unknown tag exits 5 and changes nothing", async () => {
     const task = await seed()
     const before = await w.getTask(task.id)

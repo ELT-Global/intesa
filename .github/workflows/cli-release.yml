@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to publish, e.g. cli-v0.1.0 (empty: build and test only)
+        description: "Release tag to publish, e.g. cli-v0.1.0 (empty: build and test only)"
         required: false
         default: ""
 
@@ -54,7 +54,13 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile --filter @intesa/api --filter @intesa/cli --filter @intesa/task-query
       - run: bun run --cwd apps/cli build
-      - run: bash apps/cli/scripts/smoke.sh bun apps/cli/dist/intesa.js
+      # From a directory outside the repo, where @opentui/core cannot be resolved (nor
+      # auto-installed), as on a machine that only has Bun.
+      - name: Smoke test
+        run: |
+          away="$(mktemp -d)"
+          cp apps/cli/dist/intesa.js "$away/"
+          bash apps/cli/scripts/smoke.sh bun --no-install "$away/intesa.js"
       - uses: actions/upload-artifact@v4
         with:
           name: intesa-js

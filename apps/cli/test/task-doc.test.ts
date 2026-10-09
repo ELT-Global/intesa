@@ -115,6 +115,61 @@ describe("parseTaskDoc", () => {
     expect(parseTaskDoc(formatTaskDoc(awkward))).toEqual(awkward)
   })
 
+  test("a comma or a colon inside a quoted field value stays in the value", () => {
+    const text = toTaskDoc(
+      { ...task, customFields: { f1: 3, f2: "red, green", f3: "at 10:30, {maybe}" } },
+      names,
+    )
+    expect(parseTaskDoc(text).fields).toEqual({
+      Estimate: "3",
+      Stage: "red, green",
+      Shipped: "at 10:30, {maybe}",
+    })
+  })
+
+  test("every escape JSON writes reads back", () => {
+    const escaped: TaskDoc = {
+      title: "a\rb\bc\fd\u0001e f\ttab\\",
+      tags: ['quote " inside', "new\nline"],
+      fields: { "Odd\u0007name": "\r\n" },
+      body: "",
+    }
+    expect(parseTaskDoc(formatTaskDoc(escaped))).toEqual(escaped)
+  })
+
+  test("a trailing # comment after a value that cannot contain one", () => {
+    expect(
+      parseTaskDoc(
+        doc(
+          "status: review   # later",
+          "priority: high # note",
+          "due: 2026-10-15 # Friday",
+          'title: "Fix" # quoted',
+          "tags: [a, b] # list",
+          "fields: { A: 1 } # map",
+        ),
+      ),
+    ).toEqual({
+      title: "Fix",
+      status: "review",
+      priority: "high",
+      due: "2026-10-15",
+      tags: ["a", "b"],
+      fields: { A: "1" },
+      body: "",
+    })
+    // A plain title is taken as typed: issue numbers are common in titles.
+    expect(parseTaskDoc(doc("title: Fix bug #12")).title).toBe("Fix bug #12")
+  })
+
+  test("a list key takes a bare comma list", () => {
+    expect(parseTaskDoc(doc("assignees: Mei Chen, Bob", 'tags: "a, b", c,'))).toEqual({
+      assignees: ["Mei Chen", "Bob"],
+      tags: ["a, b", "c"],
+      body: "",
+    })
+  })
+
   test("is lenient where people type: CRLF, comments, labels, quotes, none, single values", () => {
     const text = [
       "﻿",
@@ -165,6 +220,10 @@ describe("parseTaskDoc", () => {
     ["an unclosed list", doc("tags: [a, b"), 2, "expected ]"],
     ["an unclosed quote", doc('title: "Fix'), 2, 'unclosed "'],
     ["text after a quoted value", doc('title: "Fix" now'), 2, "unexpected text"],
+    ["text after a list", doc("tags: [a] b"), 2, "unexpected text"],
+    ["an unknown escape", doc('title: "a\\qb"'), 2, "invalid escape"],
+    ["a field twice", doc("fields: { Stage: 1, stage: 2 }"), 2, '"stage" is given twice'],
+    ["a field without a name", doc("fields: { : 2 }"), 2, "a name is missing"],
   ])("%s is a usage error naming the line", (_name, text, line, message) => {
     const err = parseError(text)
     expect(err.exitCode).toBe(2)

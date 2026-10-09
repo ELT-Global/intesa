@@ -7,17 +7,16 @@ import { diffTaskDoc, parseTaskDoc, type TaskDoc, toTaskDoc } from "../../io/tas
 import { CliError, cancelled, formatError, usageError } from "../../output/errors"
 import type { Ctx } from "../../registry/define"
 import { withSubtaskSync } from "./move"
-import { customFields, type TaskDetail, tagIds, userIds } from "./shared"
+import { fieldValue, type TaskDetail, tagIds, userIds } from "./shared"
 
 // The edit as one PATCH body. Names are resolved here, so a mistake fails before any write.
 async function toPatch(ctx: Ctx, task: TaskDetail, change: Partial<TaskDoc>) {
-  const fields = Object.entries(change.fields ?? {})
-  const values = await customFields(
-    ctx,
-    task.projectId,
-    fields.filter(([, v]) => v !== null).map(([name, v]) => `${name}=${v}`),
-    fields.filter(([, v]) => v === null).map(([name]) => name),
-  )
+  const r = resolver(ctx)
+  const values: Record<string, unknown> = {}
+  for (const [name, raw] of Object.entries(change.fields ?? {})) {
+    const field = await r.field(task.projectId, name)
+    values[field.id] = raw === null ? null : fieldValue(field, raw)
+  }
   const patch: PatchTaskInput = {
     title: change.title,
     status: change.status,
@@ -26,7 +25,7 @@ async function toPatch(ctx: Ctx, task: TaskDetail, change: Partial<TaskDoc>) {
     body: change.body === undefined ? undefined : change.body || null,
     assigneeIds: change.assignees && (await userIds(ctx, change.assignees)),
     tagIds: change.tags && (await tagIds(ctx, change.tags)),
-    ...(fields.length > 0 && { customFields: values }),
+    ...(Object.keys(values).length > 0 && { customFields: values }),
   }
   return patch
 }

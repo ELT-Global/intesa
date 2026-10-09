@@ -8,30 +8,19 @@
 
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { openTuiImports } from "./opentui-imports"
 
 const root = join(import.meta.dir, "..")
 
 const arg = process.argv.indexOf("--outfile")
 const outfile = arg >= 0 ? (process.argv[arg + 1] as string) : join(root, "dist", "intesa.js")
 
-// The names the sources import from the package, read from the sources so that building does
-// not need to load the native library (which a build on another libc could not).
-function importedNames(): string[] {
-  const names = new Set<string>()
-  const statement = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']@opentui\/core["']/g
-  for (const file of new Bun.Glob("**/*.ts").scanSync(join(root, "src"))) {
-    for (const match of readFileSync(join(root, "src", file), "utf8").matchAll(statement)) {
-      for (const part of (match[1] as string).split(",")) {
-        const spec = part.trim()
-        if (spec && !spec.startsWith("type "))
-          names.add((spec.split(/\s+as\s+/)[0] as string).trim())
-      }
-    }
-  }
-  return [...names]
-}
-
-const NAMES = importedNames()
+const NAMES = openTuiImports(
+  [...new Bun.Glob("**/*.{ts,tsx}").scanSync(join(root, "src"))].map((file) => ({
+    path: join("src", file),
+    text: readFileSync(join(root, "src", file), "utf8"),
+  })),
+)
 
 const LAZY_OPENTUI = `
 const NAME = ["@opentui", "core"].join("/")

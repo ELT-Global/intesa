@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { TOOL_KINDS } from "../src/mcp/tools"
 import {
   type RunOptions,
   removeSandboxes,
@@ -381,6 +382,14 @@ describe("--dry-run", () => {
     const mutating = Object.keys(mutations)
     expect(commands.filter((c) => !READS.includes(c) && !mutating.includes(c))).toEqual([])
     expect(mutating.filter((c) => !commands.includes(c))).toEqual([])
+  })
+
+  // `intesa mcp` tells agents its read tools change nothing.
+  test("every read-only MCP tool is a read", () => {
+    const mcpReads = Object.entries(TOOL_KINDS)
+      .filter(([, kind]) => kind === "read")
+      .map(([command]) => `intesa ${command}`)
+    expect(mcpReads.filter((c) => !READS.includes(c))).toEqual([])
   })
 
   // test.each needs its table before the world exists, so the names are listed here.

@@ -17,8 +17,9 @@ import { usageError } from "../output/errors"
 //   Markdown body…
 //
 // Only this much YAML is understood: one `key: value` per line, values that are plain or
-// quoted scalars, inline lists `[a, b]` and inline maps `{ K: v }`. A key that is left out
-// changes nothing; an empty value, `null` or `~` clears.
+// quoted scalars, inline lists `[a, b]` (or a bare `a, b` for assignees and tags) and inline
+// maps `{ K: v }`, and `#` comments on their own line or after a value that cannot contain
+// one. A key that is left out changes nothing; an empty value, `null` or `~` clears.
 
 export type Scalar = string | null
 
@@ -118,84 +119,115 @@ const fail = (message: string): never => {
 }
 
 // A quoted scalar starting at text[at]; returns the value and the index after the quote.
+// Double quotes take JSON's escapes, which is what `scalar` writes; in single quotes '' is a
+// quote.
 function quoted(text: string, at: number): [string, number] {
-  const quote = text[at]
-  let out = ""
+  if (text[at] === "'") {
+    let out = ""
+    for (let i = at + 1; i < text.length; i++) {
+      if (text[i] !== "'") out += text[i]
+      else if (text[i + 1] === "'") out += text[++i]
+      else return [out, i + 1]
+    }
+    return fail("unclosed '")
+  }
   for (let i = at + 1; i < text.length; i++) {
-    const c = text[i]
-    if (c === quote) {
-      // '' is a quote inside single quotes.
-      if (quote === "'" && text[i + 1] === "'") {
-        out += "'"
-        i++
-        continue
+    if (text[i] === "\\") i++
+    else if (text[i] === '"') {
+      const raw = text.slice(at, i + 1)
+      try {
+        // A tab typed in the editor is meant as itself; JSON only takes it escaped.
+        return [JSON.parse(raw.replaceAll("\t", "\\t")), i + 1]
+      } catch {
+        return fail(`invalid escape in ${raw}: use \\n, \\t, \\", \\\\ or \\uXXXX`)
       }
-      return [out, i + 1]
-    }
-    if (c === "\\" && quote === '"') {
-      const next = text[++i]
-      out += next === "n" ? "\n" : next === "t" ? "\t" : (next ?? "")
-      continue
-    }
-    out += c
-  }
-  return fail(`unclosed ${quote}`)
-}
-
-// One scalar that must make up all of `text`.
-function parseScalar(text: string): Scalar {
-  const t = text.trim()
-  if (t.startsWith('"') || t.startsWith("'")) {
-    const [value, end] = quoted(t, 0)
-    if (t.slice(end).trim()) fail(`unexpected text after the quoted value: ${t.slice(end).trim()}`)
-    return value
-  }
-  return NULLS.includes(t.toLowerCase()) ? null : t
-}
-
-// Splits on `sep` outside quotes. Only a quote that starts a part quotes it: O'Brien is plain.
-function split(text: string, sep: string): string[] {
-  const parts: string[] = []
-  let start = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]
-    if ((c === '"' || c === "'") && !text.slice(start, i).trim()) i = quoted(text, i)[1] - 1
-    else if (c === sep) {
-      parts.push(text.slice(start, i))
-      start = i + 1
     }
   }
-  parts.push(text.slice(start))
-  return parts
+  return fail('unclosed "')
 }
 
-function inner(text: string, open: string, close: string) {
-  if (!text.endsWith(close)) fail(`expected ${close} at the end of ${open}…${close}`)
-  return text.slice(1, -1)
+const isSpace = (c: string | undefined) => c === " " || c === "\t"
+
+// One scalar from text[at] up to one of `stops` (outside quotes) or the end. Only a quote that
+// starts it quotes it: O'Brien is plain. `end` is the index of the stop.
+function item(text: string, at: number, stops: string) {
+  let i = at
+  while (isSpace(text[i])) i++
+  if (text[i] === '"' || text[i] === "'") {
+    const [value, after] = quoted(text, i)
+    let end = after
+    while (isSpace(text[end])) end++
+    if (end < text.length && !stops.includes(text[end] as string)) {
+      fail(`unexpected text after the quoted value: ${text.slice(after).trim()}`)
+    }
+    return { value: value as Scalar, blank: false, end }
+  }
+  let end = i
+  while (end < text.length && !stops.includes(text[end] as string)) end++
+  const raw = text.slice(i, end).trim()
+  return { value: NULLS.includes(raw.toLowerCase()) ? null : raw, blank: !raw, end }
+}
+
+// Items separated by commas up to `close`, or to the end of the text without one. Returns
+// them and the index after `close`.
+function parseList(text: string, at: number, close = ""): [Scalar[], number] {
+  const items: Scalar[] = []
+  for (;;) {
+    const { value, blank, end } = item(text, at, `,${close}`)
+    if (!blank) items.push(value)
+    if (close && text[end] === close) return [items, end + 1]
+    if (end >= text.length)
+      return close ? fail(`expected ${close} at the end of […]`) : [items, end]
+    at = end + 1
+  }
+}
+
+// `NAME: VALUE, …}` from just after the {. Names are matched without regard to case later,
+// so the same name twice in another case is a mistake too.
+function parseMap(text: string, at: number): [Record<string, Scalar>, number] {
+  const map: Record<string, Scalar> = {}
+  for (;;) {
+    const key = item(text, at, ":,}")
+    let end = key.end
+    if (text[end] === ":") {
+      const name = key.value || fail(`a name is missing in {…}: "${text.slice(at).trim()}"`)
+      if (Object.keys(map).some((k) => k.toLowerCase() === name.toLowerCase())) {
+        fail(`"${name}" is given twice in {…}`)
+      }
+      const value = item(text, end + 1, ",}")
+      map[name] = value.value
+      end = value.end
+    } else if (!key.blank) {
+      fail(`expected NAME: VALUE in {…}, got "${text.slice(at, end).trim()}"`)
+    }
+    if (text[end] === "}") return [map, end + 1]
+    if (end >= text.length) return fail("expected } at the end of {…}")
+    at = end + 1
+  }
 }
 
 type Value = Scalar | Scalar[] | Record<string, Scalar>
 
-function parseValue(text: string): Value {
+// Values that never contain " #", so one starts a comment after them. A plain title is taken
+// as typed, since titles often carry issue numbers.
+const COMMENTED: readonly Key[] = ["status", "priority", "due"]
+
+function parseValue(key: Key, text: string): Value {
   const t = text.trim()
-  if (t.startsWith("[")) {
-    return split(inner(t, "[", "]"), ",")
-      .filter((item) => item.trim())
-      .map(parseScalar)
+  let value: Value
+  let end: number
+  if (t.startsWith("[")) [value, end] = parseList(t, 1, "]")
+  else if (t.startsWith("{")) [value, end] = parseMap(t, 1)
+  // `assignees: Mei Chen, Bob` is a list too.
+  else if (key === "assignees" || key === "tags") [value, end] = parseList(t, 0)
+  else if (t.startsWith('"') || t.startsWith("'")) [value, end] = quoted(t, 0)
+  else {
+    const plain = COMMENTED.includes(key) ? t.replace(/(^|\s)#.*$/, "").trim() : t
+    return NULLS.includes(plain.toLowerCase()) ? null : plain
   }
-  if (t.startsWith("{")) {
-    const map: Record<string, Scalar> = {}
-    for (const entry of split(inner(t, "{", "}"), ",")) {
-      if (!entry.trim()) continue
-      const [key, ...rest] = split(entry, ":")
-      if (rest.length === 0) fail(`expected NAME: VALUE in {…}, got "${entry.trim()}"`)
-      const name = parseScalar(key ?? "")
-      if (!name) fail(`a name is missing in {…}: "${entry.trim()}"`)
-      map[name as string] = parseScalar(rest.join(":"))
-    }
-    return map
-  }
-  return parseScalar(t)
+  const rest = t.slice(end).trim()
+  if (rest && !rest.startsWith("#")) fail(`unexpected text after the value: ${rest}`)
+  return value
 }
 
 const oneOf = (value: string, allowed: readonly string[], what: string) => {
@@ -271,7 +303,8 @@ export function parseTaskDoc(text: string): TaskDoc {
   for (let i = start + 1; i < end; i++) {
     const line = lines[i] ?? ""
     if (!line.trim() || line.trim().startsWith("#")) continue
-    const match = /^\s*([A-Za-z]+)\s*:(.*)$/.exec(line)
+    // `s`: a value may hold U+2028 and U+2029, which `.` would stop at.
+    const match = /^\s*([A-Za-z]+)\s*:(.*)$/s.exec(line)
     if (!match) throw at(i, `expected KEY: VALUE, got "${line.trim()}"`)
     const key = (match[1] ?? "").toLowerCase()
     if (!KEYS.includes(key as Key)) {
@@ -280,7 +313,7 @@ export function parseTaskDoc(text: string): TaskDoc {
     if (seen.has(key)) throw at(i, `${key} is given twice`)
     seen.add(key)
     try {
-      setKey(doc, key as Key, parseValue(match[2] ?? ""))
+      setKey(doc, key as Key, parseValue(key as Key, match[2] ?? ""))
     } catch (err) {
       if (err instanceof DocError) throw at(i, err.message)
       throw err

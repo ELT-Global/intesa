@@ -2,8 +2,9 @@ import { VERSION } from "../version"
 import type { Tool, ToolResult } from "./tools"
 
 // Newest first. A client asking for another version gets the newest, and decides whether it
-// can work with that.
-export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+// can work with that. 2025-03-26 is left out: it has JSON-RPC batches, which this server does
+// not take.
+export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2024-11-05"]
 
 // JSON-RPC 2.0 error codes.
 const PARSE_ERROR = -32700
@@ -20,7 +21,7 @@ const INSTRUCTIONS = [
   "Tasks are named by key (WEB-12), by number with a project, by id or by URL; people by",
   "@me, email or name. Workspace and project default to the server's settings.",
   "Mutations take dry-run: true to return the request instead of sending it; tools that",
-  "delete need confirm: true.",
+  "delete or overwrite need confirm: true.",
 ].join(" ")
 
 type Id = string | number | null
@@ -81,64 +82,94 @@ async function respond(server: Server, method: string, params: unknown): Promise
   }
 }
 
-async function handle(server: Server, line: string) {
+// Serves newline-delimited JSON-RPC from `input` until it ends. Tool calls run one at a time
+// in the order they arrive, so a mutation never overtakes the one sent before it; everything
+// else is answered at once, even while a call runs. A call cancelled before it starts never
+// runs, and a cancelled request gets no answer.
+export async function serve(server: Server, input: ReadableStream<Uint8Array>) {
   const reply = (
     id: Id,
     body: { result: unknown } | { error: { code: number; message: string } },
   ) => server.send(`${JSON.stringify({ jsonrpc: "2.0", id, ...body })}\n`)
+  const logError = (err: unknown) => server.log(`intesa mcp: ${(err as Error)?.stack ?? err}\n`)
   const fail = (id: Id, code: number, message: string) => reply(id, { error: { code, message } })
 
-  let msg: Message
-  try {
-    msg = JSON.parse(line)
-  } catch {
-    return fail(null, PARSE_ERROR, "Parse error")
-  }
-  const hasId = isObject(msg) && "id" in msg
-  const id = hasId && (typeof msg.id === "string" || typeof msg.id === "number") ? msg.id : null
-  if (!isObject(msg) || msg.jsonrpc !== "2.0") {
-    return fail(id, INVALID_REQUEST, "Invalid Request: expected one JSON-RPC 2.0 object")
-  }
-  if (typeof msg.method !== "string") {
-    // A response to a request of ours; this server never sends any.
-    if ("result" in msg || "error" in msg) return
-    return fail(id, INVALID_REQUEST, "Invalid Request: method is required")
-  }
-  // Notifications (initialized, cancelled, …) need no answer, and none of them changes
-  // anything here.
-  if (!hasId) return
-  if (id === null)
-    return fail(null, INVALID_REQUEST, "Invalid Request: id must be a string or number")
-  try {
-    reply(id, { result: await respond(server, msg.method, msg.params) })
-  } catch (err) {
-    if (err instanceof RpcError) return fail(id, err.code, err.message)
-    server.log(`intesa mcp: ${(err as Error)?.stack ?? err}\n`)
-    fail(id, INTERNAL_ERROR, `Internal error: ${(err as Error)?.message ?? err}`)
-  }
-}
+  // Requests not answered yet, by id, and whether they were cancelled.
+  const open = new Map<string, { cancelled: boolean }>()
+  const keyOf = (id: unknown) => JSON.stringify(id)
+  const pending = new Set<Promise<void>>()
+  let calls = Promise.resolve()
 
-// Serves newline-delimited JSON-RPC from `input` until it ends. Messages are handled one at a
-// time in the order they arrive, so a mutation never overtakes the one sent before it.
-export async function serve(server: Server, input: ReadableStream<Uint8Array>) {
-  let queue = Promise.resolve()
-  const enqueue = (line: string) => {
-    if (!line.trim()) return
-    queue = queue
-      .then(() => handle(server, line))
-      .catch((err) => server.log(`intesa mcp: ${(err as Error)?.stack ?? err}\n`))
+  const answer = async (id: string | number, method: string, params: unknown) => {
+    const state = open.get(keyOf(id))
+    try {
+      if (state?.cancelled) return
+      const result = await respond(server, method, params)
+      if (!state?.cancelled) reply(id, { result })
+    } catch (err) {
+      if (state?.cancelled) return
+      if (err instanceof RpcError) return fail(id, err.code, err.message)
+      logError(err)
+      fail(id, INTERNAL_ERROR, `Internal error: ${(err as Error)?.message ?? err}`)
+    } finally {
+      open.delete(keyOf(id))
+    }
   }
+  const track = (p: Promise<void>) => {
+    const done = p.catch(logError)
+    pending.add(done)
+    void done.finally(() => pending.delete(done))
+  }
+
+  const handle = (line: string) => {
+    if (!line.trim()) return
+    let msg: Message
+    try {
+      msg = JSON.parse(line)
+    } catch {
+      return fail(null, PARSE_ERROR, "Parse error")
+    }
+    const hasId = isObject(msg) && "id" in msg
+    const id = hasId && (typeof msg.id === "string" || typeof msg.id === "number") ? msg.id : null
+    if (!isObject(msg) || msg.jsonrpc !== "2.0") {
+      return fail(id, INVALID_REQUEST, "Invalid Request: expected one JSON-RPC 2.0 object")
+    }
+    const method = msg.method
+    if (typeof method !== "string") {
+      // A response to a request of ours; this server never sends any.
+      if ("result" in msg || "error" in msg) return
+      return fail(id, INVALID_REQUEST, "Invalid Request: method is required")
+    }
+    if (!hasId) {
+      // Of the notifications (initialized, cancelled, …) only a cancellation changes anything.
+      if (method === "notifications/cancelled" && isObject(msg.params)) {
+        const state = open.get(keyOf(msg.params.requestId))
+        if (state) state.cancelled = true
+      }
+      return
+    }
+    if (id === null)
+      return fail(null, INVALID_REQUEST, "Invalid Request: id must be a string or number")
+    open.set(keyOf(id), { cancelled: false })
+    const params = msg.params
+    if (method === "tools/call") {
+      const run = calls.then(() => answer(id, method, params))
+      calls = run.catch(() => {})
+      track(run)
+    } else track(answer(id, method, params))
+  }
+
   const decoder = new TextDecoder()
   let buffer = ""
   for await (const chunk of input) {
     buffer += decoder.decode(chunk, { stream: true })
     let end = buffer.indexOf("\n")
     while (end !== -1) {
-      enqueue(buffer.slice(0, end))
+      handle(buffer.slice(0, end))
       buffer = buffer.slice(end + 1)
       end = buffer.indexOf("\n")
     }
   }
-  enqueue(buffer + decoder.decode())
-  await queue
+  handle(buffer + decoder.decode())
+  while (pending.size > 0) await Promise.all(pending)
 }

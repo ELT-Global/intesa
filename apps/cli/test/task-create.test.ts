@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { create } from "../src/commands/task/write"
+import { notFound } from "../src/output/errors"
+import { type Ctx, globalFlags } from "../src/registry/define"
 import { world as baseWorld, removeSandboxes, startServer, type TestServer } from "./helpers"
 
 let server: TestServer
@@ -293,5 +296,52 @@ describe("task edit", () => {
     const r = await w.box.run(["task", "edit", task.key])
     expect(r.exitCode).toBe(2)
     expect(r.stderr).toContain("--title")
+  })
+})
+
+describe("task create on a terminal", () => {
+  // In this process, with stdin and stdout taken for terminals so that the form would be
+  // shown, and every request failing as one for an unknown project or task would.
+  test("a typo in -p or --parent fails before the form asks anything", async () => {
+    const streams = [process.stdin, process.stdout]
+    const saved = streams.map((s) => Object.getOwnPropertyDescriptor(s, "isTTY"))
+    for (const s of streams) Object.defineProperty(s, "isTTY", { value: true, configurable: true })
+    try {
+      for (const [project, parent] of [
+        ["NOPE", undefined],
+        [undefined, "NOPE-9"],
+      ]) {
+        const missing = notFound("not there")
+        const ctx = {
+          globals: { ...globalFlags.parse({}), project },
+          env: {},
+          config: {},
+          cwd: process.cwd(),
+          configDir: join(process.cwd(), "no-config"),
+          context: () => (project ? { project: { value: project } } : {}),
+          http: () => Promise.reject(missing),
+          stdout: () => {},
+          stderr: () => {},
+        } as unknown as Ctx
+        const flags = { assignee: [], tag: [], field: [], createTags: false, parent }
+        let timer: Timer | undefined
+        const formShown = new Promise((resolve) => {
+          timer = setTimeout(() => resolve("the form was shown first"), 2000)
+        })
+        try {
+          await expect(Promise.race([create.run(ctx, {}, flags as never), formShown])).rejects.toBe(
+            missing,
+          )
+        } finally {
+          clearTimeout(timer)
+        }
+      }
+    } finally {
+      streams.forEach((s, i) => {
+        const descriptor = saved[i]
+        if (descriptor) Object.defineProperty(s, "isTTY", descriptor)
+        else delete (s as { isTTY?: boolean }).isTTY
+      })
+    }
   })
 })

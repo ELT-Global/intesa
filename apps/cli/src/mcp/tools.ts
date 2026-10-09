@@ -1,74 +1,102 @@
+import { realpathSync } from "node:fs"
+import { isAbsolute, relative, resolve } from "node:path"
 import { CliError, type ExitCode, usageError } from "../output/errors"
 import type { Env } from "../output/mode"
 import { FIELD_SETS } from "../output/render"
 import type { Command, Io } from "../registry/define"
 import { flagsSchema } from "../registry/schema"
 
-// Commands that are not tools: a full-screen UI, shell setup, this server and the schema the
-// tool list already is; sign-in and anything that mints, prints or weakens credentials;
-// defaults that would change the person's own CLI behind their back; and what only opens a
-// browser or an editor.
-const EXCLUDED = new Set([
-  "board",
-  "completion",
-  "mcp",
-  "schema",
-  "auth login",
-  "auth logout",
-  "auth token",
-  "token create",
-  "me 2fa",
-  "config set",
-  "workspace use",
-  "project use",
-  "task open",
-  "artifact edit",
-])
+// How each command is offered as a tool:
+//   excluded     not a tool
+//   read         changes nothing, here or on the server
+//   write        changes something
+//   idempotent   changes something, ending in the same state however often it runs
+//   destructive  cannot be undone (deletes, or overwrites a file or stored content), so it
+//                needs confirm: true
+// A command missing here is not offered at all; the tests fail until it is placed.
+export type ToolKind = "excluded" | "read" | "write" | "idempotent" | "destructive"
 
-// Commands that change nothing, here or on the server. (`artifact download` writes a file.)
-const READS = new Set([
-  "auth status",
-  "workspace list",
-  "workspace view",
-  "project list",
-  "project view",
-  "task list",
-  "task view",
-  "task history",
-  "task search",
-  "task url",
-  "member list",
-  "tag list",
-  "field list",
-  "artifact list",
-  "artifact view",
-  "status",
-  "config get",
-  "config list",
-  "token list",
-  "me view",
-])
+export const TOOL_KINDS: Record<string, ToolKind> = {
+  // A full-screen UI, shell setup, this server and the schema the tool list already is.
+  board: "excluded",
+  completion: "excluded",
+  mcp: "excluded",
+  schema: "excluded",
+  // Sign-in and anything that mints, prints or weakens credentials; `api` can send any
+  // request, those included, and read local files into it.
+  "auth login": "excluded",
+  "auth logout": "excluded",
+  "auth token": "excluded",
+  "token create": "excluded",
+  "me 2fa": "excluded",
+  api: "excluded",
+  // Defaults that would change the person's own CLI behind their back.
+  "config set": "excluded",
+  "workspace use": "excluded",
+  "project use": "excluded",
+  // What only opens a browser or an editor.
+  "task open": "excluded",
+  "artifact edit": "excluded",
 
-// Mutations that end in the same state however often they run.
-const IDEMPOTENT = new Set([
-  "workspace rename",
-  "project edit",
-  "task edit",
-  "task move",
-  "task start",
-  "task review",
-  "task done",
-  "task assign",
-  "task unassign",
-  "task unlink",
-  "member role",
-  "tag edit",
-  "field edit",
-  "artifact replace",
-  "me edit",
-])
+  "auth status": "read",
+  "workspace list": "read",
+  "workspace view": "read",
+  "project list": "read",
+  "project view": "read",
+  "task list": "read",
+  "task view": "read",
+  "task history": "read",
+  "task search": "read",
+  "task url": "read",
+  "member list": "read",
+  "tag list": "read",
+  "field list": "read",
+  "artifact list": "read",
+  "artifact view": "read",
+  status: "read",
+  "config get": "read",
+  "config list": "read",
+  "token list": "read",
+  "me view": "read",
 
-const DESTRUCTIVE_VERBS = new Set(["delete", "remove", "leave", "revoke"])
+  "workspace create": "write",
+  "project create": "write",
+  "task create": "write",
+  "task link": "write",
+  "member add": "write",
+  "tag create": "write",
+  "field create": "write",
+  "artifact upload": "write",
+
+  "workspace rename": "idempotent",
+  "project edit": "idempotent",
+  "task edit": "idempotent",
+  "task move": "idempotent",
+  "task start": "idempotent",
+  "task review": "idempotent",
+  "task done": "idempotent",
+  "task assign": "idempotent",
+  "task unassign": "idempotent",
+  "task unlink": "idempotent",
+  "member role": "idempotent",
+  "tag edit": "idempotent",
+  "field edit": "idempotent",
+  "me edit": "idempotent",
+
+  "project delete": "destructive",
+  "task delete": "destructive",
+  "member remove": "destructive",
+  "member leave": "destructive",
+  "tag delete": "destructive",
+  "field delete": "destructive",
+  "token revoke": "destructive",
+  // Writes to any local path, replacing a file with --force.
+  "artifact download": "destructive",
+  "artifact replace": "destructive",
+}
+
+// Inputs that name a local file the command reads or writes.
+const isPathInput = (name: string) => name === "file" || name === "output" || name.endsWith("-file")
 
 type JsonSchema = Record<string, unknown> & { type?: unknown }
 
@@ -114,7 +142,8 @@ function clean(schema: JsonSchema): JsonSchema {
   return rest
 }
 
-const isDestructive = (path: string[]) => DESTRUCTIVE_VERBS.has(path.at(-1) ?? "")
+const kindOf = (path: string[]): ToolKind => TOOL_KINDS[path.join(" ")] ?? "excluded"
+const isDestructive = (path: string[]) => kindOf(path) === "destructive"
 
 function inputSchema(cmd: Command, path: string[], read: boolean, destructive: boolean) {
   const properties: Record<string, JsonSchema> = {}
@@ -182,11 +211,11 @@ function describe(cmd: Command, path: string[], destructive: boolean) {
 // One tool per command an agent can use, named by its words: `task list` is `task_list`.
 export function buildTools(commands: { cmd: Command; path: string[] }[]): Tool[] {
   return commands
-    .filter(({ path }) => !EXCLUDED.has(path.join(" ")))
+    .filter(({ path }) => kindOf(path) !== "excluded")
     .map(({ cmd, path }) => {
-      const words = path.join(" ")
-      const read = READS.has(words)
-      const destructive = isDestructive(path)
+      const kind = kindOf(path)
+      const read = kind === "read"
+      const destructive = kind === "destructive"
       return {
         cmd,
         path,
@@ -198,9 +227,8 @@ export function buildTools(commands: { cmd: Command; path: string[] }[]): Tool[]
           annotations: {
             title: cmd.summary,
             readOnlyHint: read,
-            // `api` may send any request, so it is treated like the riskiest of them.
-            destructiveHint: destructive || path[0] === "api",
-            idempotentHint: read || destructive || IDEMPOTENT.has(words),
+            destructiveHint: destructive,
+            idempotentHint: kind !== "write",
             openWorldHint: false,
           },
         },
@@ -217,10 +245,32 @@ const scalar = (name: string, value: unknown): string => {
 const list = (name: string, value: unknown) =>
   (Array.isArray(value) ? value : [value]).map((v) => scalar(name, v))
 
+const real = (path: string) => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+// Whether a path is the config directory or inside it, where the stored token may live.
+function inConfigDir(path: string, local: Local) {
+  const rel = relative(real(resolve(local.configDir)), real(resolve(local.cwd, path)))
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
+}
+
+export type Local = { cwd: string; configDir: string }
+
 // The command line a call stands for: the command words, its flags as `--flag=value` (so a
 // value may start with "-"), `--json`, then the positionals after `--`. `defaults` (the
-// server's own -w/-p/--host) come first and give way to the call's own.
-export function toArgv(tool: Tool, input: unknown, defaults: Record<string, string>): string[] {
+// server's own -w/-p/--host) come first and give way to the call's own. With `local`, files
+// in the config directory are refused, so a tool can neither upload nor overwrite them.
+export function toArgv(
+  tool: Tool,
+  input: unknown,
+  defaults: Record<string, string>,
+  local?: Local,
+): string[] {
   if (input !== undefined && (typeof input !== "object" || input === null || Array.isArray(input)))
     throw usageError("arguments must be an object")
   const values = (input ?? {}) as Record<string, unknown>
@@ -244,6 +294,17 @@ export function toArgv(tool: Tool, input: unknown, defaults: Record<string, stri
   // `-o -` writes the file to stdout, which here is the protocol itself.
   if (words === "artifact download" && values.output === "-") {
     throw usageError('output "-" is not available here', "Give a file or directory path.")
+  }
+  for (const [name, value] of Object.entries(values)) {
+    if (!local || !isPathInput(name)) continue
+    for (const path of value === undefined || value === null ? [] : list(name, value)) {
+      if (path !== "-" && inConfigDir(path, local)) {
+        throw usageError(
+          `"${name}" names a file in intesa's config directory, which tools may not use`,
+          "It holds the CLI's settings and may hold its credentials.",
+        )
+      }
+    }
   }
 
   const positionals: string[] = []
@@ -283,8 +344,11 @@ export function toArgv(tool: Tool, input: unknown, defaults: Record<string, stri
   }
   if (values.confirm === true) flags.push("--yes")
 
+  // The server's project belongs to the server's workspace, so a call naming its own
+  // workspace does not get it.
   const inherited = Object.entries(defaults)
     .filter(([name]) => values[name] === undefined)
+    .filter(([name]) => name !== "project" || values.workspace === undefined)
     .map(([name, value]) => `--${name}=${value}`)
   return [...tool.path, ...inherited, ...flags, "--json", "--", ...positionals]
 }
@@ -321,12 +385,13 @@ export async function callTool(
     invoke: (argv: string[], env: Env, io: Io) => Promise<number>
     env: Env
     defaults: Record<string, string>
+    local: Local
     log?: (text: string) => void
   },
 ): Promise<ToolResult> {
   let argv: string[]
   try {
-    argv = toArgv(tool, input, opts.defaults)
+    argv = toArgv(tool, input, opts.defaults, opts.local)
   } catch (err) {
     if (!(err instanceof CliError)) throw err
     return { content: [text(errorJson(err))], isError: true }

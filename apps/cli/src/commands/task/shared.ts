@@ -119,7 +119,7 @@ export async function readBody(ctx: Ctx, flags: { body?: string; bodyFile?: stri
 }
 
 // A typed value from the command line, checked here so a mistake fails before any write.
-function fieldValue(field: FieldDef, raw: string): unknown {
+export function fieldValue(field: FieldDef, raw: string): unknown {
   const bad = (expected: string) =>
     usageError(`invalid value "${raw}" for field ${field.name}: expected ${expected}`)
   switch (field.type) {
