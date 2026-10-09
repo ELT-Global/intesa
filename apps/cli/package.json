@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",
+    "@opentui/core": "0.5.17",
     "@intesa/api": "workspace:*",
     "@intesa/task-query": "workspace:*",
     "hono": "^4.13.13",
