@@ -5,6 +5,7 @@ import { nouns, resolveWords } from "./commands"
 import { readConfig, readHosts } from "./config/config"
 import { configDir } from "./config/paths"
 import { readToken } from "./config/secrets"
+import { editing } from "./io/editor"
 import { CliError, formatError, usageError } from "./output/errors"
 import { selectFields, toJson } from "./output/json"
 import { detectMode, type Env } from "./output/mode"
@@ -36,7 +37,7 @@ function createCtx(globals: Globals, env: Env, io: Io, opts: { quick?: boolean }
   const config = readConfig(dir)
   const mode = detectMode(env, { color: globals.color, configColor: config.color })
   let context: ResolvedContext | undefined
-  let http: Promise<Http> | undefined
+  const clients: { loud?: Promise<Http>; quiet?: Promise<Http> } = {}
   const ctx: Ctx = {
     globals,
     env,
@@ -54,22 +55,23 @@ function createCtx(globals: Globals, env: Env, io: Io, opts: { quick?: boolean }
       })
       return context
     },
-    http: () => {
-      http ??= (async () => {
+    http: (httpOpts) => {
+      const key = httpOpts?.quiet ? "quiet" : "loud"
+      clients[key] ??= (async () => {
         const host = requireHost(ctx.context())
         const credentials = await readToken(dir, host, env)
         return createHttp({
           host,
           token: credentials?.token,
           dryRun: globals.dryRun,
-          debug: debugLevel(env, globals.debug),
+          debug: httpOpts?.quiet ? "off" : debugLevel(env, globals.debug),
           stdout,
           stderr,
           timeoutMs: opts.quick ? Math.min(timeoutMs(env), 2000) : timeoutMs(env),
           retry: !opts.quick,
         })
       })()
-      return http
+      return clients[key] as Promise<Http>
     },
     stdout,
     stderr,
@@ -197,10 +199,14 @@ async function main(argv: string[], env: Env, io: Io = processIo): Promise<numbe
   }
 }
 
-// Ctrl+C: exit 3 (cancelled), distinct from usage errors.
+// Ctrl+C: exit 3 (cancelled). The exit waits a turn so later SIGINT listeners (OpenTUI's,
+// which restores the terminal) still run; while an editor has the terminal, Ctrl+C is the
+// editor's, as in git, and editText cleans up when it returns.
 process.on("SIGINT", () => {
+  if (editing()) return
   processIo.stderr("\n")
-  process.exit(3)
+  process.exitCode = 3
+  setImmediate(() => process.exit(3))
 })
 
 // The reader of a pipe quit early (`intesa schema | head`): stop quietly with success, like gh.

@@ -23,6 +23,11 @@ export function editorCommand(opts: {
   return [(opts.platform ?? process.platform) === "win32" ? "notepad" : "vi"]
 }
 
+// How many editors are open. While one has the terminal, Ctrl+C belongs to it, so main does
+// not exit on SIGINT then.
+let open = 0
+export const editing = () => open > 0
+
 // Opens `text` in the editor, in a temp file named after `filename` (so syntax highlighting
 // follows its extension), and returns what was saved. The editor must block until closed,
 // e.g. `code --wait`.
@@ -43,6 +48,7 @@ export async function editText(
   try {
     await Bun.write(path, text)
     let code: number
+    open++
     try {
       const proc = Bun.spawn([...command, path], {
         stdin: "inherit",
@@ -56,6 +62,8 @@ export async function editText(
         `could not start the editor "${command[0]}": ${(err as Error).message}`,
         "Set VISUAL or EDITOR, or run `intesa config set editor COMMAND`.",
       )
+    } finally {
+      open--
     }
     if (code !== 0) {
       throw cliError("EDITOR_ERROR", `the editor exited with code ${code}; nothing was saved`)

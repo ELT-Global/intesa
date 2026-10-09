@@ -93,6 +93,3 @@ export function fuzzyFilter<T>(items: readonly T[], query: string, text: (item: 
     .sort((a, b) => a.score - b.score)
     .map((x) => x.item)
 }
-
-// "@alan" for Alan Owner, as on card lines elsewhere in the CLI.
-export const handle = (name: string) => `@${(name.split(/\s+/)[0] ?? name).toLowerCase()}`

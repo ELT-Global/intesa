@@ -1,7 +1,7 @@
 // The table: one row per task, sortable by its headers' keys (1-4).
 import { PRIORITY_LABELS } from "@intesa/task-query"
 import type { BoxRenderable, MouseEvent } from "@opentui/core"
-import { handle } from "../model"
+import { handle } from "../api"
 import { type State, tableRows } from "../state"
 import { fit, type Line, type Seg, width } from "../text"
 import { dueSeg, type Kit, statusSeg, THEME } from "./kit"

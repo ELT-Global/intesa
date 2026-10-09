@@ -1,20 +1,18 @@
 // Everything the board takes from the rest of the CLI goes through this file, so the TUI
 // depends on a handful of names: resolution, the typed client, links, the editor and browser.
 import { type PatchTaskInput, TASK_KEY_PATTERN } from "@intesa/api/schemas"
-import { requireHost } from "../client/context"
-import { createHttp, debugLevel, type Http, timeoutMs } from "../client/http"
+import { sendArtifact } from "../client/artifacts"
 import { links } from "../client/links"
 import { type Resolver, resolver } from "../client/resolve"
 import { plural } from "../commands/task/shared"
-import { readToken } from "../config/secrets"
 import { openBrowser } from "../io/browser"
 import { editText } from "../io/editor"
 import { CliError } from "../output/errors"
-import { dueText, glyphs, supportsUnicode } from "../output/task-line"
+import { dueText, glyphs, handle, supportsUnicode } from "../output/task-line"
 import type { Ctx } from "../registry/define"
 
 export type { Ctx }
-export { CliError, dueText, glyphs, plural }
+export { CliError, dueText, glyphs, handle, plural }
 
 export type TaskDetail = Awaited<ReturnType<Resolver["task"]>>
 export type Task = TaskDetail["subtasks"][number]
@@ -81,28 +79,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isTaskRef = (ref: string) =>
   TASK_KEY_PATTERN.test(ref) || UUID.test(ref) || /^https?:\/\//i.test(ref)
 
-// A client like the CLI's that never logs: on the full-screen board, --debug and INTESA_DEBUG
-// would write over the board.
-async function quietHttp(ctx: Ctx): Promise<Http> {
-  if (debugLevel(ctx.env, ctx.globals.debug) === "off") return ctx.http()
-  const host = requireHost(ctx.context())
-  const credentials = await readToken(ctx.configDir, host, ctx.env)
-  return createHttp({
-    host,
-    token: credentials?.token,
-    dryRun: false,
-    debug: "off",
-    stdout: () => {},
-    stderr: () => {},
-    timeoutMs: timeoutMs(ctx.env),
-  })
-}
-
 // Resolves where the board starts (before the screen is taken over, so errors print as usual,
 // with --debug logging as usual) and wraps the typed client.
 export async function connect(ctx: Ctx, ref?: string): Promise<{ api: BoardApi; start: Start }> {
   const r = resolver(ctx)
-  const http = await quietHttp(ctx)
+  // Quiet: --debug and INTESA_DEBUG would write over the full-screen board, and the board
+  // asks again for who I am once it is up.
+  const http = await ctx.http({ quiet: true })
+  const onBoard = resolver({ ...ctx, http: () => ctx.http({ quiet: true }) })
   const { client } = http
   const workspace = await r.workspace()
 
@@ -120,7 +104,7 @@ export async function connect(ctx: Ctx, ref?: string): Promise<{ api: BoardApi; 
     links.artifact(http.host, taskId, artifactId)
 
   const api: BoardApi = {
-    me: () => r.me(),
+    me: () => onBoard.me(),
     // Not the resolver's: it keeps its first answer, and W should list workspaces made since.
     workspaces: async () => (await (await client.api.workspaces.$get()).json()).workspaces,
     projects: async (workspaceId) =>
@@ -169,9 +153,7 @@ export async function connect(ctx: Ctx, ref?: string): Promise<{ api: BoardApi; 
     artifactText: async (taskId, artifactId) =>
       (await http.request(artifactUrl(taskId, artifactId))).text(),
     saveArtifact: async (taskId, artifact, text) => {
-      const body = new FormData()
-      body.set("file", new File([text], artifact.name))
-      await http.request(artifactUrl(taskId, artifact.id), { method: "PUT", body })
+      await sendArtifact(http, "PUT", artifactUrl(taskId, artifact.id), artifact.name, text)
     },
     openUrl: (url) => openBrowser(url, { env: ctx.env, configBrowser: ctx.config.browser }),
     edit: (text, filename) =>

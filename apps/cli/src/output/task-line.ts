@@ -110,7 +110,7 @@ export function dueText(dueAt: string, status: TaskStatus, style: LineStyle, now
 }
 
 // "@alan" for Alan Owner: short enough for a line.
-const handle = (name: string) => `@${(name.split(/\s+/)[0] ?? name).toLowerCase()}`
+export const handle = (name: string) => `@${(name.split(/\s+/)[0] ?? name).toLowerCase()}`
 
 // One line per task, like a board card:
 // WEB-12  ◐ In progress  Fix login redirect  ↑ High  @alan @mei  #auth  due in 2d  ☐ 1/3

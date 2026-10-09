@@ -80,7 +80,9 @@ export type Ctx = {
   config: Config
   context: () => ResolvedContext
   // Lazily resolves the host and credentials; commands that never call it work offline.
-  http: () => Promise<Http>
+  // `quiet` is a client that never logs, for the full-screen board, which --debug would
+  // write over.
+  http: (opts?: { quiet?: boolean }) => Promise<Http>
   stdout: (text: string) => void
   stderr: (text: string) => void
   // A confirmation for people, like "✓ Deleted WEB-12": on stderr, and not with -q.

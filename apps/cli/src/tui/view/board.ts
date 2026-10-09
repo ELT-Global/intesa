@@ -1,8 +1,7 @@
 // The columns: a folded Backlog rail or its column, then one column of cards per status.
 import { STATUS_LABELS, TASK_STATUSES, type TaskStatus } from "@intesa/task-query"
 import { BoxRenderable, type MouseEvent } from "@opentui/core"
-import { glyphs, type Task } from "../api"
-import { handle } from "../model"
+import { glyphs, handle, type Task } from "../api"
 import { railFocused, type State, shownTasks } from "../state"
 import { fit, type Line, type Seg, truncate, width } from "../text"
 import { dueSeg, type Kit, priorityGlyph, THEME } from "./kit"

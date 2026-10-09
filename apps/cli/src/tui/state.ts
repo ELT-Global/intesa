@@ -13,7 +13,8 @@ import type {
   TaskDetail,
   Workspace,
 } from "./api"
-import { type Changes, filterTasks, fuzzyFilter, handle } from "./model"
+import { handle } from "./api"
+import { type Changes, filterTasks, fuzzyFilter } from "./model"
 
 export type View = "board" | "table"
 

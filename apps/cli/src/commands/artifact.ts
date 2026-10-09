@@ -2,6 +2,7 @@ import { statSync } from "node:fs"
 import { basename, join, resolve } from "node:path"
 import { artifactFileError } from "@intesa/api/artifacts"
 import { z } from "zod"
+import { type Artifact, sendArtifact } from "../client/artifacts"
 import type { Http } from "../client/http"
 import { links } from "../client/links"
 import { pickOne, resolver } from "../client/resolve"
@@ -12,15 +13,6 @@ import { CliError, formatError, invalid, prefixed, usageError } from "../output/
 import { renderMarkdown } from "../output/markdown"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 import { taskArg } from "./task/shared"
-
-type Artifact = {
-  id: string
-  name: string
-  mimeType: string
-  size: number
-  createdAt: string
-  updatedAt: string
-}
 
 const MARKDOWN = "text/markdown"
 
@@ -45,21 +37,6 @@ function checkFile(path: string): LocalFile {
   const problem = artifactFileError({ name, type: "", size: stat.size })
   if (problem) throw invalid(`${name}: ${problem}`)
   return { path, name }
-}
-
-// The multipart upload the web sends. No content type is set on the file: the server derives
-// it from the extension and checks the bytes.
-async function send(
-  http: Http,
-  method: "POST" | "PUT",
-  url: string,
-  name: string,
-  content: string | Uint8Array,
-) {
-  const body = new FormData()
-  body.set("file", new File([content], name))
-  const res = await http.request(url, { method, body })
-  return ((await res.json()) as { artifact: Artifact }).artifact
 }
 
 const listArtifacts = async (http: Http, taskId: string) =>
@@ -154,7 +131,9 @@ const upload = defineCommand({
         try {
           const content = await Bun.file(file.path).bytes()
           const url = links.artifact(http.host, task.id)
-          uploaded.push(withUrl(http, task.id, await send(http, "POST", url, file.name, content)))
+          uploaded.push(
+            withUrl(http, task.id, await sendArtifact(http, "POST", url, file.name, content)),
+          )
         } catch (err) {
           // Anything but a CliError (e.g. --dry-run finishing) is not an upload failure.
           if (!(err instanceof CliError)) throw err
@@ -306,7 +285,7 @@ const edit = defineCommand({
       ctx.stderr("No changes\n")
       return withUrl(http, task.id, artifact)
     }
-    return withUrl(http, task.id, await send(http, "PUT", url, artifact.name, edited))
+    return withUrl(http, task.id, await sendArtifact(http, "PUT", url, artifact.name, edited))
   },
 })
 
@@ -330,7 +309,7 @@ const replace = defineCommand({
       )
     }
     const content = await Bun.file(file.path).bytes()
-    return withUrl(http, task.id, await send(http, "PUT", url, artifact.name, content))
+    return withUrl(http, task.id, await sendArtifact(http, "PUT", url, artifact.name, content))
   },
 })
 
