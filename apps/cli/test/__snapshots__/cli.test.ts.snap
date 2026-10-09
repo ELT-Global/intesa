@@ -1,0 +1,94 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`help root help 1`] = `
+"Work with Intesa from the command line.
+
+USAGE
+  intesa <command> <subcommand> [flags]
+
+COMMANDS
+  api:     Make an authenticated request to the Intesa API
+  config:  Get and set intesa configuration
+  schema:  Describe commands, flags and exit codes as JSON
+
+HELP TOPICS
+  environment:  Environment variables that change how intesa behaves
+  exit-codes:   What each exit code means
+
+FLAGS
+  -w, --workspace slug  Workspace to use
+  -p, --project KEY     Project to use
+      --host url        Intesa server to use
+      --json            Print JSON; errors go to stderr as JSON
+      --fields a,b      Only these output fields (JSON and tables)
+  -q, --quiet           Print only keys or IDs
+      --yes             Skip confirmations
+      --dry-run         Print mutations as {method, path, body} instead of sending them
+      --no-color        Disable colored output
+      --debug           Log HTTP requests to stderr
+  -h, --help            Show help for command
+      --version         Show intesa version
+
+EXAMPLES
+  $ intesa config set host https://pm.example.com
+  $ intesa api /me
+  $ intesa schema config
+
+LEARN MORE
+  Use \`intesa <command> <subcommand> --help\` for more information about a command.
+  Use \`intesa schema\` for a JSON description of every command, and
+  \`intesa help exit-codes\` for what each exit code means.
+"
+`;
+
+exports[`help help api 1`] = `
+"Make an authenticated HTTP request to the Intesa API and print the response body.
+
+The path is relative to /api, e.g. \`/me\` or \`/workspaces\`. The method is GET, or POST
+when parameters or --input are given; override it with --method.
+
+-f adds a string parameter and -F a typed one: true, false, null and numbers become JSON
+values, and @file reads the value from a file (@- from stdin). Parameters form a JSON
+body, or the query string for GET and HEAD and when --input supplies the body.
+
+Errors exit with the code for the API's error (see \`intesa help exit-codes\`) and print
+nothing on stdout.
+
+USAGE
+  intesa api <path> [flags]
+
+ARGUMENTS
+  <path>  API path, e.g. /me
+
+FLAGS
+  -X, --method method           HTTP method to use
+  -f, --raw-field key=value...  Add a string parameter
+  -F, --field key=value...      Add a typed parameter
+  -H, --header 'key: value'...  Add a request header
+      --input file              Read the request body from a file (- for stdin)
+  -i, --include                 Print the status line and response headers too
+
+INHERITED FLAGS
+      --host url    Intesa server to use
+      --json        Print JSON; errors go to stderr as JSON
+      --fields a,b  Only these output fields (JSON and tables)
+  -q, --quiet       Print only keys or IDs
+      --yes         Skip confirmations
+      --dry-run     Print mutations as {method, path, body} instead of sending them
+      --no-color    Disable colored output
+      --debug       Log HTTP requests to stderr
+  -h, --help        Show help for command
+
+EXAMPLES
+  $ intesa api /me
+  $ intesa api /workspaces -f name=Acme -f slug=acme
+  $ intesa api -X PATCH /tasks/TASK_ID -F priority=null
+  $ intesa api -X GET /workspaces/WS_ID/tasks/search -f q=login
+  $ intesa api -X PUT /tasks/TASK_ID/artifacts/ID --input notes.md -H 'Content-Type: text/markdown'
+
+LEARN MORE
+  Use \`intesa <command> <subcommand> --help\` for more information about a command.
+  Use \`intesa schema\` for a JSON description of every command, and
+  \`intesa help exit-codes\` for what each exit code means.
+"
+`;

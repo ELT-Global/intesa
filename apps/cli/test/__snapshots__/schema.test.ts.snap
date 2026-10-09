@@ -1,0 +1,96 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`intesa schema schema api 1`] = `
+[
+  {
+    "aliases": [],
+    "args": [
+      {
+        "description": "API path, e.g. /me",
+        "name": "path",
+        "required": true,
+        "variadic": false,
+      },
+    ],
+    "command": "intesa api",
+    "context": [],
+    "description": 
+"Make an authenticated HTTP request to the Intesa API and print the response body.
+
+The path is relative to /api, e.g. \`/me\` or \`/workspaces\`. The method is GET, or POST
+when parameters or --input are given; override it with --method.
+
+-f adds a string parameter and -F a typed one: true, false, null and numbers become JSON
+values, and @file reads the value from a file (@- from stdin). Parameters form a JSON
+body, or the query string for GET and HEAD and when --input supplies the body.
+
+Errors exit with the code for the API's error (see \`intesa help exit-codes\`) and print
+nothing on stdout."
+,
+    "examples": [
+      "intesa api /me",
+      "intesa api /workspaces -f name=Acme -f slug=acme",
+      "intesa api -X PATCH /tasks/TASK_ID -F priority=null",
+      "intesa api -X GET /workspaces/WS_ID/tasks/search -f q=login",
+      "intesa api -X PUT /tasks/TASK_ID/artifacts/ID --input notes.md -H 'Content-Type: text/markdown'",
+    ],
+    "flags": {
+      "properties": {
+        "field": {
+          "default": [],
+          "description": "Add a typed parameter",
+          "items": {
+            "type": "string",
+          },
+          "placeholder": "key=value",
+          "short": "F",
+          "type": "array",
+        },
+        "header": {
+          "default": [],
+          "description": "Add a request header",
+          "items": {
+            "type": "string",
+          },
+          "placeholder": "'key: value'",
+          "short": "H",
+          "type": "array",
+        },
+        "include": {
+          "default": false,
+          "description": "Print the status line and response headers too",
+          "short": "i",
+          "type": "boolean",
+        },
+        "input": {
+          "description": "Read the request body from a file (- for stdin)",
+          "placeholder": "file",
+          "type": "string",
+        },
+        "method": {
+          "description": "HTTP method to use",
+          "placeholder": "method",
+          "short": "X",
+          "type": "string",
+        },
+        "raw-field": {
+          "default": [],
+          "description": "Add a string parameter",
+          "items": {
+            "type": "string",
+          },
+          "placeholder": "key=value",
+          "short": "f",
+          "type": "array",
+        },
+      },
+      "type": "object",
+    },
+    "output": null,
+    "path": [
+      "api",
+    ],
+    "summary": "Make an authenticated request to the Intesa API",
+  },
+]
+`;
