@@ -1,11 +1,9 @@
 // Everything the board takes from the rest of the CLI goes through this file, so the TUI
 // depends on a handful of names: resolution, the typed client, links, the editor and browser.
-import { existsSync, statSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { basename } from "node:path"
-import { artifactFileError } from "@intesa/api/artifacts"
 import { type PatchTaskInput, TASK_KEY_PATTERN } from "@intesa/api/schemas"
-import { sendArtifact } from "../client/artifacts"
+import { checkFile, type LocalFile, sendArtifact } from "../client/artifacts"
 import { links } from "../client/links"
 import { type Resolver, resolver } from "../client/resolve"
 import { plural } from "../commands/task/shared"
@@ -42,8 +40,6 @@ export type NewTask = {
   assigneeIds?: string[]
   parentTaskId?: string
 }
-// A file on this machine, checked for upload.
-export type LocalFile = { path: string; name: string }
 
 export type BoardApi = {
   me: () => Promise<Me>
@@ -96,19 +92,11 @@ export function localFiles(input: string, cwd: string, home: string): LocalFile[
   const typed = existsSync(expandPath(whole, cwd, home)) ? [whole] : splitPaths(input)
   const files: LocalFile[] = []
   for (const each of typed) {
-    const path = expandPath(each, cwd, home)
-    let size: number
     try {
-      const stat = statSync(path)
-      if (!stat.isFile()) return `${each}: not a file`
-      size = stat.size
-    } catch {
-      return `${each}: no such file`
+      files.push(checkFile(expandPath(each, cwd, home), each))
+    } catch (err) {
+      return (err as Error).message
     }
-    const name = basename(path)
-    const problem = artifactFileError({ name, type: "", size })
-    if (problem) return `${name}: ${problem}`
-    files.push({ path, name })
   }
   return files.length > 0 ? files : "Type the path of a file"
 }

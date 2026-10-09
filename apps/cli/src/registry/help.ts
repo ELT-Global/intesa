@@ -34,9 +34,10 @@ const ENVIRONMENT: [string, string][] = [
   ["INTESA_DEBUG", "`1` logs HTTP requests to stderr; `api` also logs headers and bodies"],
   ["INTESA_HTTP_TIMEOUT_MS", "How long a request may take before it fails (default 30000)"],
   [
-    "INTESA_PAGER, PAGER",
+    "PAGER",
     "Pager for long views at a terminal, after the pager config key; empty or cat: none. Default: less, except on Windows",
   ],
+  ["INTESA_PAGER", "Pager for intesa only, before the pager config key"],
   ["VISUAL, EDITOR", "Editor for long text, at a terminal"],
   ["INTESA_EDITOR", "Editor for intesa only, used even without a terminal"],
   ["BROWSER", "Browser for opening links"],

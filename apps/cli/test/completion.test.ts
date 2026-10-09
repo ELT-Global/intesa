@@ -330,6 +330,19 @@ describe("__complete", () => {
       expect(await at("", "task", "create", "-p", "WEB", "--field")).toEqual(["OnlyWeb="])
     })
 
+    test("INTESA_DEBUG does not make lookups log", async () => {
+      const box = sandbox(server.url)
+      const { tokenId } = await loginAs(box, server, "complete-debug@example.com")
+      for (const level of ["1", "api"]) {
+        const r = await box.run(["__complete", "--word=", "--", "token", "revoke"], {
+          env: { INTESA_DEBUG: level },
+        })
+        expect(r.exitCode).toBe(0)
+        expect(lines(r.stdout)).toEqual([tokenId])
+        expect(r.stderr, level).toBe("")
+      }
+    })
+
     test("a flag source that fails offers nothing, quietly", async () => {
       const r = await complete(sandbox(server.url), "", "task", "create", "-t")
       expect(r.exitCode).toBe(0)

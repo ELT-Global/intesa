@@ -1,8 +1,7 @@
 import { statSync } from "node:fs"
 import { basename, join, resolve } from "node:path"
-import { artifactFileError } from "@intesa/api/artifacts"
 import { z } from "zod"
-import { type Artifact, sendArtifact } from "../client/artifacts"
+import { type Artifact, checkFile, type LocalFile, sendArtifact } from "../client/artifacts"
 import type { Http } from "../client/http"
 import { links } from "../client/links"
 import { pickOne, resolver } from "../client/resolve"
@@ -20,24 +19,6 @@ const withUrl = (http: Http, taskId: string, artifact: Artifact) => ({
   ...artifact,
   url: links.artifact(http.host, taskId, artifact.id),
 })
-
-type LocalFile = { path: string; name: string }
-
-// Everything the server would reject without reading the content: a missing file is a usage
-// error, an unsupported or oversized one a validation error, as on the server.
-function checkFile(path: string): LocalFile {
-  const name = basename(path)
-  let stat: ReturnType<typeof statSync>
-  try {
-    stat = statSync(path)
-  } catch {
-    throw usageError(`${path}: no such file`)
-  }
-  if (!stat.isFile()) throw usageError(`${path}: not a file`)
-  const problem = artifactFileError({ name, type: "", size: stat.size })
-  if (problem) throw invalid(`${name}: ${problem}`)
-  return { path, name }
-}
 
 const listArtifacts = async (http: Http, taskId: string) =>
   (await (await http.client.api.tasks[":taskId"].artifacts.$get({ param: { taskId } })).json())

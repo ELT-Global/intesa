@@ -25,6 +25,8 @@ export function createWrites(core: Core, settled: () => void) {
   // so a read that was sent before it can tell that its answer is out of date.
   let busy = 0
   let epoch = 0
+  // Files being sent right now; quitting waits for them without a limit.
+  let uploading = 0
   let chain: Promise<unknown> = Promise.resolve()
   function enqueue<T>(work: () => Promise<T>): Promise<T> {
     busy++
@@ -211,8 +213,8 @@ export function createWrites(core: Core, settled: () => void) {
     })
   }
 
-  // A task leaves the board, a subtask its parent's pane; either is put back if the server
-  // says no.
+  // A task leaves the board, a subtask its parent's pane (where nothing is selected after it,
+  // rather than whatever moved into its place); either is put back if the server says no.
   function removeTask(task: Task) {
     const s0 = get()
     const index = s0.tasks.findIndex((t) => t.id === task.id)
@@ -225,7 +227,11 @@ export function createWrites(core: Core, settled: () => void) {
       return {
         tasks: left.tasks.filter((t) => t.id !== task.id),
         details: left.details,
-        overlays: s.overlays.filter((o) => !(o.kind === "detail" && o.taskId === task.id)),
+        overlays: s.overlays
+          .filter((o) => !(o.kind === "detail" && o.taskId === task.id))
+          .map((o) =>
+            o.kind === "detail" && selectedTask(s, o)?.id === task.id ? { ...o, item: -1 } : o,
+          ),
       }
     })
     void enqueue(async () => {
@@ -251,6 +257,7 @@ export function createWrites(core: Core, settled: () => void) {
     if (typeof files === "string") return files
     void enqueue(async () => {
       for (const file of files) {
+        uploading++
         try {
           const artifact = await api.uploadArtifact(taskId, file)
           set((s) => {
@@ -262,6 +269,8 @@ export function createWrites(core: Core, settled: () => void) {
         } catch (err) {
           failed(`Could not upload ${file.name}`, err)
           return
+        } finally {
+          uploading--
         }
       }
       const [only] = files
@@ -350,13 +359,22 @@ export function createWrites(core: Core, settled: () => void) {
     current: (mark: number) => busy === 0 && mark === epoch,
     // The queue while it runs, for polling and tests.
     pending: () => (busy > 0 ? [chain] : []),
-    /** Resolves true once the queued writes have settled, false if that takes over `ms`. */
-    flush(ms: number): Promise<boolean> {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const late = new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), ms)
-      })
-      return Promise.race([chain.then(() => true), late]).finally(() => clearTimeout(timer))
+    /**
+     * Resolves true once the queued writes have settled, false if that takes over `ms`. An
+     * upload in flight is waited for however long it takes (its requests time out on their
+     * own), then `ms` more for what is queued after it: a large file can take a while.
+     */
+    async flush(ms: number): Promise<boolean> {
+      for (;;) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), ms)
+        })
+        const settled = await Promise.race([chain.then(() => true), late]).finally(() =>
+          clearTimeout(timer),
+        )
+        if (settled || uploading === 0) return settled
+      }
     },
   }
 }

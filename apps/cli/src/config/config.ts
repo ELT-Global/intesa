@@ -8,7 +8,10 @@ const configSchema = z.looseObject({
   workspace: z.string().optional().describe("Default workspace slug"),
   project: z.string().optional().describe("Default project key"),
   editor: z.string().optional().describe("Editor command; falls back to VISUAL, then EDITOR"),
-  pager: z.string().optional().describe("Pager command; falls back to INTESA_PAGER, then PAGER"),
+  pager: z
+    .string()
+    .optional()
+    .describe("Pager command; INTESA_PAGER overrides it, falls back to PAGER"),
   browser: z.string().optional().describe("Browser command; falls back to BROWSER"),
   prompt: z.enum(["enabled", "disabled"]).optional().describe("Whether to prompt for input"),
   color: z.enum(["auto", "always", "never"]).optional().describe("When to use color"),

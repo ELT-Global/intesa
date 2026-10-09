@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { clientWithToken, signIn } from "../../api/test/helpers"
+import { versionGap } from "../src/commands/auth"
 import { readHosts } from "../src/config/config"
+import { VERSION } from "../src/version"
 import {
   fakeServer,
   loginAs,
@@ -281,7 +283,7 @@ function serverReporting(version: string | undefined) {
 }
 
 describe("server version", () => {
-  const mismatch = /intesa \d+\.x is talking to a 99\.x server; update with .*\/cli\/intesa\.js/
+  const mismatch = /intesa [\d.]+\.x is talking to a 99\.x server; update with .*\/cli\/intesa\.js/
 
   test("auth status warns on stderr when the major versions differ", async () => {
     const proxy = serverReporting("99.1.0")
@@ -313,12 +315,12 @@ describe("server version", () => {
     }
   })
 
-  test("the same major, or no version at all, says nothing", async () => {
+  test("a compatible version, or no version at all, says nothing", async () => {
     const box = sandbox(server.url)
     await loginAs(box, server, "version-same@example.com")
     expect((await box.run(["auth", "status"])).stderr).toBe("")
 
-    const minor = serverReporting("0.99.0")
+    const minor = serverReporting(VERSION.replace(/\d+$/, "99"))
     try {
       const other = sandbox(minor.url)
       await loginAs(other, { ...server, url: minor.url }, "version-minor@example.com")
@@ -337,6 +339,42 @@ describe("server version", () => {
     } finally {
       silent.stop()
     }
+  })
+})
+
+describe("versionGap", () => {
+  test("from 1.0 only the major matters", () => {
+    expect(versionGap("1.2.0", "1.9.3")).toBeUndefined()
+    expect(versionGap("1.2.0", "2.0.0")).toEqual({
+      ours: "1.x",
+      theirs: "2.x",
+      serverIsNewer: true,
+    })
+    expect(versionGap("2.0.0", "1.5.0")).toEqual({
+      ours: "2.x",
+      theirs: "1.x",
+      serverIsNewer: false,
+    })
+  })
+
+  test("before 1.0 a minor release is a break too, either way", () => {
+    expect(versionGap("0.1.0", "0.1.7")).toBeUndefined()
+    expect(versionGap("0.1.0", "0.2.0")).toEqual({
+      ours: "0.1.x",
+      theirs: "0.2.x",
+      serverIsNewer: true,
+    })
+    expect(versionGap("0.2.1", "0.1.0")).toEqual({
+      ours: "0.2.x",
+      theirs: "0.1.x",
+      serverIsNewer: false,
+    })
+    expect(versionGap("0.9.0", "1.0.0")?.serverIsNewer).toBe(true)
+  })
+
+  test("a version that does not say is no gap", () => {
+    expect(versionGap("0.1.0", undefined)).toBeUndefined()
+    expect(versionGap("0.1.0", "dev")).toBeUndefined()
   })
 })
 

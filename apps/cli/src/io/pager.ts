@@ -1,24 +1,24 @@
 import type { Config } from "../config/config"
-import type { Mode } from "../output/mode"
-import { type Env, isSet } from "../output/mode"
+import type { Env } from "../output/mode"
 import { splitCommand } from "./command"
-import { automated } from "./prompt"
+import { personPresent } from "./prompt"
 
-// The pager command. The `pager` config key wins over INTESA_PAGER, then PAGER; the first one
-// that is set decides, and an empty value or `cat` means no pager. With none set, `less` on
-// platforms that have one (Windows has no pager worth assuming).
+// The pager command. INTESA_PAGER is set for intesa alone, so it wins over the `pager` config
+// key, which wins over PAGER; the first one that is set decides, and an empty value or `cat`
+// means no pager. With none set, `less` on platforms that have one (Windows has no pager
+// worth assuming).
 export function pagerCommand(opts: {
   env: Env
   configPager?: string
   platform?: string
   hasLess?: boolean
 }): string[] | undefined {
-  const set = [opts.configPager, opts.env.INTESA_PAGER, opts.env.PAGER].find((v) => v !== undefined)
+  const set = [opts.env.INTESA_PAGER, opts.configPager, opts.env.PAGER].find((v) => v !== undefined)
   const fallback =
     (opts.platform ?? process.platform) !== "win32" && (opts.hasLess ?? Boolean(Bun.which("less")))
   const command = splitCommand(set ?? (fallback ? "less" : ""))
   const [program] = command
-  if (program === undefined || /^(.*[/])?cat(\.exe)?$/i.test(program)) return undefined
+  if (program === undefined || /^(.*[/\\])?cat(\.exe)?$/i.test(program)) return undefined
   return command
 }
 
@@ -27,16 +27,15 @@ let open = 0
 export const paging = () => open > 0
 
 // Shows `text` through the pager and returns true. Returns false, leaving the printing to the
-// caller, when no pager applies: stdout is not a terminal, nobody is there to read it (CI,
-// prompts disabled, no terminal on stdin) or no pager is configured or could be started.
+// caller, when no pager applies: nobody is at a terminal to read it (INTESA_FORCE_TTY only
+// changes formatting) or no pager is configured or could be started. A pager that fails is
+// reported on stderr, since what it showed may be incomplete.
 export async function page(
-  ctx: { env: Env; config: Config; mode: Mode },
+  ctx: { env: Env; config: Config; stderr: (text: string) => void },
   text: string,
 ): Promise<boolean> {
   const { env } = ctx
-  // INTESA_FORCE_TTY stands in for the terminal on stdin as well as on stdout.
-  const attended = isSet(env.INTESA_FORCE_TTY) || Boolean(process.stdin.isTTY)
-  if (!ctx.mode.tty || !attended || automated(ctx) || text === "") return false
+  if (!personPresent(ctx) || text === "") return false
   const command = pagerCommand({ env, configPager: ctx.config.pager })
   if (!command) return false
 
@@ -59,7 +58,8 @@ export async function page(
       proc.stdin.write(text)
       await proc.stdin.end()
     } catch {}
-    await proc.exited
+    const code = await proc.exited
+    if (code !== 0) ctx.stderr(`! pager ${command[0]} exited with ${code}\n`)
   } finally {
     open--
   }

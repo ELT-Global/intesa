@@ -7,14 +7,15 @@ import type { Host } from "./state"
 import { createStore, type Lost, POLL_MS } from "./store"
 import { createView } from "./view"
 
-// How long quitting waits for changes still being saved.
+// How long quitting waits for changes still being saved (an upload in flight is waited for
+// regardless).
 const SAVE_WAIT_MS = 5000
 
 export function createBoardApp(
   renderer: CliRenderer,
   api: BoardApi,
   start: Start,
-  opts: { pollMs?: number } = {},
+  opts: { pollMs?: number; saveWaitMs?: number } = {},
 ) {
   let finish: (lost: Promise<Lost[]>) => void = () => {}
   const done = new Promise<Lost[]>((resolve) => {
@@ -45,7 +46,7 @@ export function createBoardApp(
     // Keys stop here; the board stays up while the last changes are saved.
     quit() {
       detachInput()
-      finish(store.close(SAVE_WAIT_MS))
+      finish(store.close(opts.saveWaitMs ?? SAVE_WAIT_MS))
     },
   }
   const store = createStore(api, start, host, opts)

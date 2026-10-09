@@ -33,22 +33,33 @@ const httpFor = (ctx: Ctx, host: string, token?: string) =>
     timeoutMs: timeoutMs(ctx.env),
   })
 
-const majorOf = (version: unknown) => {
-  const major = /^(\d+)\./.exec(String(version))?.[1]
-  return major === undefined ? undefined : Number(major)
+// The releases a version stays compatible with: its major, and before 1.0 its minor too,
+// since a 0.x minor release may break the API.
+const lineOf = (version: unknown) => {
+  const [, major, minor] = /^(\d+)\.(\d+)\./.exec(String(version)) ?? []
+  if (major === undefined || minor === undefined) return undefined
+  return major === "0" ? [0, Number(minor)] : [Number(major)]
 }
 
-// A server of another major version may have changed the API under this CLI. Asked on login
-// and status only, and never an error: an older server that does not say, or a failed
-// request, just means no warning.
+/** How two versions differ in a way that may break the API, if they do. */
+export function versionGap(ours: unknown, theirs: unknown) {
+  const [a, b] = [lineOf(ours), lineOf(theirs)]
+  if (!a || !b || a.join(".") === b.join(".")) return undefined
+  const newer = a[0] === b[0] ? (b[1] ?? 0) > (a[1] ?? 0) : (b[0] ?? 0) > (a[0] ?? 0)
+  return { ours: `${a.join(".")}.x`, theirs: `${b.join(".")}.x`, serverIsNewer: newer }
+}
+
+// A server of another major version (or 0.x minor) may have changed the API under this CLI.
+// Asked on login and status only, and never an error: an older server that does not say, or
+// a failed request, just means no warning.
 async function warnOnVersionMismatch(ctx: Ctx, host: string) {
   try {
     const { version } = await (await httpFor(ctx, host).client.api.health.$get()).json()
-    const [ours, theirs] = [majorOf(VERSION), majorOf(version)]
-    if (ours === undefined || theirs === undefined || ours === theirs) return
+    const gap = versionGap(VERSION, version)
+    if (!gap) return
     ctx.stderr(
-      `! intesa ${ours}.x is talking to a ${theirs}.x server; ${
-        theirs > ours
+      `! intesa ${gap.ours} is talking to a ${gap.theirs} server; ${
+        gap.serverIsNewer
           ? `update with \`curl -fsSL ${host}/cli/intesa.js -o intesa.js\``
           : "this intesa is newer than the server, so some commands may fail"
       }\n`,

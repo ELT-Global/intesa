@@ -79,6 +79,8 @@ describe("help", () => {
       "INTESA_SECRETS",
       "INTESA_HTTP_TIMEOUT_MS",
       "INTESA_EDITOR",
+      "INTESA_PAGER",
+      "PAGER",
     ]) {
       expect(r.stdout).toContain(name)
     }

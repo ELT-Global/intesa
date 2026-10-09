@@ -40,6 +40,7 @@ import {
   type SyncOverlay,
   selectedTask,
   targetTask,
+  taskById,
   type View,
 } from "./state"
 import { createWrites } from "./writes"
@@ -486,7 +487,7 @@ export function createStore(
     },
     // Paths separated by spaces, quoted if they hold any; all are checked before any is sent.
     upload(o: DetailOverlay) {
-      const key = targetTask(state)?.key ?? "the task"
+      const key = taskById(state, o.taskId)?.key ?? "the task"
       push({
         kind: "input",
         label: `Upload to ${key}`,

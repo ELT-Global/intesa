@@ -48,4 +48,12 @@ describe("upload paths", () => {
     expect(expandPath("docs/a.md", cwd, home)).toBe(join(cwd, "docs", "a.md"))
     expect(expandPath("~alan/a.md", cwd, home)).toBe(join(cwd, "~alan", "a.md"))
   })
+
+  test("on Windows, a Git Bash path names the drive", () => {
+    expect(expandPath("/c/Users/alan/a.md", "D:\\work", "C:\\Users\\alan", "win32")).toBe(
+      "C:\\Users\\alan\\a.md",
+    )
+    expect(expandPath("/d", "C:\\work", "C:\\Users\\alan", "win32")).toBe("D:\\")
+    expect(expandPath("/c/a.md", "/work", "/home/alan", "linux")).toBe("/c/a.md")
+  })
 })

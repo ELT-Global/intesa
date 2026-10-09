@@ -1,7 +1,7 @@
 // Pure board logic of the terminal board alone; the rules it shares with the web board (the
 // assignee filter, placement, the table sort) come from @intesa/task-query.
 
-import { join, resolve } from "node:path"
+import { posix, win32 } from "node:path"
 import {
   compileSearch,
   matchesAssignees,
@@ -102,8 +102,14 @@ export const splitPaths = (input: string) =>
     .flatMap((m) => m[1] ?? m[2] ?? m[3] ?? [])
     .filter(Boolean)
 
-/** A typed path made absolute: `~` is the home directory, as a shell would expand it. */
-export function expandPath(path: string, cwd: string, home: string) {
+/**
+ * A typed path made absolute: `~` is the home directory, as a shell would expand it, and on
+ * Windows a Git Bash path (`/c/Users/...`) is on that drive.
+ */
+export function expandPath(path: string, cwd: string, home: string, platform = process.platform) {
   if (path === "~") return home
+  const { join, resolve } = platform === "win32" ? win32 : posix
+  const drive = platform === "win32" ? /^\/([a-z])(?=\/|$)/i.exec(path)?.[1] : undefined
+  if (drive) return resolve(`${drive.toUpperCase()}:\\`, path.slice(2))
   return resolve(cwd, /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path)
 }

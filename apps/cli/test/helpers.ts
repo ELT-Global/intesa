@@ -35,6 +35,19 @@ export type Sandbox = {
   run: (args: string[], opts?: RunOptions) => Promise<RunResult>
   // Starts the CLI without waiting, for tests that act while it runs (device sign-in).
   start: (args: string[], opts?: RunOptions) => Started
+  // Starts the CLI in a pseudo-terminal, as a person at a terminal runs it: stdin and stdout
+  // are terminals and prompts are on.
+  terminal: (args: string[], opts?: Omit<RunOptions, "stdin">) => InTerminal
+}
+
+export type InTerminal = {
+  proc: Bun.Subprocess
+  // Everything written to the terminal so far, stdout and stderr together.
+  output: () => string
+  type: (text: string) => void
+  // Waits for the CLI to exit (killing it after `ms`), closes the terminal and returns the
+  // exit code, or "timeout".
+  finish: (ms?: number) => Promise<number | "timeout">
 }
 
 export type Started = {
@@ -63,7 +76,7 @@ export function sandbox(host?: string): Sandbox {
   const cwd = join(root, "work")
   mkdirSync(cwd, { recursive: true })
 
-  const spawn = (args: string[], opts: RunOptions = {}) => {
+  const envFor = (extra: RunOptions["env"]) => {
     const env: Record<string, string | undefined> = {}
     for (const [k, v] of Object.entries(process.env)) if (!LEAKY.test(k)) env[k] = v
     Object.assign(env, {
@@ -71,18 +84,20 @@ export function sandbox(host?: string): Sandbox {
       INTESA_SECRETS: "file",
       INTESA_PROMPT_DISABLED: "1",
       INTESA_HOST: host,
-      ...opts.env,
+      ...extra,
     })
     for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k]
+    return env as Record<string, string>
+  }
 
-    return Bun.spawn([process.execPath, ...(opts.bunArgs ?? []), MAIN, ...args], {
+  const spawn = (args: string[], opts: RunOptions = {}) =>
+    Bun.spawn([process.execPath, ...(opts.bunArgs ?? []), MAIN, ...args], {
       cwd: opts.cwd ?? cwd,
-      env,
+      env: envFor(opts.env),
       stdin: opts.stdin === undefined ? "ignore" : new Blob([opts.stdin]),
       stdout: "pipe",
       stderr: "pipe",
     })
-  }
 
   const run = async (args: string[], opts: RunOptions = {}): Promise<RunResult> => {
     const proc = spawn(args, opts)
@@ -113,7 +128,36 @@ export function sandbox(host?: string): Sandbox {
       },
     }
   }
-  return { root, configDir, run, start }
+  const terminal = (args: string[], opts: Omit<RunOptions, "stdin"> = {}): InTerminal => {
+    let output = ""
+    const decoder = new TextDecoder()
+    const proc = Bun.spawn([process.execPath, ...(opts.bunArgs ?? []), MAIN, ...args], {
+      cwd: opts.cwd ?? cwd,
+      env: envFor({ INTESA_PROMPT_DISABLED: undefined, ...opts.env }),
+      terminal: {
+        cols: 120,
+        rows: 30,
+        data: (_, bytes) => {
+          output += decoder.decode(bytes, { stream: true })
+        },
+      },
+    })
+    return {
+      proc,
+      output: () => output,
+      type: (text) => proc.terminal?.write(text),
+      async finish(ms = 10_000) {
+        const code = await Promise.race([proc.exited, Bun.sleep(ms).then(() => "timeout" as const)])
+        // Output can trail the exit by a moment.
+        await Bun.sleep(100)
+        proc.kill()
+        proc.terminal?.close()
+        return code
+      },
+    }
+  }
+
+  return { root, configDir, run, start, terminal }
 }
 
 const sandboxes: string[] = []
@@ -122,7 +166,8 @@ export function removeSandboxes() {
   for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true })
 }
 
-// The real API on in-memory SQLite, listening on a random local port.
+// The real API, on Postgres when TEST_DATABASE_URL is set and in-memory SQLite otherwise,
+// listening on a random local port.
 export async function startServer() {
   const t = await createTestApp()
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: t.app.fetch })

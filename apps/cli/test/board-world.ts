@@ -207,7 +207,13 @@ export type BoardWorld = Awaited<ReturnType<typeof boardWorld>>
 /** The board on OpenTUI's test renderer, with helpers to press keys and read frames. */
 export async function openBoard(
   world: BoardWorld,
-  opts: { ref?: string; width?: number; height?: number; pollMs?: number } = {},
+  opts: {
+    ref?: string
+    width?: number
+    height?: number
+    pollMs?: number
+    saveWaitMs?: number
+  } = {},
 ) {
   const t = await createTestRenderer({
     width: opts.width ?? 120,
@@ -220,7 +226,7 @@ export async function openBoard(
     t.renderer,
     api,
     { ...start, unicode: true, color: false },
-    { pollMs: opts.pollMs },
+    { pollMs: opts.pollMs, saveWaitMs: opts.saveWaitMs },
   )
   await app.ready
   await idle(app.store)

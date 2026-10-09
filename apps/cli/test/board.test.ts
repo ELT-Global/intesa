@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createTestRenderer } from "@opentui/core/testing"
@@ -17,6 +17,14 @@ import {
 } from "./board-world"
 import { startServer, type TestServer } from "./helpers"
 
+// Temp directories the tests make, removed at the end.
+const temps: string[] = []
+function tempDir(prefix: string) {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  temps.push(dir)
+  return dir
+}
+
 let server: TestServer
 beforeAll(async () => {
   server = await startServer()
@@ -24,6 +32,7 @@ beforeAll(async () => {
 afterAll(() => {
   server.stop()
   removeBoardDirs()
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 const open: Board[] = []
@@ -46,7 +55,7 @@ async function threeTodos(w: BoardWorld) {
 
 // An $EDITOR that replaces `from` with `to` in the file it is given.
 async function replacingEditor(from: string, to: string) {
-  const dir = mkdtempSync(join(tmpdir(), "intesa-board-editor-"))
+  const dir = tempDir("intesa-board-editor-")
   const script = join(dir, "editor.js")
   await Bun.write(
     script,
@@ -727,7 +736,7 @@ describe("board: task actions", () => {
   })
 
   test("e edits the title and description in the editor", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "intesa-board-editor-"))
+    const dir = tempDir("intesa-board-editor-")
     const script = join(dir, "editor.js")
     await Bun.write(
       script,
@@ -819,6 +828,37 @@ describe("board: subtasks and artifacts in the open task", () => {
     expect(columnLines(await b.escape(), "Todo")[1]).toBe("▌@alan ☐ 0/1")
   })
 
+  test("space, Enter and x leave a subtask alone while it is being created", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    const b = await board(w)
+    await b.enter()
+    await b.press("n")
+    await b.type("Pending")
+    const slow = w.hold("POST", `/api/projects/${w.project.id}/tasks`)
+    b.keys.pressEnter()
+    await slow.reached
+    const sent = w.answered.length
+    const keys: [string, () => void][] = [
+      ["space", () => b.keys.pressKey(" ")],
+      ["Enter", () => b.keys.pressEnter()],
+      ["x", () => b.keys.pressKey("x")],
+    ]
+    for (const [name, press] of keys) {
+      b.store.toast("")
+      press()
+      expect(b.store.state.toast?.text, name).toBe('"Pending" is still being created')
+      expect(overlays(b), name).toEqual(["detail"])
+    }
+    slow.release()
+    const frame = await b.frame()
+    expect(rows(frame).at(-1)).toBe(" Created WEB-2")
+    expect(w.answered.slice(sent).filter((r) => !r.startsWith("GET"))).toEqual([
+      `POST /api/projects/${w.project.id}/tasks`,
+    ])
+    expect(await subtasksOf(w, parent.id)).toEqual([["WEB-2", "Pending", "todo"]])
+  })
+
   test("a subtask the server will not create is taken back, and says so", async () => {
     const w = await boardWorld(server)
     const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
@@ -871,6 +911,10 @@ describe("board: subtasks and artifacts in the open task", () => {
     expect(frame).not.toContain("Kid one")
     expect(await w.getTask(one.id)).toBeUndefined()
     expect(await subtasksOf(w, parent.id)).toEqual([["WEB-3", "Kid two", "todo"]])
+    // Nothing is selected after it, so the next x plainly means the open task.
+    expect(frame).toContain(" ○ WEB-3  Kid two")
+    expect(frame).not.toContain("▌○ WEB-3")
+    expect(await b.press("x")).toContain("Delete WEB-1 (Parent)?")
   })
 
   test("a subtask delete the server refuses puts it back", async () => {
@@ -907,7 +951,7 @@ describe("board: subtasks and artifacts in the open task", () => {
 
   // A directory of files to upload, with a space in its name.
   async function files(names: Record<string, string>) {
-    const dir = join(mkdtempSync(join(tmpdir(), "intesa-board-upload-")), "my files")
+    const dir = join(tempDir("intesa-board-upload-"), "my files")
     for (const [name, content] of Object.entries(names)) await Bun.write(join(dir, name), content)
     return dir
   }
@@ -982,11 +1026,30 @@ describe("board: subtasks and artifacts in the open task", () => {
     expect((await w.artifacts(task.id)).map((a) => a.name)).toEqual(["old.md"])
   })
 
-  test("quitting during an upload waits for it", async () => {
+  test("when a later file fails, the ones before it stay uploaded", async () => {
     const w = await boardWorld(server)
     const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
     await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    // Passes the checks made here; the server finds it is no PDF.
+    await Bun.write(join(w.ctx.cwd, "fake.pdf"), "not a PDF\n")
     const b = await board(w)
+    await b.enter()
+    await b.press("u")
+    await b.type("notes.md fake.pdf")
+    const frame = await b.enter()
+    expect(rows(frame).at(-1)).toBe(
+      " ✗ Could not upload fake.pdf: The file content does not match its format.",
+    )
+    expect(frame).toContain("Artifacts (1)")
+    expect(frame).toContain(" notes.md  text/markdown")
+    expect((await w.artifacts(task.id)).map((a) => a.name)).toEqual(["notes.md"])
+  })
+
+  test("quitting during an upload waits for it, however long it takes", async () => {
+    const w = await boardWorld(server)
+    const task = await w.addTask({ title: "Docs", assigneeIds: [w.me] })
+    await Bun.write(join(w.ctx.cwd, "notes.md"), "# Notes\n")
+    const b = await board(w, { saveWaitMs: 20 })
     await b.enter()
     await b.press("u")
     await b.type("notes.md")
@@ -998,7 +1061,7 @@ describe("board: subtasks and artifacts in the open task", () => {
       finished = true
     })
     b.keys.pressCtrlC()
-    await Bun.sleep(50)
+    await Bun.sleep(200)
     expect(finished).toBe(false)
     slow.release()
     expect(await b.app.done).toEqual([])
@@ -1061,6 +1124,21 @@ describe("board: help and quitting", () => {
     const lost = await b.app.done
     expect(lost.map((l) => l.text)).toEqual(["Could not save WEB-3."])
     expect((await w.getTask(three.id)).status).toBe("todo")
+  })
+
+  test("quitting gives up on a change that takes too long to save, and says so", async () => {
+    const w = await boardWorld(server)
+    const { three } = await threeTodos(w)
+    const b = await board(w, { saveWaitMs: 20 })
+    const slow = w.hold("PATCH", `/api/tasks/${three.id}`)
+    b.keys.pressArrow("right", { meta: true })
+    await slow.reached
+    b.keys.pressKey("q")
+    const lost = await b.app.done
+    slow.release()
+    expect(lost.map((l) => l.text)).toEqual([
+      "The board closed while changes were still being saved; they may be lost.",
+    ])
   })
 
   test("the terminal is given back even when the board fails to start", async () => {

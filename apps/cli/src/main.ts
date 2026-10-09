@@ -31,7 +31,8 @@ const processIo: Io = {
   readStdin: () => Bun.stdin.text(),
 }
 
-// `quick` is for completion: a short timeout and no retries, since someone is waiting at tab.
+// `quick` is for completion: a short timeout, no retries and no debug logging, since someone
+// is waiting at tab and anything on stderr would land on their command line.
 function createCtx(globals: Globals, env: Env, io: Io, opts: { quick?: boolean } = {}): Ctx {
   const { stdout, stderr } = io
   const dir = configDir(env)
@@ -65,7 +66,7 @@ function createCtx(globals: Globals, env: Env, io: Io, opts: { quick?: boolean }
           host,
           token: credentials?.token,
           dryRun: globals.dryRun,
-          debug: httpOpts?.quiet ? "off" : debugLevel(env, globals.debug),
+          debug: httpOpts?.quiet || opts.quick ? "off" : debugLevel(env, globals.debug),
           stdout,
           stderr,
           timeoutMs: opts.quick ? Math.min(timeoutMs(env), 2000) : timeoutMs(env),
