@@ -52,18 +52,20 @@ export async function confirmDestructive(ctx: Ctx, message: string): Promise<voi
   if (isCancel(ok) || !ok) throw cancelled()
 }
 
-// Lets a person tick some of `options`, all ticked to begin with. Cancelling picks none.
-export async function pickSome(
+// One of `options`; undefined when cancelled, so the caller decides what that means.
+export async function choose<V extends string>(
   message: string,
-  options: { value: string; label: string; hint?: string }[],
-): Promise<string[]> {
-  const { multiselect, isCancel } = await import("@clack/prompts")
-  const picked = await multiselect({
-    message,
-    options,
-    initialValues: options.map((o) => o.value),
-    required: false,
-    output: process.stderr,
-  })
-  return isCancel(picked) ? [] : picked
+  options: { value: V; label: string; hint?: string }[],
+  initialValue?: V,
+): Promise<V | undefined> {
+  const { select, isCancel } = await import("@clack/prompts")
+  const picked = await select<string>({ message, options, initialValue, output: process.stderr })
+  return isCancel(picked) ? undefined : (picked as V)
+}
+
+// A yes/no question; cancelling is no.
+export async function askYesNo(message: string, initialValue = true): Promise<boolean> {
+  const { confirm, isCancel } = await import("@clack/prompts")
+  const ok = await confirm({ message, initialValue, output: process.stderr })
+  return !isCancel(ok) && ok
 }

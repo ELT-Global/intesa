@@ -1,9 +1,10 @@
 import { isRealDate } from "@intesa/api/schemas"
+import { relativeTime, STATUS_LABELS } from "@intesa/task-query"
 import { type Resolver, resolver } from "../../client/resolve"
 import { readInput, splitPair } from "../../io/input"
 import { CliError, usageError } from "../../output/errors"
-import { asTable } from "../../output/render"
-import { formatTaskLines, type LineStyle, supportsUnicode } from "../../output/task-line"
+import { asTable, rows } from "../../output/render"
+import { formatTaskLines, glyphs, type LineStyle, supportsUnicode } from "../../output/task-line"
 import type { Arg, Ctx } from "../../registry/define"
 
 export type TaskDetail = Awaited<ReturnType<Resolver["task"]>>
@@ -167,3 +168,36 @@ export async function customFields(
 }
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+
+// A task's relationships as rows: kind, key, title, status.
+export function relationRows(ctx: Ctx, task: Pick<TaskDetail, "blocks" | "blockedBy" | "related">) {
+  const relations = (
+    [
+      ["Blocks", task.blocks],
+      ["Blocked by", task.blockedBy],
+      ["Related", task.related],
+    ] as const
+  ).flatMap(([kind, refs]) =>
+    refs.map((t) => ({ kind, key: t.key, title: t.title, status: STATUS_LABELS[t.status] })),
+  )
+  return relations.length > 0 ? rows(ctx.mode, relations, ["kind", "key", "title", "status"]) : ""
+}
+
+export type HistoryEntry = {
+  fromStatus: TaskDetail["status"] | null
+  toStatus: TaskDetail["status"]
+  updatedAt: string
+  updatedBy: { name: string }
+}
+
+// Status changes as rows: when, who, from → to. Relative dates on a terminal, ISO when piped.
+export function historyRows(ctx: Ctx, history: HistoryEntry[]) {
+  const tty = ctx.mode.tty
+  const arrow = tty ? glyphs(lineStyle(ctx)).arrow : "->"
+  const changes = history.map((h) => ({
+    at: tty ? relativeTime(h.updatedAt) : h.updatedAt,
+    by: h.updatedBy.name,
+    change: `${h.fromStatus ? `${STATUS_LABELS[h.fromStatus]} ${arrow} ` : ""}${STATUS_LABELS[h.toStatus]}`,
+  }))
+  return rows(ctx.mode, changes, ["at", "by", "change"])
+}

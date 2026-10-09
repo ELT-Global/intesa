@@ -1,13 +1,18 @@
-// The text a task is edited as in $EDITOR: the title as a heading on the first line, then the
-// description in Markdown. Kept on its own so a richer format can replace it in one place.
+import { formatTaskDoc, parseTaskDoc } from "../io/task-doc"
+
+// The text a task is edited as in $EDITOR: the task document of `task edit`, with the title
+// as its only property for now, then the description in Markdown.
 
 export const toDoc = (title: string, body: string | null) =>
-  `# ${title}\n\n${(body ?? "").trimEnd()}\n`
+  formatTaskDoc({ title, body: body ?? "" })
 
+// Other properties are ignored here. A document that does not read saves nothing: an empty
+// title says so.
 export function fromDoc(text: string): { title: string; body: string } {
-  const [first = "", ...rest] = text.replace(/\r\n?/g, "\n").split("\n")
-  return {
-    title: first.replace(/^#+\s*/, "").trim(),
-    body: rest.join("\n").replace(/^\n+/, "").trimEnd(),
+  try {
+    const doc = parseTaskDoc(text)
+    return { title: doc.title ?? "", body: doc.body }
+  } catch {
+    return { title: "", body: "" }
   }
 }

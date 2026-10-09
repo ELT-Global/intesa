@@ -125,6 +125,15 @@ export const FIELD_SETS = {
   },
   // What a delete, removal or revocation reports: the id, what people call it, `deleted: true`.
   deleted: { fields: ["id", "key", "name", "email", "deleted"] },
+  // `task search`: the API's short task references, matched by title or key.
+  taskRef: { fields: ["id", "key", "title", "status"], columns: ["key", "status", "title"] },
+  // `task history`: status changes, oldest first.
+  taskHistory: {
+    fields: ["id", "fromStatus", "toStatus", "updatedAt", "updatedBy"],
+    columns: ["updatedAt", "updatedBy", "fromStatus", "toStatus"],
+  },
+  // `task url` and `task open`: the task's web link.
+  taskLink: { fields: ["id", "key", "url"], quiet: "url" },
 } as const satisfies Record<string, FieldSet>
 
 export type OutputName = keyof typeof FIELD_SETS

@@ -3,7 +3,7 @@ import { STATUS_LABELS } from "@intesa/task-query"
 import { z } from "zod"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
-import { confirmDestructive, isInteractive, pickSome } from "../../io/prompt"
+import { choose, confirmDestructive, isInteractive } from "../../io/prompt"
 import { CliError, formatError, prefixed, usageError } from "../../output/errors"
 import { type Ctx, defineCommand } from "../../registry/define"
 import {
@@ -17,7 +17,7 @@ import {
 } from "./shared"
 
 const SUBTASK_MODES = ["keep", "match", "ask", ...STATUSES] as const
-type SubtaskMode = (typeof SUBTASK_MODES)[number]
+export type SubtaskMode = (typeof SUBTASK_MODES)[number]
 
 const moveFlags = z.object({
   before: z
@@ -38,6 +38,34 @@ const moveFlags = z.object({
 })
 type MoveFlags = z.output<typeof moveFlags>
 
+// The web's "Update subtasks?" dialog as prompts: all at once, one by one, or none.
+// Cancelling leaves them as they are: the parent has moved already.
+async function askSubtasks(differing: TaskSummary[], status: Status) {
+  const label = STATUS_LABELS[status]
+  const all = differing.map((task) => ({ task, to: status }))
+  const how = await choose(
+    `${plural(differing.length, "subtask")} not ${label}. Update them?`,
+    [
+      { value: "all", label: `Set all to ${label}` },
+      { value: "each", label: "Choose for each subtask" },
+      { value: "none", label: "Leave as is" },
+    ],
+    "all",
+  )
+  if (how === "all") return all
+  if (how !== "each") return []
+  const picked: typeof all = []
+  for (const sub of differing) {
+    const choice = await choose(`${sub.key}  ${sub.title}`, [
+      { value: "keep", label: `Keep ${STATUS_LABELS[sub.status]}` },
+      { value: "set", label: `Set to ${label}` },
+    ])
+    if (choice === undefined) return []
+    if (choice === "set") picked.push({ task: sub, to: status })
+  }
+  return picked
+}
+
 // Which subtasks to move where, like the web's "Update subtasks?" dialog. Asking only happens
 // when the parent changed column (not for a reorder); match and a status apply regardless.
 async function subtaskUpdates(
@@ -50,21 +78,7 @@ async function subtaskUpdates(
   const mode = opts.mode ?? (isInteractive(ctx) ? "ask" : "keep")
   if (mode === "keep" || differing.length === 0) return []
   if (mode === "match") return differing.map((task) => ({ task, to: status }))
-  if (mode === "ask") {
-    if (!opts.changed) return []
-    // Cancelling leaves them as they are: the parent has moved already.
-    const ids = new Set(
-      await pickSome(
-        `Move these subtasks to ${STATUS_LABELS[status]} too?`,
-        differing.map((s) => ({
-          value: s.id,
-          label: `${s.key}  ${s.title}`,
-          hint: STATUS_LABELS[s.status],
-        })),
-      ),
-    )
-    return differing.filter((s) => ids.has(s.id)).map((task) => ({ task, to: status }))
-  }
+  if (mode === "ask") return opts.changed ? askSubtasks(differing, status) : []
   return subtasks.filter((s) => s.status !== mode).map((task) => ({ task, to: mode }))
 }
 
@@ -95,11 +109,24 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
     param: { taskId: task.id },
     json: { status, ...(placement && { placement }) },
   })
-  const moved = (await res.json()).task
+  const moved = (await webLinks(ctx, task.project.workspaceId)).task((await res.json()).task)
+  return withSubtaskSync(ctx, task, status, moved, flags.subtasks)
+}
 
+// After `task` (as it was) was set to `status`, with `moved` as the result: brings its
+// subtasks along as `mode` says and adds subtasksOutOfSync, what still differs. When some
+// subtask updates fail, the others still happen and the error carries the result.
+export async function withSubtaskSync<T extends object>(
+  ctx: Ctx,
+  task: TaskDetail,
+  status: Status,
+  moved: T,
+  mode: SubtaskMode | undefined,
+) {
+  const { client } = await ctx.http()
   // One PATCH per subtask; a failure does not stop the others.
   const updates = await subtaskUpdates(ctx, task.subtasks, status, {
-    mode: flags.subtasks,
+    mode,
     changed: task.status !== status,
   })
   const failures: CliError[] = []
@@ -120,10 +147,7 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
   const subtasksOutOfSync = subtasks
     .filter((s) => s.status !== status)
     .map((s) => ({ key: s.key, status: s.status }))
-  const result = {
-    ...(await webLinks(ctx, task.project.workspaceId)).task(moved),
-    subtasksOutOfSync,
-  }
+  const result = { ...moved, subtasksOutOfSync }
 
   const [first] = failures
   if (first) {
@@ -139,7 +163,7 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
     const list = subtasksOutOfSync.map((s) => `${s.key} (${STATUS_LABELS[s.status]})`).join(", ")
     ctx.stderr(
       `${plural(subtasksOutOfSync.length, "subtask")} not ${STATUS_LABELS[status]}: ${list}\n` +
-        "Pass --subtasks match to move them too.\n",
+        `Run \`intesa task move ${task.key} ${status} --subtasks match\` to move them too.\n`,
     )
   }
   return result

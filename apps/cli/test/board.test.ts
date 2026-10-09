@@ -487,7 +487,7 @@ describe("board: task actions", () => {
       script,
       `const path = process.argv[2]
 const text = await Bun.file(path).text()
-await Bun.write(path, text.replace("# Draft", "# Final title").replace("old notes", "new notes"))`,
+await Bun.write(path, text.replace("title: Draft", "title: Final title").replace("old notes", "new notes"))`,
     )
     const w = await boardWorld(server, { editor: `"${process.execPath}" "${script}"` })
     const task = await w.addTask({ title: "Draft", assigneeIds: [w.me], body: "Some old notes" })

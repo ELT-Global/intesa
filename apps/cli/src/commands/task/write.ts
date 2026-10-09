@@ -2,7 +2,7 @@ import { PRIORITIES, STATUSES } from "@intesa/api/schemas"
 import { z } from "zod"
 import { webLinks } from "../../client/links"
 import { resolver } from "../../client/resolve"
-import { askText } from "../../io/prompt"
+import { isInteractive } from "../../io/prompt"
 import { usageError } from "../../output/errors"
 import { defineCommand } from "../../registry/define"
 import {
@@ -44,8 +44,9 @@ export const create = defineCommand({
   aliases: ["new"],
   summary: "Create a task",
   description:
-    "Create a task in the current project, or a subtask with --parent. On a terminal a\n" +
-    "missing title is asked for; otherwise -T is required.\n\n" +
+    "Create a task in the current project, or a subtask with --parent. On a terminal,\n" +
+    "without -T a form asks for the title and whatever else was not given as a flag:\n" +
+    "status, priority, people, tags, due date and the description. Otherwise -T is required.\n\n" +
     "People are emails, names or @me; tags are names. Unknown tags are an error unless\n" +
     "--create-tags is given. Custom field values are checked locally: numbers, true/false,\n" +
     "YYYY-MM-DD dates and the options of a select field.",
@@ -84,15 +85,15 @@ export const create = defineCommand({
     "intesa task create -p WEB -T Notes -F notes.md --field Estimate=3",
   ],
   async run(ctx, _args, flags) {
-    const title =
-      flags.title ??
-      (await askText(ctx, {
-        flag: "--title",
-        message: "Title",
-        validate: (v) => (v.trim() ? undefined : "Enter a title"),
-      }))
-    const body = await readBody(ctx, flags)
-    const dueAt = dueDate(flags.due)
+    // Without a title a person fills in the rest too, in a form like the web's dialog.
+    if (flags.title === undefined && !isInteractive(ctx)) {
+      throw usageError("missing --title (required when not interactive)")
+    }
+    const form =
+      flags.title === undefined ? await (await import("./form")).createForm(ctx, flags) : undefined
+    const title = flags.title ?? form?.title ?? ""
+    const body = form?.body ?? (await readBody(ctx, flags))
+    const dueAt = dueDate(flags.due ?? form?.due)
     const r = resolver(ctx)
     const parent = flags.parent === undefined ? undefined : await r.task(flags.parent)
     // A subtask lives in its parent's project unless -p says otherwise (the server then
@@ -100,16 +101,24 @@ export const create = defineCommand({
     const project = parent && !ctx.globals.project ? parent.project : await r.project()
     const projectId = project.id
     const values = await customFields(ctx, projectId, flags.field)
-    const assigneeIds = await userIds(ctx, splitList(flags.assignee))
-    const tags = await tagIds(ctx, splitList(flags.tag), flags.createTags)
+    const assigneeIds = await userIds(ctx, [
+      ...splitList(flags.assignee),
+      ...(form?.assignees ?? []),
+    ])
+    // Tags named in the form were picked or typed as new ones, so they are created.
+    const tags = await tagIds(
+      ctx,
+      [...splitList(flags.tag), ...(form?.tags ?? [])],
+      flags.createTags || (form?.tags.length ?? 0) > 0,
+    )
 
     const { client } = await ctx.http()
     const res = await client.api.projects[":projectId"].tasks.$post({
       param: { projectId },
       json: {
         title,
-        status: flags.status,
-        priority: flags.priority,
+        status: flags.status ?? form?.status,
+        priority: flags.priority ?? form?.priority,
         dueAt,
         body,
         parentTaskId: parent?.id,
@@ -128,7 +137,22 @@ export const edit = defineCommand({
   summary: "Change a task's title, description, priority, due date, people, tags or fields",
   description:
     "Change a task with one request. Assignees and tags are added and removed one by one;\n" +
-    "the rest of the task is left as it is. Use `task move` to change the status.",
+    "the rest of the task is left as it is. Use `task move` to change the status.\n\n" +
+    "Without flags the task opens in your editor as a document: its properties between\n" +
+    "--- lines, then the description.\n\n" +
+    "  ---\n" +
+    "  title: Fix login redirect\n" +
+    "  status: in_progress\n" +
+    "  priority: high\n" +
+    "  due: 2026-10-15\n" +
+    "  assignees: [Mei Chen, @me]\n" +
+    "  tags: [auth, bug]\n" +
+    "  fields: { Estimate: 3 }\n" +
+    "  ---\n" +
+    "  The description, in Markdown.\n\n" +
+    "What changed is saved with one request; a status change then treats subtasks as\n" +
+    "`task move` does. An empty value clears. Without a terminal this needs INTESA_EDITOR, a\n" +
+    "command that edits the file it is given and exits.",
   args: [taskArg],
   flags: z.object({
     ...textFlags,
@@ -168,6 +192,7 @@ export const edit = defineCommand({
     'intesa task edit WEB-12 -T "Fix the login redirect" --priority urgent',
     "intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due",
     "intesa task edit WEB-12 --field Estimate=5 --clear-field Stage",
+    "intesa task edit WEB-12",
   ],
   async run(ctx, { task: ref }, flags) {
     const people = flags.addAssignee.length > 0 || flags.removeAssignee.length > 0
@@ -180,13 +205,8 @@ export const edit = defineCommand({
       !labels &&
       flags.field.length === 0 &&
       flags.clearField.length === 0
-    // Without flags a person will get the task in $EDITOR here; for now it is an error.
-    if (nothing) {
-      throw usageError(
-        "nothing to change: pass --title, --body, --priority, --due, --add-assignee, --add-tag, --field or another flag",
-        "Run `intesa task edit --help` for every flag.",
-      )
-    }
+    // Without flags the task opens in the editor, for a person or with INTESA_EDITOR set.
+    if (nothing) return (await import("./doc")).editTaskDoc(ctx, ref)
     const body = await readBody(ctx, flags)
     const dueAt = dueDate(flags.due)
     const task = await resolver(ctx).task(ref)

@@ -23,6 +23,10 @@ const READS = [
   "intesa project view",
   "intesa task list",
   "intesa task view",
+  "intesa task history",
+  "intesa task search",
+  "intesa task open",
+  "intesa task url",
   "intesa board",
   "intesa member list",
   "intesa tag list",
@@ -65,6 +69,11 @@ beforeAll(async () => {
   const field = await w.addField({ name: "Estimate", type: "number" })
   const parent = await w.addTask({ title: "Parent" })
   await w.addTask({ title: "Kid", parentTaskId: parent.id })
+  const other = await w.addTask({ title: "Other" })
+  await session.call("POST", `/api/tasks/${parent.id}/relationships`, {
+    type: "blocks",
+    taskId: other.id,
+  })
 
   const notes = join(box.root, "files", "notes.md")
   mkdirSync(join(box.root, "files"), { recursive: true })
@@ -187,6 +196,18 @@ beforeAll(async () => {
       body: { assigneeIds: [] },
     },
     "intesa task delete": { args: ["task", "delete", parent.key], method: "DELETE", path: task },
+    "intesa task link": {
+      args: ["task", "link", parent.key, "--related", other.key],
+      method: "POST",
+      path: `${task}/relationships`,
+      body: { type: "related", taskId: other.id },
+    },
+    // Unlinked from the other side: the link is found, then removed.
+    "intesa task unlink": {
+      args: ["task", "unlink", other.key, parent.key],
+      method: "DELETE",
+      path: `/api/tasks/${other.id}/relationships/${parent.id}?type=blocked_by`,
+    },
     "intesa member add": {
       args: ["member", "add", "new@example.com", "--role", "owner"],
       method: "POST",
@@ -323,6 +344,7 @@ const TABLES = [
   "tags",
   "taskTags",
   "taskStatusHistory",
+  "taskRelationships",
   "customFieldDefinitions",
   "taskCustomFieldValues",
   "artifacts",
@@ -381,6 +403,8 @@ describe("--dry-run", () => {
     "intesa task assign",
     "intesa task unassign",
     "intesa task delete",
+    "intesa task link",
+    "intesa task unlink",
     "intesa member add",
     "intesa member role",
     "intesa member remove",

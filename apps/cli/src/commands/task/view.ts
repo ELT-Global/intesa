@@ -5,18 +5,19 @@ import { resolver } from "../../client/resolve"
 import { openOrPrint } from "../../io/browser"
 import { renderMarkdown } from "../../output/markdown"
 import { rows, section } from "../../output/render"
-import { dueText, formatTaskLines, glyphs, priorityText, statusText } from "../../output/task-line"
+import { dueText, formatTaskLines, priorityText, statusText } from "../../output/task-line"
 import { type Ctx, defineCommand } from "../../registry/define"
-import { lineStyle, type TaskDetail, taskArg } from "./shared"
+import {
+  type HistoryEntry,
+  historyRows,
+  lineStyle,
+  relationRows,
+  type TaskDetail,
+  taskArg,
+} from "./shared"
 
 type Artifact = { id: string; name: string; mimeType: string; size: number }
-type History = {
-  fromStatus: TaskDetail["status"] | null
-  toStatus: TaskDetail["status"]
-  updatedAt: string
-  updatedBy: { name: string }
-}
-type View = TaskDetail & { url: string; artifacts: Artifact[]; history?: History[] }
+type View = TaskDetail & { url: string; artifacts: Artifact[]; history?: HistoryEntry[] }
 
 const size = (bytes: number) =>
   bytes < 1024
@@ -82,20 +83,8 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
         )
     sections.push(section(mode, `Subtasks (${done})`, subtasks))
   }
-  const relations = (
-    [
-      ["Blocks", task.blocks],
-      ["Blocked by", task.blockedBy],
-      ["Related", task.related],
-    ] as const
-  ).flatMap(([kind, refs]) =>
-    refs.map((t) => ({ kind, key: t.key, title: t.title, status: STATUS_LABELS[t.status] })),
-  )
-  if (relations.length > 0) {
-    sections.push(
-      section(mode, "Relationships", rows(mode, relations, ["kind", "key", "title", "status"])),
-    )
-  }
+  const relations = relationRows(ctx, task)
+  if (relations) sections.push(section(mode, "Relationships", relations))
   if (fields.length > 0) {
     const values = fields.map((f) => ({ name: f.name, value: fieldText(task.customFields[f.id]) }))
     sections.push(section(mode, "Custom fields", rows(mode, values, ["name", "value"])))
@@ -106,15 +95,7 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
       section(mode, `Artifacts (${files.length})`, rows(mode, files, ["name", "mimeType", "size"])),
     )
   }
-  if (task.history) {
-    const arrow = tty ? glyphs(style).arrow : "->"
-    const changes = task.history.map((h) => ({
-      at: when(h.updatedAt),
-      by: h.updatedBy.name,
-      change: `${h.fromStatus ? `${STATUS_LABELS[h.fromStatus]} ${arrow} ` : ""}${STATUS_LABELS[h.toStatus]}`,
-    }))
-    sections.push(section(mode, "History", rows(mode, changes, ["at", "by", "change"])))
-  }
+  if (task.history) sections.push(section(mode, "History", historyRows(ctx, task.history)))
   return sections.join("\n")
 }
 
