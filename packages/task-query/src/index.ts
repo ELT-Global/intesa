@@ -37,3 +37,19 @@ export {
   type Term,
 } from "./search"
 export { compareBy, nextSort, type Sort, type SortKey } from "./sort"
+export {
+  formatWeek,
+  parseWeek,
+  shiftWeek,
+  type WeekCounts,
+  type WeekLogInput,
+  type WeekLogMarkdownOptions,
+  type WeekPersonInput,
+  type WeekTaskInput,
+  weekBounds,
+  weekCounts,
+  weekCountsText,
+  weekLogMarkdown,
+  weekLogTasks,
+  weekOf,
+} from "./week"
