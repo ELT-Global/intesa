@@ -1,0 +1,238 @@
+import type { Db } from "../db"
+import type { Priority, Status } from "./schemas"
+import type { UserRef } from "./service"
+
+export type WeekChange = {
+  fromStatus: Status | null
+  toStatus: Status
+  at: string
+  by: UserRef
+}
+
+export type WeekTask = {
+  id: string
+  key: string
+  title: string
+  project: { id: string; name: string; key: string }
+  parentTaskId: string | null
+  priority: Priority | null
+  dueAt: string | null
+  createdAt: string
+  /** Status at `to`. */
+  status: Status
+  /** Status at `from`; null when the task was created during the week. */
+  startStatus: Status | null
+  /** When it last moved to complete inside the week, if it is complete at `to`. */
+  completedAt: string | null
+  /** When this person's earliest assignment overlapping the week began. */
+  assignedAt: string
+  carriedOver: boolean
+  /** When it was taken off them inside the week; null if still theirs at `to`. */
+  unassignedAt: string | null
+  /** Status changes inside the week, oldest first (creation included). */
+  changes: WeekChange[]
+}
+
+export type WeekPerson = { user: UserRef; member: boolean; tasks: WeekTask[] }
+
+export type WeekLog = { from: string; to: string; people: WeekPerson[] }
+
+// Completed work first, then the rest from closest to done.
+const STATUS_RANK: Record<Status, number> = {
+  complete: 0,
+  review: 1,
+  in_progress: 2,
+  todo: 3,
+  backlog: 4,
+}
+
+// Assignment intervals in the workspace that overlap [from, to).
+const overlapping = (db: Db, workspaceId: string, from: string, to: string) =>
+  db
+    .selectFrom("taskAssignments")
+    .innerJoin("tasks", "tasks.id", "taskAssignments.taskId")
+    .where("tasks.workspaceId", "=", workspaceId)
+    .where("taskAssignments.assignedAt", "<", to)
+    .where((eb) =>
+      eb.or([
+        eb("taskAssignments.unassignedAt", "is", null),
+        eb("taskAssignments.unassignedAt", ">", from),
+      ]),
+    )
+
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+// Who worked on what in [from, to) (ISO instants), with a fixed number of queries. Statuses at
+// the week's edges are derived from the status history; a task that was complete for the whole
+// week is left out.
+export async function loadWeekLog(
+  db: Db,
+  workspaceId: string,
+  from: string,
+  to: string,
+): Promise<WeekLog> {
+  const [members, assignments, history] = await Promise.all([
+    db
+      .selectFrom("workspaceMembers")
+      .innerJoin("users", "users.id", "workspaceMembers.userId")
+      .select(["users.id", "users.name", "users.avatarUrl"])
+      .where("workspaceMembers.workspaceId", "=", workspaceId)
+      .execute(),
+    overlapping(db, workspaceId, from, to)
+      .innerJoin("projects", "projects.id", "tasks.projectId")
+      .innerJoin("users", "users.id", "taskAssignments.userId")
+      .select((eb) => [
+        "taskAssignments.userId",
+        "taskAssignments.assignedAt",
+        "taskAssignments.unassignedAt",
+        "users.name as userName",
+        "users.avatarUrl as userAvatarUrl",
+        "tasks.id",
+        "tasks.number",
+        "tasks.title",
+        "tasks.status",
+        "tasks.priority",
+        "tasks.dueAt",
+        "tasks.parentTaskId",
+        "tasks.createdAt",
+        "projects.id as projectId",
+        "projects.name as projectName",
+        "projects.key as projectKey",
+        eb
+          .selectFrom("taskStatusHistory")
+          .select("taskStatusHistory.toStatus")
+          .whereRef("taskStatusHistory.taskId", "=", "tasks.id")
+          .where("taskStatusHistory.updatedAt", "<", from)
+          .orderBy("taskStatusHistory.updatedAt", "desc")
+          .limit(1)
+          .as("startStatus"),
+      ])
+      .execute(),
+    db
+      .selectFrom("taskStatusHistory")
+      .innerJoin("users", "users.id", "taskStatusHistory.updatedBy")
+      .select([
+        "taskStatusHistory.taskId",
+        "taskStatusHistory.fromStatus",
+        "taskStatusHistory.toStatus",
+        "taskStatusHistory.updatedAt",
+        "users.id as userId",
+        "users.name",
+        "users.avatarUrl",
+      ])
+      .where(
+        "taskStatusHistory.taskId",
+        "in",
+        overlapping(db, workspaceId, from, to).select("tasks.id"),
+      )
+      .where("taskStatusHistory.updatedAt", ">=", from)
+      .where("taskStatusHistory.updatedAt", "<", to)
+      .orderBy("taskStatusHistory.updatedAt")
+      .execute(),
+  ])
+
+  const changesByTask = new Map<string, WeekChange[]>()
+  for (const h of history) {
+    const change: WeekChange = {
+      fromStatus: h.fromStatus as Status | null,
+      toStatus: h.toStatus as Status,
+      at: h.updatedAt,
+      by: { id: h.userId, name: h.name, avatarUrl: h.avatarUrl },
+    }
+    const list = changesByTask.get(h.taskId)
+    if (list) list.push(change)
+    else changesByTask.set(h.taskId, [change])
+  }
+
+  type Entry = { task: WeekTask; number: number; open: boolean; lastEnd: string }
+  type Person = { user: UserRef; member: boolean; entries: Map<string, Entry> }
+  const people = new Map<string, Person>()
+  for (const m of members) {
+    people.set(m.id, {
+      user: { id: m.id, name: m.name, avatarUrl: m.avatarUrl },
+      member: true,
+      entries: new Map(),
+    })
+  }
+
+  for (const a of assignments) {
+    const changes = changesByTask.get(a.id) ?? []
+    const startStatus = a.startStatus as Status | null
+    // A task that sat complete through the week is not part of it.
+    if (startStatus === "complete" && changes.length === 0) continue
+
+    let person = people.get(a.userId)
+    if (!person) {
+      person = {
+        user: { id: a.userId, name: a.userName, avatarUrl: a.userAvatarUrl },
+        member: false,
+        entries: new Map(),
+      }
+      people.set(a.userId, person)
+    }
+
+    // Several stretches of the same assignment merge into one entry.
+    const existing = person.entries.get(a.id)
+    if (existing) {
+      if (a.assignedAt < existing.task.assignedAt) existing.task.assignedAt = a.assignedAt
+      if (a.unassignedAt === null) existing.open = true
+      else if (a.unassignedAt > existing.lastEnd) existing.lastEnd = a.unassignedAt
+      continue
+    }
+
+    const status = changes.at(-1)?.toStatus ?? startStatus ?? (a.status as Status)
+    const completedAt =
+      status === "complete"
+        ? (changes.findLast((c) => c.toStatus === "complete")?.at ?? null)
+        : null
+    person.entries.set(a.id, {
+      number: a.number,
+      open: a.unassignedAt === null,
+      lastEnd: a.unassignedAt ?? "",
+      task: {
+        id: a.id,
+        key: `${a.projectKey}-${a.number}`,
+        title: a.title,
+        project: { id: a.projectId, name: a.projectName, key: a.projectKey },
+        parentTaskId: a.parentTaskId,
+        priority: a.priority as Priority | null,
+        dueAt: a.dueAt,
+        createdAt: a.createdAt,
+        status,
+        startStatus,
+        completedAt,
+        assignedAt: a.assignedAt,
+        carriedOver: false,
+        unassignedAt: null,
+        changes,
+      },
+    })
+  }
+
+  const byWeekOrder = (x: Entry, y: Entry) =>
+    STATUS_RANK[x.task.status] - STATUS_RANK[y.task.status] ||
+    compare(x.task.completedAt ?? "", y.task.completedAt ?? "") ||
+    compare(x.task.project.key, y.task.project.key) ||
+    x.number - y.number
+
+  return {
+    from,
+    to,
+    people: [...people.values()]
+      .sort(
+        (x, y) =>
+          compare(x.user.name.toLowerCase(), y.user.name.toLowerCase()) ||
+          compare(x.user.id, y.user.id),
+      )
+      .map((p) => ({
+        user: p.user,
+        member: p.member,
+        tasks: [...p.entries.values()].sort(byWeekOrder).map(({ task, open, lastEnd }) => ({
+          ...task,
+          carriedOver: task.assignedAt < from,
+          // Still theirs at `to` unless the last stretch ended inside the week.
+          unassignedAt: open || lastEnd >= to ? null : lastEnd,
+        })),
+      })),
+  }
+}

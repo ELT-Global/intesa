@@ -376,6 +376,54 @@ const apiTokensAndDeviceAuth: Migration = {
   },
 }
 
+// When each person was assigned to each task: one row per stretch of time, open while it lasts.
+// Existing assignments have no recorded start, so they begin when their task was created.
+const taskAssignments: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .createTable("task_assignments")
+        .addColumn("id", text, (c) => c.primaryKey())
+        .addColumn("task_id", text, (c) => c.notNull().references("tasks.id").onDelete("cascade"))
+        .addColumn("user_id", text, (c) => c.notNull().references("users.id").onDelete("cascade"))
+        .addColumn("assigned_at", text, notNull)
+        .addColumn("unassigned_at", text)
+        .execute()
+      await trx.schema
+        .createIndex("task_assignments_task_id")
+        .on("task_assignments")
+        .column("task_id")
+        .execute()
+      await trx.schema
+        .createIndex("task_assignments_user_assigned")
+        .on("task_assignments")
+        .columns(["user_id", "assigned_at"])
+        .execute()
+
+      const rows = await trx
+        .selectFrom("taskAssignees")
+        .innerJoin("tasks", "tasks.id", "taskAssignees.taskId")
+        .select(["taskAssignees.taskId", "taskAssignees.userId", "tasks.createdAt"])
+        .execute()
+      // Batched to stay well under SQLite's bound-parameter limit.
+      for (let i = 0; i < rows.length; i += 500) {
+        await trx
+          .insertInto("taskAssignments")
+          .values(
+            rows.slice(i, i + 500).map((r) => ({
+              id: crypto.randomUUID(),
+              taskId: r.taskId,
+              userId: r.userId,
+              assignedAt: r.createdAt,
+              unassignedAt: null,
+            })),
+          )
+          .execute()
+      }
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -383,4 +431,5 @@ export const migrations: Record<string, Migration> = {
   "0004_task_position": taskPosition,
   "0005_artifacts": artifacts,
   "0006_api_tokens_device_auth": apiTokensAndDeviceAuth,
+  "0007_task_assignments": taskAssignments,
 }

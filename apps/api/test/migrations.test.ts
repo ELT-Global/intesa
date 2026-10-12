@@ -340,3 +340,89 @@ describe.each(targets)("migration 0004 (task position) on %s", (_name, open) => 
     await close()
   })
 })
+
+describe.each(targets)("migration 0007 (task assignments) on %s", (_name, open) => {
+  test("opens one interval per current assignee, starting when the task was created", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0006_api_tokens_device_auth")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values(
+        ["u1", "u2", "u3"].map((id) => ({
+          id,
+          name: id,
+          email: `${id}@x.com`,
+          totpEnabled: 0,
+          createdAt: ts,
+          updatedAt: ts,
+        })),
+      )
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 3,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    const created = { a: "2026-02-01T09:00:00.000Z", b: "2026-03-01T09:00:00.000Z", c: ts }
+    await db
+      .insertInto("tasks")
+      .values(
+        Object.entries(created).map(([id, createdAt], i) => ({
+          id,
+          workspaceId: "w",
+          projectId: "p",
+          number: i + 1,
+          title: id,
+          status: "todo",
+          position: `a${i}`,
+          createdBy: "u1",
+          createdAt,
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        })),
+      )
+      .execute()
+    await db
+      .insertInto("taskAssignees")
+      .values([
+        { taskId: "a", userId: "u1" },
+        { taskId: "a", userId: "u2" },
+        { taskId: "b", userId: "u3" },
+      ])
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    const rows = await db
+      .selectFrom("taskAssignments")
+      .selectAll()
+      .orderBy("taskId")
+      .orderBy("userId")
+      .execute()
+    expect(rows.map(({ id: _id, ...r }) => r)).toEqual([
+      { taskId: "a", userId: "u1", assignedAt: created.a, unassignedAt: null },
+      { taskId: "a", userId: "u2", assignedAt: created.a, unassignedAt: null },
+      { taskId: "b", userId: "u3", assignedAt: created.b, unassignedAt: null },
+    ])
+    expect(new Set(rows.map((r) => r.id)).size).toBe(3)
+
+    // Deleting a task takes its intervals with it.
+    await db.deleteFrom("tasks").where("id", "=", "a").execute()
+    expect(await db.selectFrom("taskAssignments").select("taskId").execute()).toEqual([
+      { taskId: "b" },
+    ])
+    await close()
+  })
+})

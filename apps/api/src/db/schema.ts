@@ -98,6 +98,17 @@ export type TaskTable = {
 
 export type TaskAssigneeTable = { taskId: string; userId: string }
 
+// One row per stretch of time someone is assigned to a task. Open rows (unassignedAt null)
+// mirror taskAssignees, which stays the source of current assignees; every write to it keeps
+// these in step.
+export type TaskAssignmentTable = {
+  id: string
+  taskId: string
+  userId: string
+  assignedAt: string
+  unassignedAt: string | null
+}
+
 export type TagTable = {
   id: string
   workspaceId: string
@@ -162,6 +173,7 @@ export type Database = {
   projects: ProjectTable
   tasks: TaskTable
   taskAssignees: TaskAssigneeTable
+  taskAssignments: TaskAssignmentTable
   tags: TagTable
   taskTags: TaskTagTable
   taskRelationships: TaskRelationshipTable

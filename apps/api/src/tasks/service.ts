@@ -342,12 +342,48 @@ async function assertTags(db: Db, workspaceId: string, tagIds: string[]) {
   }
 }
 
-async function replaceAssignees(db: Db, taskId: string, userIds: string[]) {
-  await db.deleteFrom("taskAssignees").where("taskId", "=", taskId).execute()
-  if (userIds.length > 0) {
+// Applied as a diff so the people who stay assigned keep their assignment interval; those
+// removed have theirs closed at `ts` and those added get one opened.
+async function replaceAssignees(db: Db, taskId: string, userIds: string[], ts: string) {
+  const current = await db
+    .selectFrom("taskAssignees")
+    .select("userId")
+    .where("taskId", "=", taskId)
+    .execute()
+  const before = new Set(current.map((r) => r.userId))
+  const removed = [...before].filter((id) => !userIds.includes(id))
+  const added = userIds.filter((id) => !before.has(id))
+
+  if (removed.length > 0) {
+    await db
+      .deleteFrom("taskAssignees")
+      .where("taskId", "=", taskId)
+      .where("userId", "in", removed)
+      .execute()
+    await db
+      .updateTable("taskAssignments")
+      .set({ unassignedAt: ts })
+      .where("taskId", "=", taskId)
+      .where("userId", "in", removed)
+      .where("unassignedAt", "is", null)
+      .execute()
+  }
+  if (added.length > 0) {
     await db
       .insertInto("taskAssignees")
-      .values(userIds.map((userId) => ({ taskId, userId })))
+      .values(added.map((userId) => ({ taskId, userId })))
+      .execute()
+    await db
+      .insertInto("taskAssignments")
+      .values(
+        added.map((userId) => ({
+          id: newId(),
+          taskId,
+          userId,
+          assignedAt: ts,
+          unassignedAt: null,
+        })),
+      )
       .execute()
   }
 }
@@ -437,7 +473,7 @@ export async function createTask(
         updatedBy: userId,
       })
       .execute()
-    await replaceAssignees(trx, id, assigneeIds)
+    await replaceAssignees(trx, id, assigneeIds, ts)
     await replaceTags(trx, id, tagIds)
     if (input.customFields) {
       await applyCustomFields(trx, { id, projectId: project.id }, input.customFields)
@@ -536,7 +572,7 @@ export async function updateTask(
       }
     }
 
-    if (patch.assigneeIds) await replaceAssignees(trx, task.id, unique(patch.assigneeIds))
+    if (patch.assigneeIds) await replaceAssignees(trx, task.id, unique(patch.assigneeIds), ts)
     if (patch.tagIds) await replaceTags(trx, task.id, unique(patch.tagIds))
     if (patch.customFields) await applyCustomFields(trx, task, patch.customFields)
     if (changed || moved) {

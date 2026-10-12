@@ -297,6 +297,49 @@ describe("updating tasks", () => {
     expect(untouched.body.task.assignees).toHaveLength(1)
   })
 
+  test("assignment intervals follow the assignees; people who stay keep theirs", async () => {
+    const { t, owner, workspaceId, create } = await setup()
+    await signIn(t.app, "second@example.com", "Bea")
+    await addMember(t, workspaceId, "second@example.com")
+    const me = await userId(t, "owner@example.com")
+    const bea = await userId(t, "second@example.com")
+    const task = await create({ title: "x", assigneeIds: [me] })
+    const intervals = () =>
+      t.db
+        .selectFrom("taskAssignments")
+        .select(["id", "userId", "assignedAt", "unassignedAt"])
+        .where("taskId", "=", task.id)
+        .orderBy("assignedAt")
+        .execute()
+
+    const [mine] = await intervals()
+    expect(mine).toMatchObject({ userId: me, unassignedAt: null })
+    const created = await t.db
+      .selectFrom("tasks")
+      .select("createdAt")
+      .where("id", "=", task.id)
+      .executeTakeFirstOrThrow()
+    expect(mine?.assignedAt).toBe(created.createdAt)
+
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { assigneeIds: [me, bea] })
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { assigneeIds: [bea] })
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { assigneeIds: [bea, me] })
+
+    const rows = await intervals()
+    expect(rows.map((r) => [r.userId, r.unassignedAt === null])).toEqual([
+      [me, false],
+      [bea, true],
+      [me, true],
+    ])
+    // One row for Bea across the PATCHes that kept her; my first one was closed, not replaced.
+    expect(rows[0]?.id).toBe(mine?.id as string)
+    expect((rows[0]?.unassignedAt as string) > (rows[1]?.assignedAt as string)).toBe(true)
+
+    // A rejected PATCH leaves the intervals alone.
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { title: "", assigneeIds: [] })
+    expect(await intervals()).toEqual(rows)
+  })
+
   test("tags from another workspace cannot be attached", async () => {
     const t = await createTestApp()
     const a = await setupProject(t, "a@example.com")

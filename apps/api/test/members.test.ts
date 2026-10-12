@@ -236,6 +236,20 @@ describe("removing members", () => {
     expect(after.body.task.assignees).toEqual([])
     const kept = await other.owner.call("GET", `/api/tasks/${there.body.task.id}`)
     expect(kept.body.task.assignees.map((a: { id: string }) => a.id)).toEqual([memId])
+
+    // Their assignment history is closed here and still open in the other workspace.
+    const intervals = await t.db
+      .selectFrom("taskAssignments")
+      .select(["taskId", "unassignedAt"])
+      .where("userId", "=", memId)
+      .execute()
+    const closed = new Map(intervals.map((i) => [i.taskId, i.unassignedAt !== null]))
+    expect(closed).toEqual(
+      new Map([
+        [here.id, true],
+        [there.body.task.id, false],
+      ]),
+    )
     void workspaceId
     void project
   })

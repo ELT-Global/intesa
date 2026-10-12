@@ -97,14 +97,19 @@ export async function removeMember(db: Db, workspaceId: string, member: MemberJs
     if (member.role === "owner" && (await ownerCount(trx, workspaceId)) <= 1) {
       throw new ApiError("CONFLICT", "A workspace needs at least one owner")
     }
+    const inWorkspace = trx.selectFrom("tasks").select("id").where("workspaceId", "=", workspaceId)
     await trx
       .deleteFrom("taskAssignees")
       .where("userId", "=", member.userId)
-      .where(
-        "taskId",
-        "in",
-        trx.selectFrom("tasks").select("id").where("workspaceId", "=", workspaceId),
-      )
+      .where("taskId", "in", inWorkspace)
+      .execute()
+    // Their assignment history stays, closed now, so past weeks still show their work.
+    await trx
+      .updateTable("taskAssignments")
+      .set({ unassignedAt: now() })
+      .where("userId", "=", member.userId)
+      .where("unassignedAt", "is", null)
+      .where("taskId", "in", inWorkspace)
       .execute()
     await trx.deleteFrom("workspaceMembers").where("id", "=", member.id).execute()
   })
