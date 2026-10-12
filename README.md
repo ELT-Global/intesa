@@ -78,6 +78,7 @@ sandboxed, with scripts, forms and external resource requests disabled.
 
 **Install** (pick one):
 
+- From npm (needs [Bun](https://bun.sh) 1.4+): `bun add -g intesa`, or `npx`/`bunx intesa` without installing. `npm install -g intesa` works too, but the board's terminal UI library may not install under npm on Node older than 26.4.
 - In this repository: `bun link` inside `apps/cli` puts `intesa` on your PATH with no build step, or run it directly with `bun apps/cli/src/main.ts`.
 - From a running server, which always serves the bundle that matches its version (needs Bun; Bun cannot run a URL directly, so download it first):
 

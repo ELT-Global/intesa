@@ -131,3 +131,39 @@ jobs:
               --title "intesa CLI ${TAG#cli-v}" --generate-notes
           fi
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber assets/*
+
+  # Publishes the same version to npm as `intesa`. Needs an NPM_TOKEN repository secret (an
+  # automation token); without it the job says so and skips. Skips too when npm already has
+  # this version, so re-running a release is safe.
+  npm:
+    needs: [prepare, release]
+    if: needs.prepare.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile --filter @intesa/api --filter @intesa/cli --filter @intesa/task-query
+      - run: bun run --cwd apps/cli pack:npm
+      - name: Publish
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN is not set; skipping the npm publish"
+            exit 0
+          fi
+          if npm view "intesa@$VERSION" version >/dev/null 2>&1; then
+            echo "intesa@$VERSION is already on npm"
+            exit 0
+          fi
+          npm publish apps/cli/dist/npm --access public --provenance

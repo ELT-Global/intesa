@@ -29,8 +29,8 @@ try {
   m = await import(NAME)
 } catch {
   throw new Error(
-    "intesa board needs @opentui/core, which is not installed here. Use the standalone " +
-    "binary, or install it next to this file: bun add @opentui/core@${
+    "intesa board needs @opentui/core, which is not installed here. Install intesa with Bun " +
+    "(bun add -g intesa), use a standalone binary, or add it next to this file: bun add @opentui/core@${
       (await Bun.file(join(root, "package.json")).json()).dependencies["@opentui/core"]
     }",
   )

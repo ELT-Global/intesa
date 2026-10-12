@@ -10,6 +10,7 @@
     "build": "bun scripts/build.ts",
     "build:bin": "bun scripts/build-bin.ts",
     "skill": "bun scripts/skill.ts",
+    "pack:npm": "bun scripts/npm.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test",
     "test:pg": "bun test"

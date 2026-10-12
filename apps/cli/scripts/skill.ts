@@ -32,8 +32,9 @@ metadata:
 
 Check with \`intesa --version\`. If it is missing, ask the user before installing it, then use one of:
 
+- **From npm** (needs Bun 1.4+): \`bun add -g intesa\` (or \`npm install -g intesa\`), or run \`bunx intesa …\` without installing.
 - **Standalone binary** (no runtime needed): download the archive for the platform from ${RELEASES} (tags \`cli-v*\`), unpack it and put \`intesa\` (\`intesa.exe\` on Windows) on the PATH.
-- **With Bun 1.4+**: \`curl -fsSL "$INTESA_HOST/cli/intesa.js" -o intesa.js\`, then run \`bun intesa.js …\` wherever this guide says \`intesa …\`. The server hands out the client that matches it.
+- **From the server** (needs Bun 1.4+): \`curl -fsSL "$INTESA_HOST/cli/intesa.js" -o intesa.js\`, then run \`bun intesa.js …\` wherever this guide says \`intesa …\`. The server hands out the client that matches it.
 - **Inside the Intesa repository**: \`bun apps/cli/src/main.ts …\`.
 
 ## Set up
