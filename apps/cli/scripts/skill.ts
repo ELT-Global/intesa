@@ -1,24 +1,40 @@
-// Generates SKILL.md, the guide an AI agent reads to use intesa: bun scripts/skill.ts
+// Generates the intesa agent skill, the guide an AI agent reads to use the CLI:
+// bun scripts/skill.ts
 //
-// The guidance is written by hand below; the exit codes and the command reference come from
-// the registry, so adding a command only needs this script run again. The test fails when the
-// committed file is stale.
+// The skill lives at the repository root in skills/intesa/, where `npx skills add` and other
+// Agent Skills installers look, so any repository can install it. SKILL.md holds the guidance
+// (written by hand below) and the exit codes; the command reference comes from the registry and
+// goes to references/commands.md, which an agent opens only when it needs it. The test fails
+// when the committed files are stale.
 
 import { join } from "node:path"
+import { version } from "../package.json"
 import { allCommands, nouns } from "../src/commands"
 import { ERROR_CODES, EXIT_CODES } from "../src/output/errors"
 import type { Arg, Command } from "../src/registry/define"
 
-export const SKILL_PATH = join(import.meta.dir, "..", "SKILL.md")
+export const SKILL_DIR = join(import.meta.dir, "..", "..", "..", "skills", "intesa")
+const RELEASES = "https://github.com/ELT-Global/intesa/releases"
 
 const HEAD = `---
 name: intesa
 description: Manage Intesa tasks, projects, members, tags, custom fields and task attachments from a terminal with the intesa CLI. Use when asked to list, create, edit, move, assign or delete Intesa tasks or projects, to upload or download a task's files, to check what is due, or when a repository has an .intesa.json file.
+compatibility: Requires the intesa CLI (a standalone binary, or Bun 1.4+ to run intesa.js) and network access to an Intesa server.
+metadata:
+  cli-version: "${version}"
 ---
 
 # intesa
 
 \`intesa\` is the command-line client for Intesa, a project and task tracker. Every command acts as the signed-in user through the Intesa API. Tasks are named by key (\`WEB-12\`: project key, then number). Statuses are \`backlog\`, \`todo\`, \`in_progress\`, \`review\` and \`complete\`; priorities are \`low\`, \`medium\`, \`high\` and \`urgent\`.
+
+## Install
+
+Check with \`intesa --version\`. If it is missing, ask the user before installing it, then use one of:
+
+- **Standalone binary** (no runtime needed): download the archive for the platform from ${RELEASES} (tags \`cli-v*\`), unpack it and put \`intesa\` (\`intesa.exe\` on Windows) on the PATH.
+- **With Bun 1.4+**: \`curl -fsSL "$INTESA_HOST/cli/intesa.js" -o intesa.js\`, then run \`bun intesa.js …\` wherever this guide says \`intesa …\`. The server hands out the client that matches it.
+- **Inside the Intesa repository**: \`bun apps/cli/src/main.ts …\`.
 
 ## Set up
 
@@ -90,6 +106,11 @@ INTESA_EDITOR="bun fix-task.ts" intesa task edit WEB-12 --json
 
 ## Command reference
 
+Every command with its usage, summary and examples is listed in [references/commands.md](references/commands.md); read it when you need a command not shown above. For the exact flags and output fields of one command, run \`intesa schema <command words>\` or \`intesa <command words> --help\`.
+`
+
+const REFERENCE_HEAD = `# intesa command reference
+
 \`intesa <noun> <verb>\`; \`<arg>\` is required and \`[arg]\` optional. Every command also takes the global flags: \`-w\`, \`-p\`, \`--host\`, \`--json\`, \`--fields\`, \`-q\`, \`--yes\`, \`--dry-run\`, \`--no-color\`, \`--debug\`. Run \`intesa schema <command words>\` for a command's flags and output fields.
 `
 
@@ -133,23 +154,28 @@ async function reference(): Promise<string> {
       const aliases = noun.aliases?.length ? ` (alias ${noun.aliases.join(", ")})` : ""
       sections.push(
         [
-          `### ${noun.name}${aliases}`,
+          `## ${noun.name}${aliases}`,
           entries.map(commandLine).join("\n"),
           exampleBlock(entries),
         ].join("\n\n"),
       )
     }
   }
-  const other = ["### Other commands", single.map(commandLine).join("\n"), exampleBlock(single)]
+  const other = ["## Other commands", single.map(commandLine).join("\n"), exampleBlock(single)]
   return [...sections, other.join("\n\n")].join("\n\n")
 }
 
-export async function renderSkill(): Promise<string> {
-  return `${HEAD}${exitCodeTable()}\n\n${GUIDE}\n${await reference()}\n`
+// The skill's files, by path relative to SKILL_DIR.
+export async function renderSkill(): Promise<Record<string, string>> {
+  return {
+    "SKILL.md": `${HEAD}${exitCodeTable()}\n\n${GUIDE}`,
+    "references/commands.md": `${REFERENCE_HEAD}\n${await reference()}\n`,
+  }
 }
 
 if (import.meta.main) {
-  const text = await renderSkill()
-  await Bun.write(SKILL_PATH, text)
-  console.error(`wrote ${SKILL_PATH} (${text.split("\n").length - 1} lines)`)
+  for (const [file, text] of Object.entries(await renderSkill())) {
+    await Bun.write(join(SKILL_DIR, file), text)
+    console.error(`wrote ${join(SKILL_DIR, file)} (${text.split("\n").length - 1} lines)`)
+  }
 }
