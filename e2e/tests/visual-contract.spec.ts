@@ -87,7 +87,7 @@ test("a new workspace shows the full sidebar: wordmark, workspace card, nav, pro
   await expect(workspaceCard).toContainText("Dunder Mifflin")
   await expect(workspaceCard).toContainText("Owner")
   const nav = sidebar.getByRole("navigation", { name: "Primary" })
-  await expect(nav.getByRole("link")).toHaveText(["Home", "My tasks", "Members"])
+  await expect(nav.getByRole("link")).toHaveText(["Home", "My tasks", "Weekly log", "Members"])
   await expect(sidebar.getByRole("region", { name: "Projects" })).toBeVisible()
   const profile = sidebar.getByRole("button", { name: "Account menu" })
   await expect(profile).toContainText("Dwight Schrute")

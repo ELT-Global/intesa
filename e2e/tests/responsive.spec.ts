@@ -56,6 +56,7 @@ for (const vp of viewports) {
       const paths = [
         `/w/${slug}/home`,
         `/w/${slug}/my-tasks`,
+        `/w/${slug}/log`,
         `/w/${slug}/members`,
         `/w/${slug}/projects/${projectId}/board`,
         `/w/${slug}/projects/${projectId}/table`,

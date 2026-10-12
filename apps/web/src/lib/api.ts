@@ -49,6 +49,9 @@ const memberApi = workspaceApi.members[":memberId"]
 export type Member = InferResponseType<typeof workspaceApi.members.$get>["members"][number]
 export type MemberRole = Member["role"]
 export type HomeData = InferResponseType<typeof workspaceApi.home.$get>
+export type WeekLog = InferResponseType<typeof workspaceApi.week.$get>
+export type WeekPerson = WeekLog["people"][number]
+export type WeekTask = WeekPerson["tasks"][number]
 
 export const api = {
   members: (workspaceId: string) => unwrap(workspaceApi.members.$get({ param: { workspaceId } })),
@@ -60,6 +63,8 @@ export const api = {
     unwrap(memberApi.$delete({ param: { workspaceId, memberId } })),
   home: (workspaceId: string, today: string) =>
     unwrap(workspaceApi.home.$get({ param: { workspaceId }, query: { today } })),
+  week: (workspaceId: string, from: string, to: string) =>
+    unwrap(workspaceApi.week.$get({ param: { workspaceId }, query: { from, to } })),
 
   projects: (workspaceId: string) =>
     unwrap(client.api.workspaces[":workspaceId"].projects.$get({ param: { workspaceId } })),
@@ -115,4 +120,5 @@ export const keys = {
   project: (projectId: string) => ["projects", projectId] as const,
   members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
   home: (workspaceId: string) => ["workspaces", workspaceId, "home"] as const,
+  week: (workspaceId: string, week: string) => ["workspaces", workspaceId, "week", week] as const,
 }

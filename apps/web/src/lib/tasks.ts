@@ -99,7 +99,7 @@ export const taskHistoryQuery = (taskId: string) =>
     queryFn: async () => (await taskApi.history(taskId)).history,
   })
 
-/** Refreshes every cached view of tasks: lists, details, history, my tasks and home. */
+/** Refreshes every cached view of tasks: lists, details, history, my tasks, home and weekly logs. */
 export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
   void qc.invalidateQueries(
     projectId
@@ -111,7 +111,7 @@ export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
   void qc.invalidateQueries({ queryKey: ["my-tasks"] })
   void qc.invalidateQueries({
     queryKey: ["workspaces"],
-    predicate: (q) => q.queryKey[2] === "home",
+    predicate: (q) => q.queryKey[2] === "home" || q.queryKey[2] === "week",
   })
 }
 

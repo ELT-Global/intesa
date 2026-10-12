@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
+  CalendarRange,
   Check,
   ChevronsUpDown,
   CircleCheck,
@@ -168,6 +169,7 @@ export function SidebarContent({
   const items = [
     { to: "/w/$slug/home", label: "Home", icon: House },
     { to: "/w/$slug/my-tasks", label: "My tasks", icon: CircleCheck },
+    { to: "/w/$slug/log", label: "Weekly log", icon: CalendarRange },
     { to: "/w/$slug/members", label: "Members", icon: Users },
   ] as const
   return (

@@ -1,3 +1,4 @@
+import { weekBounds } from "@intesa/task-query"
 import { queryOptions } from "@tanstack/react-query"
 import { api, keys } from "./api"
 
@@ -55,4 +56,18 @@ export const homeQuery = (workspaceId: string) =>
     queryKey: keys.home(workspaceId),
     queryFn: () => api.home(workspaceId, localToday()),
     staleTime: 0,
+  })
+
+// Fresh on every visit like Home. While another week of the same workspace loads, its log stays
+// on screen instead of a skeleton.
+export const weekLogQuery = (workspaceId: string, week: string) =>
+  queryOptions({
+    queryKey: keys.week(workspaceId, week),
+    queryFn: () => {
+      const { from, to } = weekBounds(week)
+      return api.week(workspaceId, from, to)
+    },
+    staleTime: 0,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === workspaceId ? previous : undefined,
   })

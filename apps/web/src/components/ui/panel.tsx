@@ -26,9 +26,9 @@ export function PanelHeader({
   note?: ReactNode
 }) {
   return (
-    <header className="flex min-h-11 items-center gap-2 border-b border-border px-4">
+    <header className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-border px-4 py-1.5">
       {icon && <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>}
-      <h2 className="text-sm font-medium">{title}</h2>
+      <h2 className="min-w-0 truncate text-sm font-medium">{title}</h2>
       {count !== undefined && <CountBadge>{count}</CountBadge>}
       {note && <div className="ml-auto text-xs text-muted-foreground">{note}</div>}
     </header>
