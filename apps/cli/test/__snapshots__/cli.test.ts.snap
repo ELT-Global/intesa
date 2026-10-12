@@ -17,6 +17,7 @@ COMMANDS
   field:       List, create and manage a project's custom fields
   artifact:    List, upload, download and edit a task's artifacts
   status:      Show your recent projects, your tasks and what is due soon
+  week:        Show what each person worked on in a week
   api:         Make an authenticated request to the Intesa API
   config:      Get and set intesa configuration
   schema:      Describe commands, flags and exit codes as JSON

@@ -111,6 +111,9 @@ export const FIELD_SETS = {
   },
   // `status`: the Home page's sections; each task carries its `key` and `url`.
   status: { fields: ["projects", "assigned", "dueSoon"] },
+  // `week`: the Monday of the week, its bounds as ISO instants, then each person with their tasks;
+  // every task carries its `url`.
+  week: { fields: ["week", "from", "to", "people"] },
   // `url` is the artifact's own address under /api; a browser needs a web session to open it.
   artifact: { fields: ARTIFACT, columns: ["id", "name", "mimeType", "size", "updatedAt"] },
   // `artifact view`: also the text, for Markdown.

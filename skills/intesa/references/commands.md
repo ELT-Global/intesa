@@ -263,6 +263,7 @@ intesa me 2fa disable --code 123456
 
 - `intesa board [key]`: Open a project's board full screen
 - `intesa status`: Show your recent projects, your tasks and what is due soon
+- `intesa week [week]`: Show what each person worked on in a week
 - `intesa api <path>`: Make an authenticated request to the Intesa API
 - `intesa schema [command...]`: Describe commands, flags and exit codes as JSON
 - `intesa completion <shell>`: Generate a shell completion script
@@ -274,6 +275,10 @@ intesa board WEB
 intesa board WEB-12
 intesa status
 intesa status -w acme --json --fields assigned
+intesa week
+intesa week last
+intesa week 2026-10-05 --raw | pbcopy
+intesa week --json
 intesa api /me
 intesa api /workspaces -f name=Acme -f slug=acme
 intesa api -X PATCH /tasks/TASK_ID -F priority=null

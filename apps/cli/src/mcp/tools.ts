@@ -54,6 +54,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "artifact list": "read",
   "artifact view": "read",
   status: "read",
+  week: "read",
   "config get": "read",
   "config list": "read",
   "token list": "read",

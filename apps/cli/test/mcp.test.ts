@@ -185,6 +185,7 @@ describe("intesa mcp", () => {
         "project_list",
         "member_remove",
         "status",
+        "week",
       ]) {
         expect(names).toContain(name)
       }

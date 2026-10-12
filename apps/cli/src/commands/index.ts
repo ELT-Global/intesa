@@ -66,6 +66,11 @@ export const nouns: NounEntry[] = [
     load: () => import("./status").then((m) => m.default),
   },
   {
+    name: "week",
+    summary: "Show what each person worked on in a week",
+    load: () => import("./week").then((m) => m.default),
+  },
+  {
     name: "api",
     summary: "Make an authenticated request to the Intesa API",
     load: () => import("./api").then((m) => m.default),

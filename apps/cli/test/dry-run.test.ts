@@ -36,6 +36,7 @@ const READS = [
   "intesa artifact download",
   "intesa artifact view",
   "intesa status",
+  "intesa week",
   "intesa config get",
   "intesa config list",
   "intesa schema",

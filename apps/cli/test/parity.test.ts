@@ -18,6 +18,7 @@ const PARITY: { web: string; cli: string[] }[] = [
   },
   { web: "Workspace rename (API only)", cli: ["workspace rename"] },
   { web: "Home dashboard", cli: ["status"] },
+  { web: "Weekly log, copy as Markdown", cli: ["week"] },
   { web: "My tasks, with group and completed toggles", cli: ["task list"] },
   {
     web: "Members: list, add, role, remove, leave",
