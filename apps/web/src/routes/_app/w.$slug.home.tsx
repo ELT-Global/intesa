@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import { ErrorState, PageTitle } from "@/components/page"
 import { Skeleton } from "@/components/skeleton"
 import { DueDateChip, PriorityIcon, StatusIcon } from "@/components/tasks/properties"
+import { TaskTitle } from "@/components/tasks/task-title"
 import { Panel, PanelHeader } from "@/components/ui/panel"
 import type { HomeData } from "@/lib/api"
 import { homeQuery, workspacesQuery } from "@/lib/queries"
@@ -56,7 +57,9 @@ function TaskRow({ slug, task }: { slug: string; task: HomeTask }) {
       >
         <StatusIcon status={task.status} />
         <span className="font-mono text-[11px] text-subtle-foreground">{task.key}</span>
-        <span className="min-w-0 flex-1 truncate">{task.title}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <TaskTitle title={task.title} />
+        </span>
         {task.priority && <PriorityIcon priority={task.priority} />}
         {task.dueAt && <DueDateChip dueAt={task.dueAt} status={task.status} />}
       </Link>

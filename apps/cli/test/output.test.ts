@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { browserCommand } from "../src/io/browser"
 import { project, selectFields } from "../src/output/json"
 import { formatTable } from "../src/output/table"
+import { formatTaskLines } from "../src/output/task-line"
 
 describe("browserCommand", () => {
   const url = "https://pm.example.com/w/acme/home?a=1&b=2"
@@ -126,6 +127,42 @@ describe("--fields", () => {
     expect(selectFields("anything", undefined)).toEqual(["anything"])
     expect(() => selectFields("key,nope", ["key", "title"])).toThrow(
       'unknown field "nope" (available: key, title)',
+    )
+  })
+})
+
+describe("formatTaskLines", () => {
+  const task = (title: string) => ({
+    key: "WEB-1",
+    title,
+    status: "todo" as const,
+    priority: null,
+    dueAt: null,
+    assignees: [],
+    tags: [],
+    subtaskCount: 0,
+    subtaskDoneCount: 0,
+  })
+  const style = { color: true, unicode: true, width: 80 }
+  // styleText leaves colour out when stdout is not a terminal, as under the test runner.
+  const forced = process.env.FORCE_COLOR
+  beforeAll(() => {
+    process.env.FORCE_COLOR = "1"
+  })
+  afterAll(() => {
+    if (forced === undefined) delete process.env.FORCE_COLOR
+    else process.env.FORCE_COLOR = forced
+  })
+
+  test("a conventional commit style prefix is coloured, the rest of the title is not", () => {
+    const out = formatTaskLines([task("fix(api): lost ips")], style)
+    expect(out).toContain("\x1b[31mfix(api):\x1b[39m lost ips")
+  })
+
+  test("other titles, and output without colour, are left as they are", () => {
+    expect(formatTaskLines([task("Fix fee policy")], style)).toContain("Fix fee policy")
+    expect(formatTaskLines([task("fix: lost ips")], { ...style, color: false })).toContain(
+      "fix: lost ips",
     )
   })
 })

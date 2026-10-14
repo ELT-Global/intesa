@@ -25,6 +25,7 @@ import { StatusIcon } from "./properties"
 import { type DeleteRequest, DeleteSubtaskDialog, SubtaskRow } from "./subtask-row"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
+import { TaskTitle } from "./task-title"
 
 /** Sheet sections for subtask and relationship management; pass from the sheet's `sections` slot. */
 export function TaskStructureSections({
@@ -214,7 +215,9 @@ function RelationshipsSection({ task, workspaceId }: { task: TaskDetail; workspa
                 >
                   <StatusIcon status={ref.status} />
                   <TaskKey>{ref.key}</TaskKey>
-                  <span className="truncate">{ref.title}</span>
+                  <span className="truncate">
+                    <TaskTitle title={ref.title} />
+                  </span>
                 </button>
                 <Button
                   variant="ghost"

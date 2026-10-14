@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { DueDateChip, PriorityChip } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TaskKey } from "./task-key"
+import { TaskTitle } from "./task-title"
 
 export const TaskCard = memo(function TaskCard({
   task,
@@ -43,7 +44,9 @@ export const TaskCard = memo(function TaskCard({
           </span>
         )}
       </span>
-      <span className="line-clamp-2 text-sm font-medium text-foreground">{task.title}</span>
+      <span className="line-clamp-2 text-sm font-medium text-foreground">
+        <TaskTitle title={task.title} />
+      </span>
       {task.tags.length > 0 && (
         <span className="flex flex-wrap gap-1.5">
           {task.tags.map((t) => (

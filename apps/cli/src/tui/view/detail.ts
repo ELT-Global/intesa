@@ -4,7 +4,7 @@ import { PRIORITY_LABELS, relativeTime, STATUS_LABELS } from "@intesa/task-query
 import { glyphs } from "../api"
 import { clamp, type DetailOverlay, type State, taskById } from "../state"
 import { fit, fromAnsi, type Line, truncate, wrap } from "../text"
-import { dueSeg, type Kit, priorityGlyph, statusSeg, THEME } from "./kit"
+import { dueSeg, type Kit, priorityGlyph, statusSeg, THEME, titleSegs } from "./kit"
 
 const fmtSize = (bytes: number) =>
   bytes < 1024
@@ -51,7 +51,10 @@ export function createDetailView(kit: Kit, redraw: () => void) {
     const prop = (name: string, value: Line) =>
       out.push([{ text: name.padEnd(11), fg: THEME.muted }, ...value])
     const none = (t: string): Line => [{ text: t, fg: THEME.muted }]
-    for (const l of wrap(task.title, cols)) out.push([{ text: l, bold: true }])
+    // A prefix the wrap cuts in two stays plain.
+    wrap(task.title, cols).forEach((l, i) => {
+      out.push(i === 0 ? titleSegs(l, { bold: true }) : [{ text: l, bold: true }])
+    })
     out.push([])
     prop("Status", [statusSeg(task.status, ui)])
     prop(
@@ -124,7 +127,7 @@ export function createDetailView(kit: Kit, redraw: () => void) {
                 ...fill,
               },
               { text: `${live.key}  `, fg: THEME.muted, ...fill },
-              { text: live.title, strike: live.status === "complete", ...fill },
+              ...titleSegs(live.title, { strike: live.status === "complete", ...fill }),
             ],
             cols,
             fill,
@@ -147,7 +150,7 @@ export function createDetailView(kit: Kit, redraw: () => void) {
             [
               { text: ` ${r.kind.padEnd(11)}`, fg: THEME.muted },
               { text: `${r.key}  `, fg: THEME.muted },
-              { text: r.title },
+              ...titleSegs(r.title),
               { text: `  ${STATUS_LABELS[r.status]}`, fg: THEME.status[r.status] },
             ],
             cols,

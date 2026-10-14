@@ -24,6 +24,13 @@ export {
   relativeTime,
 } from "./dates"
 export {
+  INTENT_HUES,
+  type IntentHue,
+  intentHue,
+  type TitleIntent,
+  titleIntent,
+} from "./intent"
+export {
   applySuggestion,
   compileSearch,
   normalise,

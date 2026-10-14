@@ -213,6 +213,7 @@ export async function openBoard(
     height?: number
     pollMs?: number
     saveWaitMs?: number
+    color?: boolean
   } = {},
 ) {
   const t = await createTestRenderer({
@@ -225,7 +226,7 @@ export async function openBoard(
   const app = createBoardApp(
     t.renderer,
     api,
-    { ...start, unicode: true, color: false },
+    { ...start, unicode: true, color: opts.color ?? false },
     { pollMs: opts.pollMs, saveWaitMs: opts.saveWaitMs },
   )
   await app.ready
@@ -248,6 +249,11 @@ export async function openBoard(
     // Keys sent without waiting for anything, for tests that act while requests are out.
     keys,
     frame,
+    // The frame as runs of text with their colours.
+    spans: async () => {
+      await frame()
+      return t.captureSpans()
+    },
     // Waits until the frame satisfies `check`, for what runs on timers (polling).
     async waitFor(check: (frame: string) => boolean) {
       let last = ""

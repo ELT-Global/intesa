@@ -3,10 +3,12 @@ import {
   daysUntil,
   dueState,
   formatDay,
+  type IntentHue,
   PRIORITY_LABELS,
   STATUS_LABELS,
   type TaskPriority,
   type TaskStatus,
+  titleIntent,
 } from "@intesa/task-query"
 import type { Env } from "./mode"
 import { pad, truncate } from "./table"
@@ -78,6 +80,26 @@ const PRIORITY_COLORS: Record<TaskPriority, Format> = {
   low: "gray",
 }
 
+const INTENT_COLORS: Record<IntentHue, Format> = {
+  green: "green",
+  red: "red",
+  blue: "blueBright",
+  violet: "magentaBright",
+  orange: "yellow",
+  pink: "magenta",
+  cyan: "cyan",
+  yellow: "yellowBright",
+  indigo: "blue",
+  lime: "greenBright",
+  gray: "gray",
+}
+
+// A conventional commit style `type(scope):` prefix in its type's colour.
+export function titleText(title: string, style: LineStyle) {
+  const intent = titleIntent(title)
+  return intent ? `${paint(style, INTENT_COLORS[intent.hue], intent.prefix)}${intent.rest}` : title
+}
+
 export const statusText = (status: TaskStatus, style: LineStyle) =>
   `${paint(style, STATUS_COLORS[status], glyphs(style).status[status])} ${STATUS_LABELS[status]}`
 
@@ -137,7 +159,7 @@ export function formatTaskLines(tasks: readonly LineTask[], style: LineStyle): s
       const key = paint(style, "bold", pad(t.key, keyWidth))
       const status = pad(statusText(t.status, style), statusWidth)
       const meta = metas[i] ?? ""
-      const title = truncate(t.title, titleWidth)
+      const title = titleText(truncate(t.title, titleWidth), style)
       return `${`${key}  ${status}  ${meta ? `${pad(title, titleWidth)}  ${meta}` : title}`.trimEnd()}\n`
     })
     .join("")

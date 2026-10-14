@@ -1,5 +1,12 @@
 // What every part of the view draws with: the theme, styled text, the focus fill, panels.
-import { dueState, STATUS_LABELS, type TaskPriority, type TaskStatus } from "@intesa/task-query"
+import {
+  dueState,
+  type IntentHue,
+  STATUS_LABELS,
+  type TaskPriority,
+  type TaskStatus,
+  titleIntent,
+} from "@intesa/task-query"
 import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core"
 import { dueText, glyphs, type Task } from "../api"
 import type { Store } from "../store"
@@ -27,6 +34,30 @@ export const THEME = {
   } as Record<TaskStatus, string>,
   // Amber for medium and high, as on the web.
   priority: { urgent: "#f85149", high: "#e3b341", medium: "#e3b341", low: "#8b949e" },
+  // The `type(scope):` that opens a conventional commit style title.
+  intent: {
+    green: "#3fb950",
+    red: "#ff7b72",
+    blue: "#6cb6ff",
+    violet: "#bc8cff",
+    orange: "#f0883e",
+    pink: "#f778ba",
+    cyan: "#56d4dd",
+    yellow: "#e3b341",
+    indigo: "#a5b4fc",
+    lime: "#a5d64b",
+    gray: "#8b949e",
+  } as Record<IntentHue, string>,
+}
+
+/** A title as segments, its `type(scope):` prefix in its type's colour. */
+export function titleSegs(title: string, style: Omit<Seg, "text"> = {}): Line {
+  const intent = titleIntent(title)
+  if (!intent) return [{ text: title, ...style }]
+  return [
+    { text: intent.prefix, ...style, fg: THEME.intent[intent.hue] },
+    { text: intent.rest, ...style },
+  ]
 }
 
 // OpenTUI draws ‼ two cells wide (it has an emoji form), which would shift the column border.

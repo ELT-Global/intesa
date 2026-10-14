@@ -33,6 +33,7 @@ import { keyLabel } from "@/components/projects/shortcut-help-dialog"
 import { RowsSkeleton } from "@/components/skeleton"
 import { StatusIcon } from "@/components/tasks/properties"
 import { TaskKey } from "@/components/tasks/task-key"
+import { TaskTitle } from "@/components/tasks/task-title"
 import { Avatar } from "@/components/ui/avatar"
 import { Kbd } from "@/components/ui/badge"
 import { Button, buttonClass } from "@/components/ui/button"
@@ -143,7 +144,9 @@ function TaskRow({ slug, task, weekYear }: { slug: string; task: WeekTask; weekY
           <span className="flex min-w-0 flex-1 items-center gap-2.5 text-sm">
             <StatusIcon status={task.status} />
             <TaskKey>{task.key}</TaskKey>
-            <span className="min-w-0 flex-1 truncate">{task.title}</span>
+            <span className="min-w-0 flex-1 truncate">
+              <TaskTitle title={task.title} />
+            </span>
           </span>
           <TaskFacts task={task} weekYear={weekYear} />
         </span>

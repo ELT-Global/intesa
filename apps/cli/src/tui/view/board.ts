@@ -4,7 +4,7 @@ import { BoxRenderable, type MouseEvent } from "@opentui/core"
 import { glyphs, handle, type Task } from "../api"
 import { railFocused, type State, shownTasks } from "../state"
 import { fit, type Line, type Seg, truncate, width } from "../text"
-import { dueSeg, type Kit, priorityGlyph, THEME } from "./kit"
+import { dueSeg, type Kit, priorityGlyph, THEME, titleSegs } from "./kit"
 
 const CARD_ROWS = 3 // two lines and a gap
 const RAIL_WIDTH = 3
@@ -76,7 +76,7 @@ export function createBoardView(kit: Kit) {
       bar,
       { text: task.key, fg: THEME.muted, bold: true, ...fill },
       { text: " ", ...fill },
-      { text: task.title, bold: focused, ...fill },
+      ...titleSegs(task.title, { bold: focused, ...fill }),
     ]
     const second: Line = [bar, ...metaLine(task, cols - 2).map((x) => ({ ...x, ...fill }))]
     return [fit(first, cols, fill), fit(second, cols, fill)]

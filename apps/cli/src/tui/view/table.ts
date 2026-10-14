@@ -4,7 +4,7 @@ import type { BoxRenderable, MouseEvent } from "@opentui/core"
 import { handle } from "../api"
 import { type State, tableRows } from "../state"
 import { fit, type Line, type Seg, width } from "../text"
-import { dueSeg, type Kit, statusSeg, THEME } from "./kit"
+import { dueSeg, type Kit, statusSeg, THEME, titleSegs } from "./kit"
 
 export function createTableView(kit: Kit) {
   const { store, ui, text, focusFill, marker } = kit
@@ -62,7 +62,7 @@ export function createTableView(kit: Kit) {
             marker(focused, fill),
             ...cell({ text: t.key, fg: THEME.muted, bold: true }, keyW, fill),
             { text: "  ", ...fill },
-            ...cell({ text: t.title }, titleW, fill),
+            ...fit(titleSegs(t.title, fill), titleW, fill),
             ...cols.flatMap((c) => [{ text: "  ", ...fill }, ...cell(values[c.id], c.w, fill)]),
           ],
           W,

@@ -2,8 +2,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { RGBA } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 import { session } from "../src/tui/app"
+import { THEME } from "../src/tui/view/kit"
 import {
   type Board,
   type BoardWorld,
@@ -104,6 +106,26 @@ describe("board: layout", () => {
     expect(columnLines(frame, "In progress")).toEqual(["WEB-1 Login 2FA", "↑ @alan ☐ 0/1"])
     expect(columnLines(frame, "Review")).toEqual(["WEB-4 Tag colors", "@alan"])
     expect(columnLines(frame, "Complete")).toEqual(["No tasks"])
+  })
+
+  test("a title written like a conventional commit shows its type and scope in the type's colour", async () => {
+    const w = await boardWorld(server)
+    await w.addTask({ title: "fix(api): lost ips", assigneeIds: [w.me] })
+    await w.addTask({ title: "feat: sub-batches", assigneeIds: [w.me] })
+    await w.addTask({ title: "Fix fee policy", assigneeIds: [w.me] })
+    const b = await board(w, { color: true })
+    const spans = (await b.spans()).lines.flatMap((l) => l.spans)
+    const colour = (text: string) => {
+      const span = spans.find((s) => s.text.trimEnd() === text)
+      if (!span) throw new Error(`no span "${text}" in ${spans.map((s) => s.text).join("|")}`)
+      return span.fg.toInts().slice(0, 3)
+    }
+    const theme = (hex: string) => RGBA.fromHex(hex).toInts().slice(0, 3)
+
+    expect(colour("fix(api):")).toEqual(theme(THEME.intent.red))
+    expect(colour("feat:")).toEqual(theme(THEME.intent.green))
+    expect(colour(" lost ips")).not.toEqual(theme(THEME.intent.red))
+    expect(colour("Fix fee policy")).not.toEqual(theme(THEME.intent.red))
   })
 
   test("a long column scrolls with the focus and says how many cards are out of view", async () => {

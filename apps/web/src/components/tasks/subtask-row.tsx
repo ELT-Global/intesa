@@ -23,6 +23,7 @@ import {
   StatusOptions,
 } from "./properties"
 import { TaskKey } from "./task-key"
+import { TaskTitle } from "./task-title"
 
 // Controls other than the status icon and set values fade in on hover or focus at md+, and
 // are always shown on touch widths where there is no hover.
@@ -123,7 +124,7 @@ export function SubtaskRow({
             complete && "text-muted-foreground line-through",
           )}
         >
-          {subtask.title}
+          <TaskTitle title={subtask.title} />
         </button>
       )}
 

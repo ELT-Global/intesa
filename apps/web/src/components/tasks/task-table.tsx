@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { DueDateChip, PriorityChip, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TaskContextMenu } from "./task-context-menu"
+import { TaskTitle } from "./task-title"
 
 export type TableTask = TaskSummary & { project?: { id: string; name: string; key: string } }
 export type TableColumn = "task" | "project" | "status" | "priority" | "assignees" | "tags" | "due"
@@ -122,7 +123,9 @@ const Row = memo(function Row({
               <span className="shrink-0 whitespace-nowrap font-mono text-[12.5px] text-subtle-foreground">
                 {task.key}
               </span>
-              <span className="truncate font-medium text-foreground">{task.title}</span>
+              <span className="truncate font-medium text-foreground">
+                <TaskTitle title={task.title} />
+              </span>
             </button>
           </td>
         )
