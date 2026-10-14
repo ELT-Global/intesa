@@ -26,6 +26,13 @@ export type WeekTask = {
   completedAt: string | null
   /** When this person's earliest assignment overlapping the week began. */
   assignedAt: string
+  /**
+   * When it became planned work for them: the later of `assignedAt` and the task's last move
+   * out of Backlog (or its creation outside it) before `to`; null if it never left Backlog.
+   * Clients show this as the assigned date, falling back to `assignedAt`.
+   */
+  plannedAt: string | null
+  /** Planned before the week and not in Backlog when it began. */
   carriedOver: boolean
   /** When it was taken off them inside the week; null if still theirs at `to`. */
   unassignedAt: string | null
@@ -106,6 +113,22 @@ export async function loadWeekLog(
           .orderBy("taskStatusHistory.updatedAt", "desc")
           .limit(1)
           .as("startStatus"),
+        // The task's last move out of Backlog before `to`; creation counts as a move.
+        eb
+          .selectFrom("taskStatusHistory")
+          .select("taskStatusHistory.updatedAt")
+          .whereRef("taskStatusHistory.taskId", "=", "tasks.id")
+          .where("taskStatusHistory.updatedAt", "<", to)
+          .where("taskStatusHistory.toStatus", "!=", "backlog")
+          .where((h) =>
+            h.or([
+              h("taskStatusHistory.fromStatus", "is", null),
+              h("taskStatusHistory.fromStatus", "=", "backlog"),
+            ]),
+          )
+          .orderBy("taskStatusHistory.updatedAt", "desc")
+          .limit(1)
+          .as("leftBacklogAt"),
       ])
       .execute(),
     db
@@ -144,7 +167,13 @@ export async function loadWeekLog(
     else changesByTask.set(h.taskId, [change])
   }
 
-  type Entry = { task: WeekTask; number: number; open: boolean; lastEnd: string }
+  type Entry = {
+    task: WeekTask
+    number: number
+    open: boolean
+    lastEnd: string
+    leftBacklogAt: string | null
+  }
   type Person = { user: UserRef; member: boolean; entries: Map<string, Entry> }
   const people = new Map<string, Person>()
   for (const m of members) {
@@ -189,6 +218,7 @@ export async function loadWeekLog(
       number: a.number,
       open: a.unassignedAt === null,
       lastEnd: a.unassignedAt ?? "",
+      leftBacklogAt: a.leftBacklogAt,
       task: {
         id: a.id,
         key: `${a.projectKey}-${a.number}`,
@@ -202,6 +232,7 @@ export async function loadWeekLog(
         startStatus,
         completedAt,
         assignedAt: a.assignedAt,
+        plannedAt: null,
         carriedOver: false,
         unassignedAt: null,
         changes,
@@ -227,12 +258,23 @@ export async function loadWeekLog(
       .map((p) => ({
         user: p.user,
         member: p.member,
-        tasks: [...p.entries.values()].sort(byWeekOrder).map(({ task, open, lastEnd }) => ({
-          ...task,
-          carriedOver: task.assignedAt < from,
-          // Still theirs at `to` unless the last stretch ended inside the week.
-          unassignedAt: open || lastEnd >= to ? null : lastEnd,
-        })),
+        tasks: [...p.entries.values()].sort(byWeekOrder).map((entry) => {
+          const { task, open, lastEnd, leftBacklogAt } = entry
+          const plannedAt =
+            leftBacklogAt === null
+              ? null
+              : leftBacklogAt > task.assignedAt
+                ? leftBacklogAt
+                : task.assignedAt
+          return {
+            ...task,
+            plannedAt,
+            // Backlog is not committed work, so it is never carried over.
+            carriedOver: task.startStatus !== "backlog" && plannedAt !== null && plannedAt < from,
+            // Still theirs at `to` unless the last stretch ended inside the week.
+            unassignedAt: open || lastEnd >= to ? null : lastEnd,
+          }
+        }),
       })),
   }
 }

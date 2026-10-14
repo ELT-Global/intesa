@@ -86,20 +86,25 @@ describe("intesa week", () => {
     expect(await run("2026-10-11")).toMatchObject({ week: "2026-10-05" })
   })
 
-  test("a task assigned in an earlier week is carried over into this one", async () => {
+  test("a task planned in an earlier week is carried over; one parked in Backlog is not", async () => {
     const w = await world(server)
     const old = await w.addTask({ title: "Old work", assigneeIds: [w.me] })
+    const parked = await w.addTask({ title: "Parked", status: "backlog", assigneeIds: [w.me] })
     const { from } = weekBounds(thisWeek())
     const before = new Date(new Date(from).getTime() - 3 * 86_400_000).toISOString()
-    await server.db
-      .updateTable("taskAssignments")
-      .set({ assignedAt: before })
-      .where("taskId", "=", old.id)
-      .execute()
+    for (const table of ["taskAssignments", "taskStatusHistory"] as const) {
+      const column = table === "taskAssignments" ? "assignedAt" : "updatedAt"
+      await server.db
+        .updateTable(table)
+        .set({ [column]: before })
+        .where("taskId", "in", [old.id, parked.id])
+        .execute()
+    }
 
     const r = await w.box.run(["week"], { env })
     expect(r.exitCode, r.stderr).toBe(0)
     expect(r.stdout).toMatch(new RegExp(`${old.key}.*Old work — .*carried over, assigned `))
+    expect(r.stdout).toMatch(new RegExp(`${parked.key}.*Parked — Backlog · assigned `))
   })
 
   test("a bad week is a usage error", async () => {

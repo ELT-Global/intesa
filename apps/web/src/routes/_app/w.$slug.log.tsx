@@ -8,6 +8,7 @@ import {
   weekLogMarkdown,
   weekLogTasks,
   weekOf,
+  weekTaskAssignedAt,
 } from "@intesa/task-query"
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
@@ -99,8 +100,8 @@ function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
     {
       id: "assigned",
       text: task.carriedOver
-        ? `Carried over · since ${day(task.assignedAt, weekYear)}`
-        : `Assigned ${day(task.assignedAt, weekYear, true)}`,
+        ? `Carried over · since ${day(weekTaskAssignedAt(task), weekYear)}`
+        : `Assigned ${day(weekTaskAssignedAt(task), weekYear, true)}`,
     },
   ]
   if (task.unassignedAt) {

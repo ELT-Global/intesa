@@ -105,9 +105,14 @@ export type WeekTaskInput = {
   status: TaskStatus
   completedAt: string | null
   assignedAt: string
+  plannedAt: string | null
   carriedOver: boolean
   unassignedAt: string | null
 }
+
+/** The date shown as assigned: when it became planned work (left Backlog), else the assignment. */
+export const weekTaskAssignedAt = (task: Pick<WeekTaskInput, "assignedAt" | "plannedAt">) =>
+  task.plannedAt ?? task.assignedAt
 
 export type WeekPersonInput<T extends WeekTaskInput = WeekTaskInput> = {
   user: { name: string }
@@ -184,7 +189,7 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
     const label = url ? `[${key}](${linkTarget(url)})` : key
     const state =
       done && task.completedAt ? `completed ${date(task.completedAt)}` : STATUS_LABELS[task.status]
-    const assigned = `assigned ${date(task.assignedAt)}`
+    const assigned = `assigned ${date(weekTaskAssignedAt(task))}`
     const parts = [state, task.carriedOver ? `carried over, ${assigned}` : assigned]
     if (task.unassignedAt) parts.push(`unassigned ${date(task.unassignedAt)}`)
     return `- [${done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${parts.join(" · ")}`

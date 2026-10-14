@@ -130,6 +130,7 @@ function task(overrides: Partial<WeekTaskInput> = {}): WeekTaskInput {
     status: "todo",
     completedAt: null,
     assignedAt: new Date(2026, 9, 12, 9).toISOString(),
+    plannedAt: null,
     carriedOver: false,
     unassignedAt: null,
     ...overrides,
@@ -181,7 +182,9 @@ describe("weekLogMarkdown", () => {
             key: "WEB-15",
             title: "Add CSV export",
             status: "in_progress",
-            assignedAt: at(10, 2),
+            assignedAt: at(9, 20),
+            // Left Backlog after it was assigned, so that is the date shown.
+            plannedAt: at(10, 2),
             carriedOver: true,
           }),
           task({

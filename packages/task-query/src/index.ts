@@ -52,4 +52,5 @@ export {
   weekLogMarkdown,
   weekLogTasks,
   weekOf,
+  weekTaskAssignedAt,
 } from "./week"

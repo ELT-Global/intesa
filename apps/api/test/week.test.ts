@@ -245,6 +245,60 @@ describe("weekly log tasks", () => {
     })
   })
 
+  test("dates work from when it left Backlog, and Backlog is never carried over", async () => {
+    const { person, task, week, tasksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const parked = await task({
+      created: d(-10),
+      statuses: [["backlog", d(-10)]],
+      assigned: [[ada, d(-10)]],
+    })
+    const pickedUp = await task({
+      created: d(-10),
+      statuses: [
+        ["backlog", d(-10)],
+        ["todo", d(3)],
+      ],
+      assigned: [[ada, d(-10)]],
+    })
+    const plannedEarlier = await task({
+      created: d(-10),
+      statuses: [
+        ["backlog", d(-10)],
+        ["todo", d(-8)],
+      ],
+      assigned: [[ada, d(-10)]],
+    })
+    const assignedLater = await task({
+      created: d(-10),
+      statuses: [["todo", d(-10)]],
+      assigned: [[ada, d(-5)]],
+    })
+    const shelved = await task({
+      created: d(-10),
+      statuses: [
+        ["todo", d(-10)],
+        ["backlog", d(-5)],
+      ],
+      assigned: [[ada, d(-10)]],
+    })
+
+    const byId = new Map(tasksOf((await week()).body, ada)?.map((x) => [x.id, x]))
+    expect(byId.get(parked.id)).toMatchObject({
+      assignedAt: d(-10),
+      plannedAt: null,
+      carriedOver: false,
+    })
+    expect(byId.get(pickedUp.id)).toMatchObject({ plannedAt: d(3), carriedOver: false })
+    expect(byId.get(plannedEarlier.id)).toMatchObject({ plannedAt: d(-8), carriedOver: true })
+    expect(byId.get(assignedLater.id)).toMatchObject({ plannedAt: d(-5), carriedOver: true })
+    expect(byId.get(shelved.id)).toMatchObject({
+      startStatus: "backlog",
+      plannedAt: d(-10),
+      carriedOver: false,
+    })
+  })
+
   test("keeps work completed in the week and drops work completed outside it", async () => {
     const { person, task, week, tasksOf } = await setup()
     const ada = await person("ada@example.com", "Ada")
