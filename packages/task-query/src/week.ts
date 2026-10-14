@@ -165,11 +165,23 @@ export function weekLogTasks<T extends WeekTaskInput>(people: readonly WeekPerso
   )
 }
 
-/** The whole week as Markdown: the text the web page copies and the CLI prints. */
-export function weekLogMarkdown<T extends WeekTaskInput>(
+type ReportTask = { done: boolean; key: string; url?: string; title: string; details: string }
+type ReportPerson = { name: string; counts: string; completed: ReportTask[]; pending: ReportTask[] }
+// The week as plain text pieces, which each format below lays out and escapes its own way.
+type WeekReport = {
+  title: string
+  workspace?: string
+  counts: string
+  people: ReportPerson[]
+  idle: string[]
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim()
+
+function weekReport<T extends WeekTaskInput>(
   log: WeekLogInput<T>,
   opts: WeekLogMarkdownOptions<T>,
-): string {
+): WeekReport {
   const now = opts.now ?? new Date()
   const weekYear = (parseDay(opts.week) ?? now).getFullYear()
   const date = (iso: string) => {
@@ -182,39 +194,126 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
     })
   }
 
-  const line = (task: T) => {
+  const item = (task: T): ReportTask => {
     const done = task.status === "complete"
-    const key = escapeMarkdown(task.key)
-    const url = opts.taskUrl?.(task)
-    const label = url ? `[${key}](${linkTarget(url)})` : key
     const state =
       done && task.completedAt ? `completed ${date(task.completedAt)}` : STATUS_LABELS[task.status]
     const assigned = `assigned ${date(weekTaskAssignedAt(task))}`
     const parts = [state, task.carriedOver ? `carried over, ${assigned}` : assigned]
     if (task.unassignedAt) parts.push(`unassigned ${date(task.unassignedAt)}`)
-    return `- [${done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${parts.join(" · ")}`
+    return {
+      done,
+      key: task.key,
+      url: opts.taskUrl?.(task),
+      title: oneLine(task.title),
+      details: parts.join(" · "),
+    }
   }
 
   const people = log.people.filter((person) => person.tasks.length > 0)
-  const idle = log.people.filter((person) => person.member && person.tasks.length === 0)
-  const all = weekCounts(weekLogTasks(people))
-  const workspace = opts.workspace ? `${escapeMarkdown(opts.workspace)} · ` : ""
-
-  const blocks = [
-    `# Weekly log · ${formatWeek(opts.week, now)}`,
-    `${workspace}${weekCountsText(all)}`,
-  ]
-  for (const person of people) {
-    blocks.push(`## ${escapeMarkdown(person.user.name)}`)
-    blocks.push(weekCountsText(weekCounts(person.tasks)))
-    const completed = person.tasks.filter((task) => task.status === "complete")
-    const pending = person.tasks.filter((task) => task.status !== "complete")
-    if (completed.length > 0) blocks.push("**Completed**", completed.map(line).join("\n"))
-    if (pending.length > 0) blocks.push("**Pending**", pending.map(line).join("\n"))
+  return {
+    title: `Weekly log · ${formatWeek(opts.week, now)}`,
+    workspace: opts.workspace && oneLine(opts.workspace),
+    counts: weekCountsText(weekCounts(weekLogTasks(people))),
+    people: people.map((person) => ({
+      name: oneLine(person.user.name),
+      counts: weekCountsText(weekCounts(person.tasks)),
+      completed: person.tasks.filter((task) => task.status === "complete").map(item),
+      pending: person.tasks.filter((task) => task.status !== "complete").map(item),
+    })),
+    idle: log.people
+      .filter((person) => person.member && person.tasks.length === 0)
+      .map((person) => oneLine(person.user.name)),
   }
-  if (idle.length > 0) {
-    const names = idle.map((person) => escapeMarkdown(person.user.name)).join(", ")
-    blocks.push(`**Nothing this week:** ${names}`)
+}
+
+/** The whole week as Markdown: what the web page copies and the CLI prints by default. */
+export function weekLogMarkdown<T extends WeekTaskInput>(
+  log: WeekLogInput<T>,
+  opts: WeekLogMarkdownOptions<T>,
+): string {
+  const report = weekReport(log, opts)
+  const line = (task: ReportTask) => {
+    const key = escapeMarkdown(task.key)
+    const label = task.url ? `[${key}](${linkTarget(task.url)})` : key
+    return `- [${task.done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${task.details}`
+  }
+  const workspace = report.workspace ? `${escapeMarkdown(report.workspace)} · ` : ""
+  const blocks = [`# ${report.title}`, `${workspace}${report.counts}`]
+  for (const person of report.people) {
+    blocks.push(`## ${escapeMarkdown(person.name)}`, person.counts)
+    if (person.completed.length > 0) {
+      blocks.push("**Completed**", person.completed.map(line).join("\n"))
+    }
+    if (person.pending.length > 0) blocks.push("**Pending**", person.pending.map(line).join("\n"))
+  }
+  if (report.idle.length > 0) {
+    blocks.push(`**Nothing this week:** ${report.idle.map(escapeMarkdown).join(", ")}`)
   }
   return `${blocks.join("\n\n")}\n`
+}
+
+/**
+ * The week in the Markdown subset that also reads right in Slack: *single asterisks* for
+ * emphasis, plain `- ` lists, no headings, checkboxes or links (Slack has no escapes, so text
+ * is left as written). Each group is its own paragraph so Markdown keeps the line breaks.
+ */
+export function weekLogSimpleMarkdown<T extends WeekTaskInput>(
+  log: WeekLogInput<T>,
+  opts: WeekLogMarkdownOptions<T>,
+): string {
+  const report = weekReport(log, opts)
+  const list = (title: string, tasks: ReportTask[]) =>
+    `_${title}_\n${tasks.map((task) => `- ${task.key} ${task.title} — ${task.details}`).join("\n")}`
+  const workspace = report.workspace ? `${report.workspace} · ` : ""
+  const blocks = [`*${report.title}*`, `${workspace}${report.counts}`]
+  for (const person of report.people) {
+    blocks.push(`*${person.name}* · ${person.counts}`)
+    if (person.completed.length > 0) blocks.push(list("Completed", person.completed))
+    if (person.pending.length > 0) blocks.push(list("Pending", person.pending))
+  }
+  if (report.idle.length > 0) blocks.push(`*Nothing this week:* ${report.idle.join(", ")}`)
+  return `${blocks.join("\n\n")}\n`
+}
+
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+
+/**
+ * The week as an HTML fragment for pasting as rich text into email and documents. Styles are
+ * inline and few, since mail clients drop stylesheets; fonts come from where it is pasted.
+ */
+export function weekLogHtml<T extends WeekTaskInput>(
+  log: WeekLogInput<T>,
+  opts: WeekLogMarkdownOptions<T>,
+): string {
+  const report = weekReport(log, opts)
+  const muted = 'style="color:#6b7280"'
+  const item = (task: ReportTask) => {
+    const key = escapeHtml(task.key)
+    const label = task.url ? `<a href="${escapeHtml(task.url)}">${key}</a>` : key
+    return `<li>${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span></li>`
+  }
+  const list = (title: string, tasks: ReportTask[]) =>
+    tasks.length > 0
+      ? [`<p><strong>${title}</strong></p>`, `<ul>${tasks.map(item).join("")}</ul>`]
+      : []
+  const workspace = report.workspace ? `${escapeHtml(report.workspace)} · ` : ""
+  const parts = [
+    `<h2>${escapeHtml(report.title)}</h2>`,
+    `<p ${muted}>${workspace}${report.counts}</p>`,
+  ]
+  for (const person of report.people) {
+    parts.push(
+      `<h3>${escapeHtml(person.name)}</h3>`,
+      `<p ${muted}>${person.counts}</p>`,
+      ...list("Completed", person.completed),
+      ...list("Pending", person.pending),
+    )
+  }
+  if (report.idle.length > 0) {
+    const names = report.idle.map(escapeHtml).join(", ")
+    parts.push(`<p><strong>Nothing this week:</strong> ${names}</p>`)
+  }
+  return `${parts.join("\n")}\n`
 }

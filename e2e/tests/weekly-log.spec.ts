@@ -182,6 +182,53 @@ test("Copy as Markdown copies the whole week with task links", async ({ page, br
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toBeVisible()
 })
 
+test("the copy menu offers simple Markdown and rich text", async ({ page, browser }) => {
+  const { slug, project, done } = await setup(page, browser)
+  await page.goto(`/w/${slug}/log`)
+  const more = page.getByRole("button", { name: "More copy formats" })
+  await expect(more).toBeEnabled()
+
+  await more.click()
+  await expect(page.getByRole("menuitem", { name: "Copy as rich text" })).toContainText(
+    "For email and documents",
+  )
+  await page.getByRole("menuitem", { name: "Copy as simple Markdown" }).click()
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible()
+  await expect(page.getByRole("status")).toHaveText("Copied the week as simple Markdown")
+
+  const simple = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")
+  expect(simple).toMatch(/^\*Weekly log · /)
+  expect(simple).toContain("\n*Ada Lovelace* · 1 completed · 1 pending\n")
+  expect(simple).toContain("\n_Completed_\n")
+  expect(simple).toContain(`\n- ${done.key} Fix login redirect — completed `)
+  expect(simple).not.toMatch(/^#/m)
+  expect(simple).not.toContain("](")
+
+  // Wait out the "Copied" state so the next copy is seen to set it again.
+  await expect(page.getByRole("button", { name: "Copy as Markdown" })).toBeVisible()
+  await more.click()
+  await page.getByRole("menuitem", { name: "Copy as rich text" }).click()
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible()
+  await expect(page.getByRole("status")).toHaveText("Copied the week as rich text")
+
+  const rich = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    const read = async (type: string) =>
+      item?.types.includes(type) ? await (await item.getType(type)).text() : null
+    return {
+      types: item?.types ?? [],
+      html: await read("text/html"),
+      plain: await read("text/plain"),
+    }
+  })
+  expect(rich.types).toContain("text/html")
+  expect(rich.html).toContain("<h2>Weekly log · ")
+  expect(rich.html).toContain(
+    `<a href="${new URL(page.url()).origin}/w/${slug}/projects/${project.id}?task=${done.id}">${done.key}</a>`,
+  )
+  expect(rich.plain?.replace(/\r\n/g, "\n")).toBe(simple)
+})
+
 test("members with nothing that week are listed together", async ({ page, browser }) => {
   const { slug } = await setup(page, browser)
   const idleEmail = uniqueEmail("mary")

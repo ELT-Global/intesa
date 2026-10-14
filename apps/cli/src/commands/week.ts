@@ -1,4 +1,10 @@
-import { parseWeek, weekBounds, weekLogMarkdown } from "@intesa/task-query"
+import {
+  parseWeek,
+  weekBounds,
+  weekLogHtml,
+  weekLogMarkdown,
+  weekLogSimpleMarkdown,
+} from "@intesa/task-query"
 import { z } from "zod"
 import { webLinks } from "../client/links"
 import { resolver } from "../client/resolve"
@@ -32,13 +38,21 @@ async function loadWeek(ctx: Ctx, week: string) {
   }
 }
 
-// The web page's "Copy as Markdown" text: rendered on a terminal, its source when piped or --raw.
-async function format(ctx: Ctx, log: Log, raw: boolean) {
+// The web page's copy formats. Markdown is rendered on a terminal unless --raw; the simple
+// Markdown and HTML are always printed as they are.
+const FORMATS = {
+  markdown: weekLogMarkdown,
+  simple: weekLogSimpleMarkdown,
+  html: weekLogHtml,
+} as const
+type Format = keyof typeof FORMATS
+
+async function format(ctx: Ctx, log: Log, as: Format, raw: boolean) {
   const r = resolver(ctx)
   const { id } = await r.workspace()
   const workspace = (await r.workspaces()).find((w) => w.id === id)?.name
-  const markdown = weekLogMarkdown(log, { week: log.week, workspace, taskUrl: (t) => t.url })
-  return ctx.mode.tty && !raw ? renderMarkdown(markdown, ctx.mode) : markdown
+  const text = FORMATS[as](log, { week: log.week, workspace, taskUrl: (t) => t.url })
+  return as === "markdown" && ctx.mode.tty && !raw ? renderMarkdown(text, ctx.mode) : text
 }
 
 const weekArg = {
@@ -56,7 +70,9 @@ export default defineCommand({
     "were completed and which are still pending, when each was assigned and whether it was\n" +
     "carried over from an earlier week. Weeks run Monday to Sunday in local time. WEEK is `this`\n" +
     "(the default), `last`, `next` or any day as YYYY-MM-DD. The output is Markdown: rendered on\n" +
-    "a terminal, its source when piped or with --raw. --json prints the people and their tasks.",
+    "a terminal, its source when piped or with --raw. --format simple prints Markdown that Slack\n" +
+    "also reads (no headings or links) and --format html prints it for pasting as rich text.\n" +
+    "--json prints the people and their tasks.",
   context: ["workspace"],
   args: [weekArg],
   flags: z.object({
@@ -64,6 +80,13 @@ export default defineCommand({
       .boolean()
       .default(false)
       .meta({ description: "Print the Markdown source, without rendering it" }),
+    format: z
+      .enum(Object.keys(FORMATS) as [Format, ...Format[]])
+      .default("markdown")
+      .meta({
+        placeholder: "format",
+        description: "markdown, simple (Slack-friendly Markdown) or html (rich text)",
+      }),
   }),
   output: "week",
   paged: true,
@@ -71,6 +94,7 @@ export default defineCommand({
     "intesa week",
     "intesa week last",
     "intesa week 2026-10-05 --raw | pbcopy",
+    "intesa week --format simple | pbcopy",
     "intesa week --json",
   ],
   async run(ctx, { week: input = "this" }) {
@@ -83,5 +107,5 @@ export default defineCommand({
     }
     return loadWeek(ctx, week)
   },
-  human: (ctx, log, flags) => format(ctx, log, flags.raw),
+  human: (ctx, log, flags) => format(ctx, log, flags.format, flags.raw),
 })

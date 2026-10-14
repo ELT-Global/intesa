@@ -67,6 +67,28 @@ describe("intesa week", () => {
     expect(raw.stdout).toBe(r.stdout)
   })
 
+  test("--format prints the simple Markdown or the HTML, even on a terminal", async () => {
+    const w = await world(server)
+    const mine = await w.addTask({ title: "Fix login", assigneeIds: [w.me] })
+    const tty = { ...env, INTESA_FORCE_TTY: "100", INTESA_PAGER: "cat" }
+
+    const simple = await w.box.run(["week", "--format", "simple"], { env: tty })
+    expect(simple.exitCode, simple.stderr).toBe(0)
+    expect(simple.stdout).toStartWith("*Weekly log · ")
+    expect(simple.stdout).toContain(
+      `*Alan Owner* · 1 pending\n\n_Pending_\n- ${mine.key} Fix login — `,
+    )
+    expect(simple.stdout).not.toContain("](")
+
+    const html = await w.box.run(["week", "--format", "html"], { env: tty })
+    expect(html.exitCode, html.stderr).toBe(0)
+    expect(html.stdout).toStartWith("<h2>Weekly log · ")
+    expect(html.stdout).toContain(`?task=${mine.id}">${mine.key}</a> Fix login`)
+
+    const bad = await w.box.run(["week", "--format", "pdf"], { env })
+    expect(bad.exitCode).toBe(2)
+  })
+
   test("takes this, last, next or a day in the week", async () => {
     const w = await world(server)
     const run = async (...args: string[]) => {

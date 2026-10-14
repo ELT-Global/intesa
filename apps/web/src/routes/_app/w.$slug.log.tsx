@@ -3,9 +3,12 @@ import {
   parseWeek,
   STATUS_LABELS,
   shiftWeek,
+  type WeekLogMarkdownOptions,
   weekCounts,
   weekCountsText,
+  weekLogHtml,
   weekLogMarkdown,
+  weekLogSimpleMarkdown,
   weekLogTasks,
   weekOf,
   weekTaskAssignedAt,
@@ -14,6 +17,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
@@ -31,7 +35,13 @@ import { StatusIcon } from "@/components/tasks/properties"
 import { TaskKey } from "@/components/tasks/task-key"
 import { Avatar } from "@/components/ui/avatar"
 import { Kbd } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonClass } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Panel, PanelHeader } from "@/components/ui/panel"
 import type { WeekPerson, WeekTask } from "@/lib/api"
 import { weekLogQuery, workspacesQuery } from "@/lib/queries"
@@ -279,19 +289,44 @@ function WeekNavigator({
   )
 }
 
-function CopyButton({ disabled, getText }: { disabled: boolean; getText: () => string }) {
-  const [copied, setCopied] = useState(false)
+type CopyFormat = "markdown" | "rich" | "simple"
+
+const FORMAT_NAMES: Record<CopyFormat, string> = {
+  markdown: "Markdown",
+  rich: "rich text",
+  simple: "simple Markdown",
+}
+
+type WeekWriters = { markdown: () => string; simple: () => string; html: () => string }
+
+// Rich text carries the HTML for email and documents, with the simple Markdown as its plain text.
+async function writeRich(html: string, plain: string) {
+  if (typeof ClipboardItem === "undefined") {
+    await navigator.clipboard.writeText(plain)
+    return
+  }
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      "text/html": new Blob([html], { type: "text/html" }),
+      "text/plain": new Blob([plain], { type: "text/plain" }),
+    }),
+  ])
+}
+
+function CopyButton({ disabled, write }: { disabled: boolean; write: WeekWriters }) {
+  const [copied, setCopied] = useState<CopyFormat | null>(null)
 
   useEffect(() => {
     if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 2000)
+    const timer = setTimeout(() => setCopied(null), 2000)
     return () => clearTimeout(timer)
   }, [copied])
 
-  async function copy() {
+  async function copy(format: CopyFormat) {
     try {
-      await navigator.clipboard.writeText(getText())
-      setCopied(true)
+      if (format === "rich") await writeRich(write.html(), write.simple())
+      else await navigator.clipboard.writeText(write[format]())
+      setCopied(format)
     } catch {
       notify("Could not copy to the clipboard.", "error")
     }
@@ -299,14 +334,51 @@ function CopyButton({ disabled, getText }: { disabled: boolean; getText: () => s
 
   return (
     <>
-      <Button variant="outline" size="sm" disabled={disabled} onClick={() => void copy()}>
-        {copied ? <Check /> : <Copy />}
-        {copied ? "Copied" : "Copy as Markdown"}
-      </Button>
+      <div className="flex">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="rounded-r-none focus-visible:z-10"
+          onClick={() => void copy("markdown")}
+        >
+          {copied ? <Check /> : <Copy />}
+          {copied ? "Copied" : "Copy as Markdown"}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="More copy formats"
+            disabled={disabled}
+            className={cn(
+              buttonClass("outline", "sm", true),
+              "-ml-px rounded-l-none focus-visible:z-10 data-[state=open]:bg-accent",
+            )}
+          >
+            <ChevronDown />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => void copy("rich")}>
+              <CopyFormatLabel title="Copy as rich text" hint="For email and documents" />
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copy("simple")}>
+              <CopyFormatLabel title="Copy as simple Markdown" hint="For Slack and chat" />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <span role="status" className="sr-only">
-        {copied ? "Copied the week as Markdown" : ""}
+        {copied ? `Copied the week as ${FORMAT_NAMES[copied]}` : ""}
       </span>
     </>
+  )
+}
+
+function CopyFormatLabel({ title, hint }: { title: string; hint: string }) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span>{title}</span>
+      <span className="text-[11px] text-subtle-foreground">{hint}</span>
+    </span>
   )
 }
 
@@ -339,19 +411,24 @@ function WeeklyLogPage() {
   const idle = people.filter((p) => p.tasks.length === 0)
   const weekYear = Number(week.slice(0, 4))
 
-  const markdown = () =>
-    weekLogMarkdown(log ?? { people: [] }, {
-      week,
-      workspace: workspace?.name,
-      taskUrl: (t) => `${location.origin}/w/${slug}/projects/${t.project.id}?task=${t.id}`,
-    })
+  const logInput = log ?? { people: [] }
+  const exportOptions: WeekLogMarkdownOptions<WeekTask> = {
+    week,
+    workspace: workspace?.name,
+    taskUrl: (t) => `${location.origin}/w/${slug}/projects/${t.project.id}?task=${t.id}`,
+  }
+  const write: WeekWriters = {
+    markdown: () => weekLogMarkdown(logInput, exportOptions),
+    simple: () => weekLogSimpleMarkdown(logInput, exportOptions),
+    html: () => weekLogHtml(logInput, exportOptions),
+  }
 
   return (
     <>
       <PageTitle
         title="Weekly log."
         description="Who worked on what, week by week."
-        actions={<CopyButton disabled={!log || query.isPlaceholderData} getText={markdown} />}
+        actions={<CopyButton disabled={!log || query.isPlaceholderData} write={write} />}
       />
       <WeekNavigator week={week} current={current} onChange={goTo} />
       {query.isError && <ErrorState error={query.error} onRetry={() => void query.refetch()} />}

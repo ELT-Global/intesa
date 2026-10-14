@@ -278,6 +278,7 @@ intesa status -w acme --json --fields assigned
 intesa week
 intesa week last
 intesa week 2026-10-05 --raw | pbcopy
+intesa week --format simple | pbcopy
 intesa week --json
 intesa api /me
 intesa api /workspaces -f name=Acme -f slug=acme

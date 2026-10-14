@@ -6,7 +6,9 @@ import {
   type WeekTaskInput,
   weekBounds,
   weekCounts,
+  weekLogHtml,
   weekLogMarkdown,
+  weekLogSimpleMarkdown,
   weekOf,
 } from "../src"
 
@@ -331,5 +333,71 @@ describe("weekLogMarkdown", () => {
       { week: WEEK, taskUrl: () => "https://x.test/a b/(c)", now: NOW },
     )
     expect(markdown).toContain("[WEB-1](https://x.test/a%20b/%28c%29)")
+  })
+
+  const opts = {
+    week: WEEK,
+    workspace: "Acme",
+    taskUrl: (t: WeekTaskInput) => `https://intesa.test/t/${t.key}`,
+    now: NOW,
+  }
+
+  test("simple Markdown keeps to what Slack also reads", () => {
+    expect(weekLogSimpleMarkdown(log, opts)).toBe(
+      [
+        "*Weekly log · Oct 12 – 18, 2026*",
+        "",
+        "Acme · 1 completed · 2 pending",
+        "",
+        "*Ada Lovelace* · 1 completed · 2 pending",
+        "",
+        "_Completed_",
+        "- WEB-12 Fix login redirect — completed Wed, Oct 14 · assigned Mon, Oct 12",
+        "",
+        "_Pending_",
+        "- WEB-15 Add CSV export — In progress · carried over, assigned Fri, Oct 2",
+        "- API-3 Rate limit — Todo · assigned Thu, Oct 15 · unassigned Fri, Oct 16",
+        "",
+        "*Nothing this week:* Grace Hopper",
+        "",
+      ].join("\n"),
+    )
+  })
+
+  test("simple Markdown leaves titles as written", () => {
+    const text = weekLogSimpleMarkdown(
+      {
+        people: [
+          {
+            user: { name: "Ada" },
+            member: true,
+            tasks: [task({ title: "Fix *all* [the]\nbugs" })],
+          },
+        ],
+      },
+      opts,
+    )
+    expect(text).toContain("- WEB-1 Fix *all* [the] bugs — ")
+  })
+
+  test("rich text is HTML with links, and escapes what it is given", () => {
+    const html = weekLogHtml(
+      {
+        people: [
+          ...log.people,
+          { user: { name: "Bo <b>" }, member: true, tasks: [task({ title: 'A & "B" <i>' })] },
+        ],
+      },
+      opts,
+    )
+    expect(html).toStartWith("<h2>Weekly log · Oct 12 – 18, 2026</h2>\n")
+    expect(html).toContain("<h3>Ada Lovelace</h3>")
+    expect(html).toContain(
+      '<li><a href="https://intesa.test/t/WEB-12">WEB-12</a> Fix login redirect <span style="color:#6b7280">— completed Wed, Oct 14 · assigned Mon, Oct 12</span></li>',
+    )
+    expect(html).toContain("<p><strong>Pending</strong></p>")
+    expect(html).toContain("<h3>Bo &lt;b&gt;</h3>")
+    expect(html).toContain("A &amp; &quot;B&quot; &lt;i&gt;")
+    expect(html).toContain("<p><strong>Nothing this week:</strong> Grace Hopper</p>")
   })
 })
