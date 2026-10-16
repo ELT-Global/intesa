@@ -124,6 +124,24 @@ test("Shift+F10 opens exactly one menu; Cancel on Delete returns focus to the ca
   await expect(card).toBeFocused()
 })
 
+for (const close of ["Cancel", "Close", "Escape"] as const) {
+  test(`the board stays usable after closing the menu's Delete dialog with ${close}`, async ({
+    page,
+  }) => {
+    await setup(page, ["Write spec", "Keep me"])
+    await column(page, "Todo").getByRole("button", { name: /Write spec/ }).click({ button: "right" })
+    await page.getByRole("menuitem", { name: /^Delete/ }).click()
+    const confirm = page.getByRole("dialog", { name: "Delete task?" })
+    if (close === "Escape") await page.keyboard.press("Escape")
+    else await confirm.getByRole("button", { name: close }).click()
+    await expect(confirm).toBeHidden()
+
+    await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none")
+    await column(page, "Todo").getByRole("button", { name: /Keep me/ }).click({ timeout: 2000 })
+    await expect(page).toHaveURL(/task=/)
+  })
+}
+
 test("a picker inside a table row does not open the row menu on Shift+F10", async ({ page }) => {
   await setup(page, ["Write spec"], "table")
   await page
