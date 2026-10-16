@@ -9,6 +9,7 @@ import { livePreviewPlugin } from "./decorations"
 import { formattingKeymap } from "./formatting"
 import { inputRules } from "./input-rules"
 import { listKeymap } from "./lists"
+import { tables } from "./tables"
 import { editorTheme } from "./theme"
 
 export function createMarkdownEditorExtensions() {
@@ -17,6 +18,7 @@ export function createMarkdownEditorExtensions() {
     // (embedded-language highlighting) this editor does not use.
     new LanguageSupport(markdownLanguage),
     livePreviewPlugin,
+    tables,
     inputRules,
     Prec.highest(codeBlockKeymap),
     Prec.highest(blockquoteKeymap),
@@ -60,4 +62,5 @@ export {
 } from "./lists"
 export { codeBlockAt, inCode } from "./shared/code"
 export { cursorOnLine, cursorTouches } from "./shared/cursor"
+export { TableWidget, tableRevealed } from "./tables"
 export { editorTheme } from "./theme"

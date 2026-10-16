@@ -154,6 +154,54 @@ test.describe("composer description", () => {
     )
   })
 
+  test("tables: typed markdown renders as a table once the caret leaves it", async ({ page }) => {
+    await openBoard(page)
+    const dialog = await openComposer(page)
+    await dialog.getByLabel("Title").fill("Table")
+    await expect(editorHost(dialog)).toHaveAttribute("data-editor", "ready")
+    const editor = description(dialog)
+    await editor.click()
+
+    // The delimiter row's dashes stay dashes; elsewhere `--` would become an em dash.
+    await page.keyboard.type("| Item | Qty |")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("| :--- | ---: |")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("| **Apples** | 3 |")
+    // While the caret is in the table it is monospace markdown.
+    await expect(editor.locator(".cm-lp-table")).toHaveCount(0)
+    await expect(editor.locator(".cm-lp-table-raw")).toHaveCount(3)
+    await expect(editor).toContainText("| :--- | ---: |")
+    const family = await editor
+      .locator(".cm-lp-table-raw")
+      .first()
+      .evaluate((el) => getComputedStyle(el).fontFamily)
+    expect(family).toMatch(/mono/i)
+
+    // A blank line ends the table; without one, "after" would be another row.
+    await page.keyboard.press("Enter")
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("after")
+    const table = editor.locator("table.cm-lp-table")
+    await expect(table.locator("th")).toHaveText(["Item", "Qty"])
+    await expect(table.locator("td")).toHaveText(["Apples", "3"])
+    await expect(table.locator("td strong")).toHaveText("Apples")
+    await expect(table.locator("td").nth(1)).toHaveCSS("text-align", "right")
+    await expect(editor).not.toContainText("|")
+
+    // Clicking a cell brings the markdown back with the caret at the start of that cell.
+    await table.getByText("3").click()
+    await expect(editor.locator(".cm-lp-table")).toHaveCount(0)
+    await page.keyboard.type("1")
+    await expect(editor).toContainText("| **Apples** | 13 |")
+
+    const created = page.waitForRequest(isCreate)
+    await page.keyboard.press("ControlOrMeta+Enter")
+    expect((await created).postDataJSON().body).toBe(
+      ["| Item | Qty |", "| :--- | ---: |", "| **Apples** | 13 |", "", "after"].join("\n"),
+    )
+  })
+
   test("code blocks: Backspace on an empty block removes it", async ({ page }) => {
     await openBoard(page)
     const dialog = await openComposer(page)
@@ -302,6 +350,35 @@ test.describe("sheet description", () => {
     await expect(editor.locator(".cm-lp-codefence-hidden")).toHaveCount(2)
     await expect(editor).toContainText("bun test")
     await expect(editor).not.toContainText("```")
+  })
+
+  test("a stored table renders as a table until the description is edited", async ({ page }) => {
+    const body = [
+      "| Fruit | Note |",
+      "| --- | --- |",
+      "| Pears | [shop](https://example.com) |",
+      "| Plums |",
+      "",
+      "outro",
+    ].join("\n")
+    const { sheet } = await openSheet(page, body)
+    const editor = description(sheet)
+    const table = editor.locator("table.cm-lp-table")
+
+    // The caret starts in the table, but an unfocused description reads as a document.
+    await expect(table.locator("th")).toHaveText(["Fruit", "Note"])
+    await expect(table.locator("td")).toHaveText(["Pears", "shop", "Plums", ""])
+    await expect(table.locator(".cm-lp-link")).toHaveText("shop")
+    await expect(editor).not.toContainText("https://example.com")
+
+    await table.getByText("Pears").click()
+    await expect(editor.locator(".cm-lp-table-raw")).toHaveCount(4)
+    await expect(editor).toContainText("| Pears | [shop](https://example.com) |")
+
+    // Leaving the field renders it again, even though the caret is still in the table.
+    await sheet.getByRole("textbox", { name: "Task title" }).click()
+    await expect(table.locator("td").first()).toHaveText("Pears")
+    await expect(editor.locator(".cm-lp-table-raw")).toHaveCount(0)
   })
 
   test("Escape reverts an unsaved edit and keeps the sheet open", async ({ page }) => {

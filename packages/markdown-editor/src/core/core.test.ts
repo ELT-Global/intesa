@@ -431,6 +431,20 @@ describe("markdown-editor-core input rules — replacements", () => {
     destroy()
   })
 
+  it("leaves the dashes of a table delimiter row alone", () => {
+    const { view, destroy } = createTestView("")
+    typeText(view, "| --- | :--: | ---: |")
+    expect(view.state.doc.toString()).toBe("| --- | :--: | ---: |")
+    destroy()
+  })
+
+  it("still replaces -- in a table cell", () => {
+    const { view, destroy } = createTestView("")
+    typeText(view, "| a -- b |")
+    expect(view.state.doc.toString()).toBe("| a — b |")
+    destroy()
+  })
+
   it("does not fire for non-input.type transactions", () => {
     const { view, destroy } = createTestView("")
     // dispatch without the input.type userEvent — no rule should apply

@@ -12,6 +12,7 @@ import { AlertBadgeWidget } from "./blockquotes"
 import { decorateCodeBlock } from "./code-blocks/decorate"
 import { BulletWidget, CheckboxWidget, formatOrderedMarker, OrderedMarkerWidget } from "./lists"
 import { cursorOnLine, cursorTouches } from "./shared/cursor"
+import { decorateRawTable, tableRevealed } from "./tables"
 
 // ---------------------------------------------------------------------------
 // Decoration builder
@@ -194,6 +195,12 @@ export function buildDecorations(view: EditorView): DecorationSet {
           ranges.push(Decoration.line({ class: "cm-lp-hr" }).range(from))
           ranges.push(Decoration.replace({}).range(from, to))
         }
+        return false
+      }
+
+      // A rendered table is a block widget from the tables field; only a revealed one is styled here.
+      if (name === "Table") {
+        if (tableRevealed(state, node.node)) decorateRawTable(state, node.node, ranges)
         return false
       }
 

@@ -244,6 +244,40 @@
     line-height: 0 !important;
   }
 
+  /* ── Tables ───────────────────────────────────────────────────────────── */
+  /* Rendered while the caret is elsewhere; the wrapper scrolls a wide table instead of the
+     editor. While editing, the markdown lines are monospace so the pipes line up. */
+
+  .cm-doc-editor .cm-lp-table-wrap {
+    overflow-x: auto;
+    padding: 0.25rem 0;
+    cursor: text;
+  }
+
+  .cm-doc-editor .cm-lp-table {
+    border-collapse: collapse;
+    font-size: 0.875em;
+    line-height: 1.5;
+  }
+
+  .cm-doc-editor .cm-lp-table th,
+  .cm-doc-editor .cm-lp-table td {
+    border: 1px solid var(--border);
+    padding: 0.375rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .cm-doc-editor .cm-lp-table th {
+    font-weight: 600;
+    background: var(--muted);
+  }
+
+  .cm-doc-editor .cm-lp-table-raw {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
   /* ── Lists ────────────────────────────────────────────────────────────── */
 
   .cm-doc-editor .cm-lp-bullet {

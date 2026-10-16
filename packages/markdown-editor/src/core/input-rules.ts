@@ -22,6 +22,9 @@ export const INPUT_RULES: InputRule[] = [
   { pattern: /!=$/, replacement: "\u2260", original: "!=" }, // ≠ not equal
 ]
 
+// A line of only pipes, colons, dashes and spaces that starts with a pipe.
+const TABLE_DELIMITER_ROW = /^[ \t]*\|[ \t|:-]*$/
+
 // ---------------------------------------------------------------------------
 // Transaction filter — auto-replace trigger sequences on input
 // ---------------------------------------------------------------------------
@@ -37,6 +40,8 @@ export const inputRules = EditorState.transactionFilter.of((tr) => {
     const cursor = range.from
     // `--` or `->` in code is code, not typography.
     if (inCode(state, cursor)) continue
+    // Nor are the dashes of a table's delimiter row (`| --- | :-: |`).
+    if (TABLE_DELIMITER_ROW.test(state.doc.lineAt(cursor).text)) continue
     const lookback = state.doc.sliceString(Math.max(0, cursor - 4), cursor)
     for (const rule of INPUT_RULES) {
       const match = lookback.match(rule.pattern)
