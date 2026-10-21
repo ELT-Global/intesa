@@ -80,7 +80,9 @@ export function formatWeek(week: string, _now = new Date()): string {
 export type WeekCounts = {
   total: number
   completed: number
+  /** Open work other than Backlog. */
   pending: number
+  backlog: number
   carriedOver: number
   added: number
 }
@@ -89,13 +91,15 @@ export function weekCounts(
   tasks: readonly { status: TaskStatus; carriedOver: boolean }[],
 ): WeekCounts {
   const completed = tasks.filter((task) => task.status === "complete").length
+  const backlog = tasks.filter((task) => task.status === "backlog").length
   const carriedOver = tasks.filter((task) => task.carriedOver).length
   return {
     total: tasks.length,
     completed,
-    pending: tasks.length - completed,
+    pending: tasks.length - completed - backlog,
+    backlog,
     carriedOver,
-    added: tasks.length - carriedOver,
+    added: tasks.length - backlog - carriedOver,
   }
 }
 
@@ -166,11 +170,12 @@ function linkTarget(url: string): string {
   return url.replace(/\(/g, "%28").replace(/\)/g, "%29").replace(/\s/g, "%20")
 }
 
-/** "2 completed · 3 pending", leaving out a zero ("1 pending"); "No tasks" when both are. */
+/** "2 completed · 3 pending · 1 backlog", leaving out zeros; "No tasks" when all are. */
 export function weekCountsText(c: WeekCounts): string {
   const parts = [
     c.completed > 0 && `${c.completed} completed`,
     c.pending > 0 && `${c.pending} pending`,
+    c.backlog > 0 && `${c.backlog} backlog`,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(" · ") : "No tasks"
 }
@@ -195,7 +200,13 @@ type ReportTask = {
   /** "WEB-3 Fix the build, API-2 Add limits", while something still blocks it. */
   blockedBy?: string
 }
-type ReportPerson = { name: string; counts: string; completed: ReportTask[]; pending: ReportTask[] }
+type ReportPerson = {
+  name: string
+  counts: string
+  completed: ReportTask[]
+  pending: ReportTask[]
+  backlog: ReportTask[]
+}
 // The week as plain text pieces, which each format below lays out and escapes its own way.
 type WeekReport = {
   title: string
@@ -258,7 +269,10 @@ function weekReport<T extends WeekTaskInput>(
       name: oneLine(person.user.name),
       counts: weekCountsText(weekCounts(person.tasks)),
       completed: person.tasks.filter((task) => task.status === "complete").map(item),
-      pending: person.tasks.filter((task) => task.status !== "complete").map(item),
+      pending: person.tasks
+        .filter((task) => task.status !== "complete" && task.status !== "backlog")
+        .map(item),
+      backlog: person.tasks.filter((task) => task.status === "backlog").map(item),
     })),
     idle: log.people
       .filter((person) => person.member && person.tasks.length === 0)
@@ -286,6 +300,7 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
       blocks.push("**Completed**", person.completed.map(line).join("\n"))
     }
     if (person.pending.length > 0) blocks.push("**Pending**", person.pending.map(line).join("\n"))
+    if (person.backlog.length > 0) blocks.push("**Backlog**", person.backlog.map(line).join("\n"))
   }
   if (report.idle.length > 0) {
     blocks.push(`**Nothing this week:** ${report.idle.map(escapeMarkdown).join(", ")}`)
@@ -314,6 +329,7 @@ export function weekLogSimpleMarkdown<T extends WeekTaskInput>(
     blocks.push(`*${person.name}* · ${person.counts}`)
     if (person.completed.length > 0) blocks.push(list("Completed", person.completed))
     if (person.pending.length > 0) blocks.push(list("Pending", person.pending))
+    if (person.backlog.length > 0) blocks.push(list("Backlog", person.backlog))
   }
   if (report.idle.length > 0) blocks.push(`*Nothing this week:* ${report.idle.join(", ")}`)
   return `${blocks.join("\n\n")}\n`
@@ -332,17 +348,24 @@ export function weekLogHtml<T extends WeekTaskInput>(
 ): string {
   const report = weekReport(log, opts)
   const muted = 'style="color:#6b7280"'
+  // Mail clients drop form controls, so the checklist is drawn with ballot box characters in a
+  // list without bullets, which every client lays out the same way.
+  const box = (done: boolean) =>
+    `<span style="font-size:15px">${done ? "&#9745;" : "&#9744;"}</span>`
   const item = (task: ReportTask) => {
     const key = escapeHtml(task.key)
     const label = task.url ? `<a href="${escapeHtml(task.url)}">${key}</a>` : key
     const blocked = task.blockedBy
-      ? `<br><span style="color:#b91c1c">Blocked by ${escapeHtml(task.blockedBy)}</span>`
+      ? `<br><span style="color:#b91c1c">&#8627; Blocked by ${escapeHtml(task.blockedBy)}</span>`
       : ""
-    return `<li>${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span>${blocked}</li>`
+    return `<li style="margin:0 0 6px">${box(task.done)} ${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span>${blocked}</li>`
   }
   const list = (title: string, tasks: ReportTask[]) =>
     tasks.length > 0
-      ? [`<p><strong>${title}</strong></p>`, `<ul>${tasks.map(item).join("")}</ul>`]
+      ? [
+          `<p><strong>${title}</strong></p>`,
+          `<ul style="list-style:none;margin:0 0 12px;padding:0">${tasks.map(item).join("")}</ul>`,
+        ]
       : []
   const workspace = report.workspace ? `${escapeHtml(report.workspace)} · ` : ""
   const parts = [
@@ -355,6 +378,7 @@ export function weekLogHtml<T extends WeekTaskInput>(
       `<p ${muted}>${person.counts}</p>`,
       ...list("Completed", person.completed),
       ...list("Pending", person.pending),
+      ...list("Backlog", person.backlog),
     )
   }
   if (report.idle.length > 0) {

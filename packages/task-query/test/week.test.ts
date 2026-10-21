@@ -194,18 +194,28 @@ describe("weekCounts", () => {
       task({ status: "in_progress", carriedOver: true }),
       task({ status: "todo" }),
       task({ status: "review" }),
+      task({ status: "backlog" }),
     ]
+    // Backlog is counted apart from pending, and is not new work for the week.
     expect(weekCounts(tasks)).toEqual({
-      total: 5,
+      total: 6,
       completed: 2,
       pending: 3,
+      backlog: 1,
       carriedOver: 2,
       added: 3,
     })
   })
 
   test("no tasks is all zeros", () => {
-    expect(weekCounts([])).toEqual({ total: 0, completed: 0, pending: 0, carriedOver: 0, added: 0 })
+    expect(weekCounts([])).toEqual({
+      total: 0,
+      completed: 0,
+      pending: 0,
+      backlog: 0,
+      carriedOver: 0,
+      added: 0,
+    })
   })
 })
 
@@ -389,6 +399,27 @@ describe("weekLogMarkdown", () => {
     now: NOW,
   }
 
+  test("Backlog work is its own group, after Pending and apart from the pending count", () => {
+    const withBacklog = {
+      people: [
+        {
+          user: { name: "Ada" },
+          member: true,
+          tasks: [
+            task({ key: "WEB-1", status: "in_progress" }),
+            task({ key: "WEB-2", status: "backlog" }),
+          ],
+        },
+      ],
+    }
+    const markdown = weekLogMarkdown(withBacklog, opts)
+    expect(markdown).toContain("Acme · 1 pending · 1 backlog\n")
+    expect(markdown).toContain("## Ada\n\n1 pending · 1 backlog\n\n**Pending**\n\n- [ ] [WEB-1]")
+    expect(markdown).toContain("\n\n**Backlog**\n\n- [ ] [WEB-2]")
+    expect(weekLogSimpleMarkdown(withBacklog, opts)).toContain("\n\n_Backlog_\n- WEB-2 Task")
+    expect(weekLogHtml(withBacklog, opts)).toContain("<p><strong>Backlog</strong></p>")
+  })
+
   test("subtask progress and open blockers appear in every format", () => {
     const blocked = {
       people: [
@@ -425,7 +456,7 @@ describe("weekLogMarkdown", () => {
     const html = weekLogHtml(blocked, opts)
     expect(html).toContain("— Todo · 2/4 subtasks · assigned Mon, Oct 12</span>")
     expect(html).toContain(
-      '<span style="color:#b91c1c">Blocked by API-2 Add *limits*, OPS-1 Backups</span>',
+      '<span style="color:#b91c1c">&#8627; Blocked by API-2 Add *limits*, OPS-1 Backups</span>',
     )
     expect(html.match(/Blocked by/g)).toHaveLength(1)
   })
@@ -481,8 +512,12 @@ describe("weekLogMarkdown", () => {
     expect(html).toStartWith("<h2>Weekly log · Oct 12 – 18, 2026</h2>\n")
     expect(html).toContain("<h3>Ada Lovelace</h3>")
     expect(html).toContain(
-      '<li><a href="https://intesa.test/t/WEB-12">WEB-12</a> Fix login redirect <span style="color:#6b7280">— completed Wed, Oct 14 · assigned Mon, Oct 12</span></li>',
+      '&#9745;</span> <a href="https://intesa.test/t/WEB-12">WEB-12</a> Fix login redirect <span style="color:#6b7280">— completed Wed, Oct 14 · assigned Mon, Oct 12</span></li>',
     )
+    // An email checklist: boxes drawn as characters in a list without bullets.
+    expect(html).toContain('<ul style="list-style:none;')
+    expect(html).toContain("&#9744;</span> <a")
+    expect(html).not.toContain("<input")
     expect(html).toContain("<p><strong>Pending</strong></p>")
     expect(html).toContain("<h3>Bo &lt;b&gt;</h3>")
     expect(html).toContain("A &amp; &quot;B&quot; &lt;i&gt;")

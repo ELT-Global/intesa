@@ -66,7 +66,12 @@ async function setup(page: Page, browser: Browser) {
     data: { type: "blocks", taskId: todo.id },
   })
   expect(blocks.ok()).toBe(true)
-  return { slug, workspaceName, project, done, todo, theirs }
+  const parked = await createTaskViaApi(page, project.id, {
+    title: "Plan the offsite",
+    status: "backlog",
+    assigneeIds: [myId],
+  })
+  return { slug, workspaceName, project, done, todo, theirs, parked }
 }
 
 const label = (page: Page) => page.getByRole("main").locator("p[aria-live]")
@@ -86,7 +91,7 @@ test("the sidebar opens the log, which lists each person's tasks by completion",
   await expect(label(page)).toContainText("This week")
 
   const ada = page.getByRole("region", { name: "Ada Lovelace", exact: true })
-  await expect(ada).toContainText("1 completed · 1 pending")
+  await expect(ada).toContainText("1 completed · 1 pending · 1 backlog")
   const adaDone = ada.getByRole("list", { name: "Completed" }).getByRole("link")
   await expect(adaDone).toHaveCount(1)
   await expect(adaDone).toContainText(done.key)
@@ -99,6 +104,9 @@ test("the sidebar opens the log, which lists each person's tasks by completion",
   await expect(adaPending).toContainText("Todo")
   await expect(adaPending).toContainText("Due Wed, Jan 15, 2020 (overdue)")
   await expect(adaPending).toContainText("1/2 subtasks done")
+  const adaBacklog = ada.getByRole("list", { name: "Backlog" }).getByRole("link")
+  await expect(adaBacklog).toHaveCount(1)
+  await expect(adaBacklog).toContainText("Plan the offsite")
   await expect(adaPending).toContainText(`Blocked by ${theirs.key} Add CSV export`)
   await expect(adaPending).toContainText("Assigned")
   await expect(adaDone).not.toContainText("Due")
@@ -112,6 +120,7 @@ test("the sidebar opens the log, which lists each person's tasks by completion",
   const summary = page.getByRole("main").getByLabel("Summary")
   await expect(summary).toContainText("Completed1")
   await expect(summary).toContainText("Pending2")
+  await expect(summary).toContainText("Backlog1")
 })
 
 test("Shift+arrows and the buttons move between weeks", async ({ page, browser }) => {
@@ -174,7 +183,7 @@ test("clicking a row opens the task in its project", async ({ page, browser }) =
 })
 
 test("Copy as Markdown copies the whole week with task links", async ({ page, browser }) => {
-  const { slug, workspaceName, project, done, todo, theirs } = await setup(page, browser)
+  const { slug, workspaceName, project, done, todo, theirs, parked } = await setup(page, browser)
   await page.goto(`/w/${slug}/log`)
   const copy = page.getByRole("button", { name: "Copy as Markdown" })
   await expect(copy).toBeEnabled()
@@ -187,8 +196,9 @@ test("Copy as Markdown copies the whole week with task links", async ({ page, br
   const link = (t: { id: string; key: string }) =>
     `[${t.key}](${origin}/w/${slug}/projects/${project.id}?task=${t.id})`
   expect(text).toMatch(/^# Weekly log · /)
-  expect(text).toContain(`${workspaceName} · 1 completed · 2 pending`)
-  expect(text).toContain("## Ada Lovelace\n\n1 completed · 1 pending\n\n**Completed**")
+  expect(text).toContain(`${workspaceName} · 1 completed · 2 pending · 1 backlog`)
+  expect(text).toContain("## Ada Lovelace\n\n1 completed · 1 pending · 1 backlog\n\n**Completed**")
+  expect(text).toContain(`\n\n**Backlog**\n\n- [ ] ${link(parked)} Plan the offsite — Backlog · `)
   expect(text).toContain(`- [x] ${link(done)} Fix login redirect — completed `)
   expect(text).toContain(
     `- [ ] ${link(todo)} Write release notes — Todo · 1/2 subtasks · due Wed, Jan 15, 2020 (overdue) · assigned `,
@@ -216,7 +226,7 @@ test("the copy menu offers simple Markdown and rich text", async ({ page, browse
 
   const simple = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n")
   expect(simple).toMatch(/^\*Weekly log · /)
-  expect(simple).toContain("\n*Ada Lovelace* · 1 completed · 1 pending\n")
+  expect(simple).toContain("\n*Ada Lovelace* · 1 completed · 1 pending · 1 backlog\n")
   expect(simple).toContain("\n_Completed_\n")
   expect(simple).toContain(`\n- ${done.key} Fix login redirect — completed `)
   expect(simple).not.toMatch(/^#/m)

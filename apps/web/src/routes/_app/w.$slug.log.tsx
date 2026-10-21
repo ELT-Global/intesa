@@ -17,6 +17,7 @@ import {
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import {
+  Archive,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -238,7 +239,8 @@ function TaskGroup({
 
 function PersonPanel({ slug, person, week }: { slug: string; person: WeekPerson; week: string }) {
   const completed = person.tasks.filter((t) => t.status === "complete")
-  const pending = person.tasks.filter((t) => t.status !== "complete")
+  const pending = person.tasks.filter((t) => t.status !== "complete" && t.status !== "backlog")
+  const backlog = person.tasks.filter((t) => t.status === "backlog")
   return (
     <Panel aria-label={person.user.name} className="@container">
       <PanelHeader
@@ -249,6 +251,7 @@ function PersonPanel({ slug, person, week }: { slug: string; person: WeekPerson;
       <div className="pb-1">
         <TaskGroup slug={slug} title="Completed" tasks={completed} week={week} />
         <TaskGroup slug={slug} title="Pending" tasks={pending} week={week} />
+        <TaskGroup slug={slug} title="Backlog" tasks={backlog} week={week} />
       </div>
     </Panel>
   )
@@ -259,11 +262,12 @@ function Summary({ tasks }: { tasks: WeekTask[] }) {
   const tiles: { label: string; value: number; icon: ReactNode }[] = [
     { label: "Completed", value: c.completed, icon: <CircleCheck /> },
     { label: "Pending", value: c.pending, icon: <Hourglass /> },
+    { label: "Backlog", value: c.backlog, icon: <Archive /> },
     { label: "Carried over", value: c.carriedOver, icon: <CornerDownRight /> },
     { label: "New this week", value: c.added, icon: <CirclePlus /> },
   ]
   return (
-    <dl aria-label="Summary" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <dl aria-label="Summary" className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       {tiles.map((tile) => (
         <div
           key={tile.label}
