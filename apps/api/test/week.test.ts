@@ -299,6 +299,47 @@ describe("weekly log tasks", () => {
     })
   })
 
+  test("shows subtask progress and the blockers that are still open", async () => {
+    const { owner, project, person, task, week, tasksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const story = (status: Status = "todo") => ({
+      created: d(-3),
+      statuses: [[status, d(-3)]] as [Status, string][],
+      assigned: [[ada, d(-3)]] as [string, string][],
+    })
+    const parent = await task(story())
+    const alone = await task(story())
+    const open = await task(story())
+    const done = await task(story("complete"))
+    for (const [title, status] of [
+      ["First", "complete"],
+      ["Second", "todo"],
+      ["Third", "complete"],
+      ["Fourth", "in_progress"],
+    ] as const) {
+      const res = await owner.call("POST", `/api/projects/${project.id}/tasks`, {
+        title,
+        status,
+        parentTaskId: parent.id,
+      })
+      expect(res.status).toBe(201)
+    }
+    for (const blocker of [open, done]) {
+      const res = await owner.call("POST", `/api/tasks/${blocker.id}/relationships`, {
+        type: "blocks",
+        taskId: parent.id,
+      })
+      expect(res.status).toBe(201)
+    }
+
+    const byId = new Map(tasksOf((await week()).body, ada)?.map((x) => [x.id, x]))
+    expect(byId.get(parent.id)).toMatchObject({
+      subtasks: { done: 2, total: 4 },
+      blockedBy: [{ id: open.id, key: open.key, title: "Task", status: "todo" }],
+    })
+    expect(byId.get(alone.id)).toMatchObject({ subtasks: null, blockedBy: [] })
+  })
+
   test("keeps work completed in the week and drops work completed outside it", async () => {
     const { person, task, week, tasksOf } = await setup()
     const ada = await person("ada@example.com", "Ada")

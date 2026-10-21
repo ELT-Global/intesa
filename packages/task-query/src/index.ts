@@ -56,6 +56,7 @@ export {
   weekBounds,
   weekCounts,
   weekCountsText,
+  weekDueState,
   weekLogHtml,
   weekLogMarkdown,
   weekLogSimpleMarkdown,

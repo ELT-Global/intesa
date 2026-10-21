@@ -6,6 +6,7 @@ import {
   type WeekLogMarkdownOptions,
   weekCounts,
   weekCountsText,
+  weekDueState,
   weekLogHtml,
   weekLogMarkdown,
   weekLogSimpleMarkdown,
@@ -25,6 +26,8 @@ import {
   Copy,
   CornerDownRight,
   Hourglass,
+  ListChecks,
+  OctagonAlert,
 } from "lucide-react"
 import { type ReactNode, useEffect, useId, useState } from "react"
 import { notify } from "@/components/mutation-error-notice"
@@ -98,8 +101,16 @@ function statusTrail(task: WeekTask): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
-function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
-  const facts = [
+// Coloured like the due chips elsewhere, judged as at the end of the week.
+const DUE_TEXT = {
+  neutral: "",
+  soon: "font-medium text-warning-foreground",
+  overdue: "font-medium text-destructive-foreground",
+}
+
+function TaskFacts({ task, week }: { task: WeekTask; week: string }) {
+  const weekYear = Number(week.slice(0, 4))
+  const facts: { id: string; text: ReactNode; className?: string }[] = [
     {
       id: "state",
       text:
@@ -107,6 +118,34 @@ function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
           ? `Completed ${weekday(task.completedAt)}`
           : STATUS_LABELS[task.status],
     },
+  ]
+  if (task.subtasks) {
+    facts.push({
+      id: "subtasks",
+      text: (
+        <span className="flex items-center gap-1">
+          <ListChecks aria-hidden className="size-3" />
+          {task.subtasks.done}/{task.subtasks.total}
+          <span className="sr-only"> subtasks done</span>
+        </span>
+      ),
+    })
+  }
+  const due = weekDueState(task, week)
+  if (task.dueAt && due) {
+    facts.push({
+      id: "due",
+      // A due date is a calendar day, so it is read as local midnight.
+      text: (
+        <>
+          Due {day(`${task.dueAt}T00:00`, weekYear, true)}
+          {due === "overdue" && <span className="sr-only"> (overdue)</span>}
+        </>
+      ),
+      className: DUE_TEXT[due],
+    })
+  }
+  facts.push(
     { id: "project", text: task.project.name },
     {
       id: "assigned",
@@ -114,7 +153,7 @@ function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
         ? `Carried over · since ${day(weekTaskAssignedAt(task), weekYear)}`
         : `Assigned ${day(weekTaskAssignedAt(task), weekYear, true)}`,
     },
-  ]
+  )
   if (task.unassignedAt) {
     facts.push({ id: "unassigned", text: `Unassigned ${weekday(task.unassignedAt)}` })
   }
@@ -122,7 +161,7 @@ function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 pl-6.5 text-xs text-muted-foreground @2xl:shrink-0 @2xl:justify-end @2xl:pl-0">
       {facts.map((fact, i) => (
         <span key={fact.id} className="flex items-center gap-x-1.5">
-          {fact.text}
+          <span className={fact.className}>{fact.text}</span>
           {i < facts.length - 1 && <span aria-hidden>·</span>}
         </span>
       ))}
@@ -130,7 +169,7 @@ function TaskFacts({ task, weekYear }: { task: WeekTask; weekYear: number }) {
   )
 }
 
-function TaskRow({ slug, task, weekYear }: { slug: string; task: WeekTask; weekYear: number }) {
+function TaskRow({ slug, task, week }: { slug: string; task: WeekTask; week: string }) {
   const trail = statusTrail(task)
   return (
     <li>
@@ -148,8 +187,22 @@ function TaskRow({ slug, task, weekYear }: { slug: string; task: WeekTask; weekY
               <TaskTitle title={task.title} />
             </span>
           </span>
-          <TaskFacts task={task} weekYear={weekYear} />
+          <TaskFacts task={task} week={week} />
         </span>
+        {task.blockedBy.length > 0 && (
+          <span className="flex items-start gap-1.5 pl-6.5 text-xs text-destructive-foreground">
+            <OctagonAlert aria-hidden className="mt-px size-3 shrink-0" />
+            <span className="min-w-0">
+              Blocked by{" "}
+              {task.blockedBy.map((b, i) => (
+                <span key={b.id}>
+                  {i > 0 && ", "}
+                  <span className="font-mono text-[11px]">{b.key}</span> {b.title}
+                </span>
+              ))}
+            </span>
+          </span>
+        )}
         {trail && <span className="pl-6.5 text-[11px] text-subtle-foreground">{trail}</span>}
       </Link>
     </li>
@@ -160,12 +213,12 @@ function TaskGroup({
   slug,
   title,
   tasks,
-  weekYear,
+  week,
 }: {
   slug: string
   title: string
   tasks: WeekTask[]
-  weekYear: number
+  week: string
 }) {
   const id = useId()
   if (tasks.length === 0) return null
@@ -176,22 +229,14 @@ function TaskGroup({
       </h3>
       <ul aria-labelledby={id} className="divide-y divide-border/70">
         {tasks.map((t) => (
-          <TaskRow key={t.id} slug={slug} task={t} weekYear={weekYear} />
+          <TaskRow key={t.id} slug={slug} task={t} week={week} />
         ))}
       </ul>
     </div>
   )
 }
 
-function PersonPanel({
-  slug,
-  person,
-  weekYear,
-}: {
-  slug: string
-  person: WeekPerson
-  weekYear: number
-}) {
+function PersonPanel({ slug, person, week }: { slug: string; person: WeekPerson; week: string }) {
   const completed = person.tasks.filter((t) => t.status === "complete")
   const pending = person.tasks.filter((t) => t.status !== "complete")
   return (
@@ -202,8 +247,8 @@ function PersonPanel({
         note={person.member ? counts(person.tasks) : `Former member · ${counts(person.tasks)}`}
       />
       <div className="pb-1">
-        <TaskGroup slug={slug} title="Completed" tasks={completed} weekYear={weekYear} />
-        <TaskGroup slug={slug} title="Pending" tasks={pending} weekYear={weekYear} />
+        <TaskGroup slug={slug} title="Completed" tasks={completed} week={week} />
+        <TaskGroup slug={slug} title="Pending" tasks={pending} week={week} />
       </div>
     </Panel>
   )
@@ -412,7 +457,6 @@ function WeeklyLogPage() {
   const people = log?.people ?? []
   const active = people.filter((p) => p.tasks.length > 0)
   const idle = people.filter((p) => p.tasks.length === 0)
-  const weekYear = Number(week.slice(0, 4))
 
   const logInput = log ?? { people: [] }
   const exportOptions: WeekLogMarkdownOptions<WeekTask> = {
@@ -452,7 +496,7 @@ function WeeklyLogPage() {
           >
             <Summary tasks={weekLogTasks(active)} />
             {active.map((person) => (
-              <PersonPanel key={person.user.id} slug={slug} person={person} weekYear={weekYear} />
+              <PersonPanel key={person.user.id} slug={slug} person={person} week={week} />
             ))}
             {idle.length > 0 && (
               <Panel aria-label="Nothing this week">

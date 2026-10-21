@@ -6,6 +6,7 @@ import {
   type WeekTaskInput,
   weekBounds,
   weekCounts,
+  weekDueState,
   weekLogHtml,
   weekLogMarkdown,
   weekLogSimpleMarkdown,
@@ -131,6 +132,9 @@ function task(overrides: Partial<WeekTaskInput> = {}): WeekTaskInput {
     title: "Task",
     status: "todo",
     completedAt: null,
+    dueAt: null,
+    subtasks: null,
+    blockedBy: [],
     assignedAt: new Date(2026, 9, 12, 9).toISOString(),
     plannedAt: null,
     carriedOver: false,
@@ -138,6 +142,49 @@ function task(overrides: Partial<WeekTaskInput> = {}): WeekTaskInput {
     ...overrides,
   }
 }
+
+describe("weekDueState", () => {
+  test("judges a due date by the end of the week, or by now while it is under way", () => {
+    const state = (dueAt: string | null, week: string, status: WeekTaskInput["status"] = "todo") =>
+      weekDueState({ dueAt, status }, week, NOW)
+    expect(state(null, "2026-10-12")).toBeUndefined()
+    expect(state("2026-10-13", "2026-10-12")).toBe("overdue")
+    expect(state("2026-10-15", "2026-10-12")).toBe("soon")
+    expect(state("2026-10-13", "2026-10-12", "complete")).toBe("neutral")
+    // Last week ended on Sunday the 11th: due on the 10th was overdue by then, the 12th was not.
+    expect(state("2026-10-10", "2026-10-05")).toBe("overdue")
+    expect(state("2026-10-12", "2026-10-05")).toBe("soon")
+  })
+
+  test("the Markdown shows due dates, marking those overdue", () => {
+    const markdown = weekLogMarkdown(
+      {
+        people: [
+          {
+            user: { name: "Ada" },
+            member: true,
+            tasks: [
+              task({ key: "WEB-1", dueAt: "2026-10-13" }),
+              task({ key: "WEB-2", dueAt: "2026-10-16" }),
+              task({
+                key: "WEB-3",
+                status: "complete",
+                completedAt: new Date(2026, 9, 14).toISOString(),
+                dueAt: "2026-10-13",
+              }),
+            ],
+          },
+        ],
+      },
+      { week: "2026-10-12", now: NOW },
+    )
+    expect(markdown).toContain(
+      "WEB-1 Task — Todo · due Tue, Oct 13 (overdue) · assigned Mon, Oct 12",
+    )
+    expect(markdown).toContain("WEB-2 Task — Todo · due Fri, Oct 16 · assigned ")
+    expect(markdown).toContain("WEB-3 Task — completed Wed, Oct 14 · due Tue, Oct 13 · assigned ")
+  })
+})
 
 describe("weekCounts", () => {
   test("counts completed, pending and carried over", () => {
@@ -341,6 +388,47 @@ describe("weekLogMarkdown", () => {
     taskUrl: (t: WeekTaskInput) => `https://intesa.test/t/${t.key}`,
     now: NOW,
   }
+
+  test("subtask progress and open blockers appear in every format", () => {
+    const blocked = {
+      people: [
+        {
+          user: { name: "Ada" },
+          member: true,
+          tasks: [
+            task({
+              key: "WEB-9",
+              title: "Ship it",
+              subtasks: { done: 2, total: 4 },
+              blockedBy: [
+                { key: "API-2", title: "Add *limits*" },
+                { key: "OPS-1", title: "Backups" },
+              ],
+            }),
+            task({ key: "WEB-10", title: "Plain" }),
+          ],
+        },
+      ],
+    }
+    const markdown = weekLogMarkdown(blocked, opts)
+    expect(markdown).toContain(
+      "[WEB-9](https://intesa.test/t/WEB-9) Ship it — Todo · 2/4 subtasks · assigned Mon, Oct 12\n  - Blocked by API-2 Add \\*limits\\*, OPS-1 Backups\n",
+    )
+    expect(markdown).toContain("WEB-10](https://intesa.test/t/WEB-10) Plain — Todo · assigned ")
+    expect(markdown).not.toContain(
+      "WEB-10](https://intesa.test/t/WEB-10) Plain — Todo · assigned Mon, Oct 12\n  -",
+    )
+
+    expect(weekLogSimpleMarkdown(blocked, opts)).toContain(
+      "- WEB-9 Ship it — Todo · 2/4 subtasks · assigned Mon, Oct 12\n  ↳ Blocked by API-2 Add *limits*, OPS-1 Backups\n",
+    )
+    const html = weekLogHtml(blocked, opts)
+    expect(html).toContain("— Todo · 2/4 subtasks · assigned Mon, Oct 12</span>")
+    expect(html).toContain(
+      '<span style="color:#b91c1c">Blocked by API-2 Add *limits*, OPS-1 Backups</span>',
+    )
+    expect(html.match(/Blocked by/g)).toHaveLength(1)
+  })
 
   test("simple Markdown keeps to what Slack also reads", () => {
     expect(weekLogSimpleMarkdown(log, opts)).toBe(

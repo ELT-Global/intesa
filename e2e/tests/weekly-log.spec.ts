@@ -49,12 +49,23 @@ async function setup(page: Page, browser: Browser) {
   const todo = await createTaskViaApi(page, project.id, {
     title: "Write release notes",
     assigneeIds: [myId],
+    // Already past, so it is overdue.
+    dueAt: "2020-01-15",
   })
   const theirs = await createTaskViaApi(page, project.id, {
     title: "Add CSV export",
     status: "in_progress",
     assigneeIds: [otherId],
   })
+  // Two subtasks, one complete, and an open blocker, all on the pending task.
+  const sub = async (title: string) =>
+    createTaskViaApi(page, project.id, { title, parentTaskId: todo.id })
+  await setStatus(page, (await sub("Draft")).id, "complete")
+  await sub("Review")
+  const blocks = await page.request.post(`/api/tasks/${theirs.id}/relationships`, {
+    data: { type: "blocks", taskId: todo.id },
+  })
+  expect(blocks.ok()).toBe(true)
   return { slug, workspaceName, project, done, todo, theirs }
 }
 
@@ -86,7 +97,11 @@ test("the sidebar opens the log, which lists each person's tasks by completion",
   await expect(adaPending).toHaveCount(1)
   await expect(adaPending).toContainText(todo.key)
   await expect(adaPending).toContainText("Todo")
+  await expect(adaPending).toContainText("Due Wed, Jan 15, 2020 (overdue)")
+  await expect(adaPending).toContainText("1/2 subtasks done")
+  await expect(adaPending).toContainText(`Blocked by ${theirs.key} Add CSV export`)
   await expect(adaPending).toContainText("Assigned")
+  await expect(adaDone).not.toContainText("Due")
 
   const grace = page.getByRole("region", { name: "Grace Hopper", exact: true })
   await expect(grace.getByRole("list", { name: "Completed" })).toHaveCount(0)
@@ -175,7 +190,10 @@ test("Copy as Markdown copies the whole week with task links", async ({ page, br
   expect(text).toContain(`${workspaceName} · 1 completed · 2 pending`)
   expect(text).toContain("## Ada Lovelace\n\n1 completed · 1 pending\n\n**Completed**")
   expect(text).toContain(`- [x] ${link(done)} Fix login redirect — completed `)
-  expect(text).toContain(`- [ ] ${link(todo)} Write release notes — Todo · assigned `)
+  expect(text).toContain(
+    `- [ ] ${link(todo)} Write release notes — Todo · 1/2 subtasks · due Wed, Jan 15, 2020 (overdue) · assigned `,
+  )
+  expect(text).toContain(`\n  - Blocked by ${theirs.key} Add CSV export\n`)
   expect(text).toContain("## Grace Hopper\n\n1 pending\n\n**Pending**")
   expect(text).toContain(`- [ ] ${link(theirs)} Add CSV export — In progress · assigned `)
 

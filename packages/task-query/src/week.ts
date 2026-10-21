@@ -1,4 +1,5 @@
 import { STATUS_LABELS, type TaskStatus } from "./constants"
+import { type DueState, dueState } from "./dates"
 
 // A week is identified by its Monday as YYYY-MM-DD and runs Monday to Monday in local time.
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -104,6 +105,12 @@ export type WeekTaskInput = {
   title: string
   status: TaskStatus
   completedAt: string | null
+  /** YYYY-MM-DD. */
+  dueAt: string | null
+  /** Subtask progress; null without subtasks. */
+  subtasks: { done: number; total: number } | null
+  /** Open blockers. */
+  blockedBy: { key: string; title: string }[]
   assignedAt: string
   plannedAt: string | null
   carriedOver: boolean
@@ -113,6 +120,20 @@ export type WeekTaskInput = {
 /** The date shown as assigned: when it became planned work (left Backlog), else the assignment. */
 export const weekTaskAssignedAt = (task: Pick<WeekTaskInput, "assignedAt" | "plannedAt">) =>
   task.plannedAt ?? task.assignedAt
+
+/**
+ * How the due date stood at the end of the week (or today, for a week still under way): a task
+ * still open past its due day then is overdue. Nothing for a task without a due date.
+ */
+export function weekDueState(
+  task: Pick<WeekTaskInput, "dueAt" | "status">,
+  week: string,
+  now = new Date(),
+): DueState | undefined {
+  if (!task.dueAt) return undefined
+  const lastDay = new Date(Date.parse(weekBounds(week).to) - 1)
+  return dueState(task.dueAt, task.status, now < lastDay ? now : lastDay)
+}
 
 export type WeekPersonInput<T extends WeekTaskInput = WeekTaskInput> = {
   user: { name: string }
@@ -165,7 +186,15 @@ export function weekLogTasks<T extends WeekTaskInput>(people: readonly WeekPerso
   )
 }
 
-type ReportTask = { done: boolean; key: string; url?: string; title: string; details: string }
+type ReportTask = {
+  done: boolean
+  key: string
+  url?: string
+  title: string
+  details: string
+  /** "WEB-3 Fix the build, API-2 Add limits", while something still blocks it. */
+  blockedBy?: string
+}
 type ReportPerson = { name: string; counts: string; completed: ReportTask[]; pending: ReportTask[] }
 // The week as plain text pieces, which each format below lays out and escapes its own way.
 type WeekReport = {
@@ -184,8 +213,8 @@ function weekReport<T extends WeekTaskInput>(
 ): WeekReport {
   const now = opts.now ?? new Date()
   const weekYear = (parseDay(opts.week) ?? now).getFullYear()
-  const date = (iso: string) => {
-    const d = new Date(iso)
+  const date = (at: string | Date) => {
+    const d = new Date(at)
     return d.toLocaleDateString("en-US", {
       weekday: "short",
       month: "short",
@@ -199,7 +228,14 @@ function weekReport<T extends WeekTaskInput>(
     const state =
       done && task.completedAt ? `completed ${date(task.completedAt)}` : STATUS_LABELS[task.status]
     const assigned = `assigned ${date(weekTaskAssignedAt(task))}`
-    const parts = [state, task.carriedOver ? `carried over, ${assigned}` : assigned]
+    const parts = [state]
+    if (task.subtasks) parts.push(`${task.subtasks.done}/${task.subtasks.total} subtasks`)
+    const due = task.dueAt && parseDay(task.dueAt)
+    if (task.dueAt && due) {
+      const overdue = weekDueState(task, opts.week, now) === "overdue"
+      parts.push(`due ${date(due)}${overdue ? " (overdue)" : ""}`)
+    }
+    parts.push(task.carriedOver ? `carried over, ${assigned}` : assigned)
     if (task.unassignedAt) parts.push(`unassigned ${date(task.unassignedAt)}`)
     return {
       done,
@@ -207,6 +243,9 @@ function weekReport<T extends WeekTaskInput>(
       url: opts.taskUrl?.(task),
       title: oneLine(task.title),
       details: parts.join(" · "),
+      blockedBy: task.blockedBy.length
+        ? task.blockedBy.map((b) => `${b.key} ${oneLine(b.title)}`).join(", ")
+        : undefined,
     }
   }
 
@@ -236,7 +275,8 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
   const line = (task: ReportTask) => {
     const key = escapeMarkdown(task.key)
     const label = task.url ? `[${key}](${linkTarget(task.url)})` : key
-    return `- [${task.done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${task.details}`
+    const blocked = task.blockedBy ? `\n  - Blocked by ${escapeMarkdown(task.blockedBy)}` : ""
+    return `- [${task.done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${task.details}${blocked}`
   }
   const workspace = report.workspace ? `${escapeMarkdown(report.workspace)} · ` : ""
   const blocks = [`# ${report.title}`, `${workspace}${report.counts}`]
@@ -263,8 +303,11 @@ export function weekLogSimpleMarkdown<T extends WeekTaskInput>(
   opts: WeekLogMarkdownOptions<T>,
 ): string {
   const report = weekReport(log, opts)
-  const list = (title: string, tasks: ReportTask[]) =>
-    `_${title}_\n${tasks.map((task) => `- ${task.key} ${task.title} — ${task.details}`).join("\n")}`
+  const line = (task: ReportTask) => {
+    const blocked = task.blockedBy ? `\n  ↳ Blocked by ${task.blockedBy}` : ""
+    return `- ${task.key} ${task.title} — ${task.details}${blocked}`
+  }
+  const list = (title: string, tasks: ReportTask[]) => `_${title}_\n${tasks.map(line).join("\n")}`
   const workspace = report.workspace ? `${report.workspace} · ` : ""
   const blocks = [`*${report.title}*`, `${workspace}${report.counts}`]
   for (const person of report.people) {
@@ -292,7 +335,10 @@ export function weekLogHtml<T extends WeekTaskInput>(
   const item = (task: ReportTask) => {
     const key = escapeHtml(task.key)
     const label = task.url ? `<a href="${escapeHtml(task.url)}">${key}</a>` : key
-    return `<li>${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span></li>`
+    const blocked = task.blockedBy
+      ? `<br><span style="color:#b91c1c">Blocked by ${escapeHtml(task.blockedBy)}</span>`
+      : ""
+    return `<li>${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span>${blocked}</li>`
   }
   const list = (title: string, tasks: ReportTask[]) =>
     tasks.length > 0

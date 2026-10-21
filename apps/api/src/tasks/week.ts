@@ -1,3 +1,4 @@
+import { sql } from "kysely"
 import type { Db } from "../db"
 import type { Priority, Status } from "./schemas"
 import type { UserRef } from "./service"
@@ -38,6 +39,10 @@ export type WeekTask = {
   unassignedAt: string | null
   /** Status changes inside the week, oldest first (creation included). */
   changes: WeekChange[]
+  /** Its subtasks' progress now; null without subtasks. */
+  subtasks: { done: number; total: number } | null
+  /** Tasks that block it and are not complete yet, as they stand now. */
+  blockedBy: { id: string; key: string; title: string; status: Status }[]
 }
 
 export type WeekPerson = { user: UserRef; member: boolean; tasks: WeekTask[] }
@@ -78,7 +83,7 @@ export async function loadWeekLog(
   from: string,
   to: string,
 ): Promise<WeekLog> {
-  const [members, assignments, history] = await Promise.all([
+  const [members, assignments, history, subtaskCounts, blockers] = await Promise.all([
     db
       .selectFrom("workspaceMembers")
       .innerJoin("users", "users.id", "workspaceMembers.userId")
@@ -152,7 +157,58 @@ export async function loadWeekLog(
       .where("taskStatusHistory.updatedAt", "<", to)
       .orderBy("taskStatusHistory.updatedAt")
       .execute(),
+    db
+      .selectFrom("tasks")
+      .select([
+        "parentTaskId",
+        sql<number | string>`count(*)`.as("total"),
+        sql<number | string>`sum(case when status = 'complete' then 1 else 0 end)`.as("done"),
+      ])
+      .where("parentTaskId", "in", overlapping(db, workspaceId, from, to).select("tasks.id"))
+      .groupBy("parentTaskId")
+      .execute(),
+    db
+      .selectFrom("taskRelationships")
+      .innerJoin("tasks as blocker", "blocker.id", "taskRelationships.sourceTaskId")
+      .innerJoin("projects", "projects.id", "blocker.projectId")
+      .select([
+        "taskRelationships.targetTaskId",
+        "blocker.id",
+        "blocker.number",
+        "blocker.title",
+        "blocker.status",
+        "projects.key as projectKey",
+      ])
+      .where("taskRelationships.type", "=", "blocks")
+      .where("blocker.status", "!=", "complete")
+      .where(
+        "taskRelationships.targetTaskId",
+        "in",
+        overlapping(db, workspaceId, from, to).select("tasks.id"),
+      )
+      .orderBy("projects.key")
+      .orderBy("blocker.number")
+      .execute(),
   ])
+
+  const subtasksByTask = new Map(
+    subtaskCounts.map((c) => [
+      c.parentTaskId,
+      { done: Number(c.done ?? 0), total: Number(c.total) },
+    ]),
+  )
+  const blockedByTask = new Map<string, WeekTask["blockedBy"]>()
+  for (const b of blockers) {
+    const ref = {
+      id: b.id,
+      key: `${b.projectKey}-${b.number}`,
+      title: b.title,
+      status: b.status as Status,
+    }
+    const list = blockedByTask.get(b.targetTaskId)
+    if (list) list.push(ref)
+    else blockedByTask.set(b.targetTaskId, [ref])
+  }
 
   const changesByTask = new Map<string, WeekChange[]>()
   for (const h of history) {
@@ -236,6 +292,8 @@ export async function loadWeekLog(
         carriedOver: false,
         unassignedAt: null,
         changes,
+        subtasks: subtasksByTask.get(a.id) ?? null,
+        blockedBy: blockedByTask.get(a.id) ?? [],
       },
     })
   }
