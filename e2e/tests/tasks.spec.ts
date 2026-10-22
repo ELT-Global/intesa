@@ -109,6 +109,31 @@ test("history records creation and each status change", async ({ page }) => {
   await expect(history.getByRole("listitem").last()).toContainText("Todo → In progress")
 })
 
+test("a history entry's relative time shows the absolute date on hover", async ({ page }) => {
+  await openBoard(page)
+  await createTask(page, "Draft launch notes")
+  await page.getByRole("button", { name: /Draft launch notes/ }).click()
+  const sheet = page.getByRole("dialog", { name: /-1$/ })
+
+  await sheet.getByRole("button", { name: "History" }).click()
+  const when = sheet.getByRole("list", { name: "History" }).getByRole("listitem").locator("time")
+  await expect(when).toHaveCount(1)
+
+  // The title is the entry's own timestamp as a date, e.g. "Jul 12, 2026".
+  const iso = await when.getAttribute("datetime")
+  const expected = await page.evaluate(
+    (value) =>
+      new Date(value as string).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+    iso,
+  )
+  await expect(when).toHaveAttribute("title", expected)
+  await expect(when).toHaveAttribute("title", /^[A-Z][a-z]{2} \d{1,2}, \d{4}$/)
+})
+
 test("deleting a task removes it from the project", async ({ page }) => {
   await openBoard(page)
   await createTask(page, "Draft launch notes")

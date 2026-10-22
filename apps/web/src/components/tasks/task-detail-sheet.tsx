@@ -17,6 +17,7 @@ import {
   useDeleteTask,
   useUpdateTask,
 } from "@/lib/tasks"
+import { shortDate } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { DuePicker, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
 import { TaskArtifacts } from "./task-artifacts"
@@ -389,7 +390,10 @@ function HistorySection({ taskId }: { taskId: string }) {
                       : `Created as ${STATUS_LABELS[h.toStatus]}`}
                   </span>
                   <span>
-                    {h.updatedBy.name} · {relativeTime(h.updatedAt)}
+                    {h.updatedBy.name} ·{" "}
+                    <time dateTime={h.updatedAt} title={shortDate(h.updatedAt)}>
+                      {relativeTime(h.updatedAt)}
+                    </time>
                   </span>
                 </li>
               ))}
