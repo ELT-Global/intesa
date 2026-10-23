@@ -22,7 +22,6 @@ import {
 } from "./api"
 import { createMenus } from "./menus"
 import {
-  type CompleteOverlay,
   type ConfirmOverlay,
   type Core,
   clamp,
@@ -32,6 +31,7 @@ import {
   type InputOverlay,
   isDraft,
   type MenuOverlay,
+  type MoveOverlay,
   normalize,
   type Overlay,
   type PickerOverlay,
@@ -455,7 +455,8 @@ export function createStore(
       const item = detailItems(state.details[o.taskId])[o.item]
       if (item?.kind !== "subtask" || drafting(item.task)) return
       const status = item.task.status === "complete" ? "todo" : "complete"
-      void writes.update(item.task, { status })
+      // Through moveTo, not a plain update: completing someone else's subtask asks who did it.
+      writes.moveTo(item.task, status)
     },
     detailOpen(o: DetailOverlay) {
       const item = detailItems(state.details[o.taskId])[o.item]
@@ -562,12 +563,12 @@ export function createStore(
       }
       if (changed.length > 0) toast(`Updated ${plural(changed.length, "subtask")}`)
     },
-    completeStep(o: CompleteOverlay, delta: number) {
+    moveStep(o: MoveOverlay, delta: number) {
       edit(o, { index: (o.index + delta + o.questions.length) % o.questions.length })
     },
     // The next or previous option of the selected question; the first move from unanswered
     // lands on the first or last option.
-    completeCycle(o: CompleteOverlay, delta: -1 | 1) {
+    moveCycle(o: MoveOverlay, delta: -1 | 1) {
       const question = o.questions[o.index]
       if (!question) return
       const count = question.options.length
@@ -577,12 +578,12 @@ export function createStore(
       const questions = o.questions.map((q, i) => (i === o.index ? { ...q, answer } : q))
       edit(o, { questions })
     },
-    completeApply(o: CompleteOverlay) {
+    moveApply(o: MoveOverlay) {
       if (o.questions.some((q) => q.answer === undefined)) {
         return toast("Answer every question first")
       }
       pop()
-      writes.completeTask(o)
+      writes.applyMove(o)
     },
     top,
   }

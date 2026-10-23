@@ -3,11 +3,11 @@
 import type { SortKey } from "@intesa/task-query"
 import type { Task } from "./api"
 import {
-  type CompleteOverlay,
   type ConfirmOverlay,
   type DetailOverlay,
   type InputOverlay,
   type MenuOverlay,
+  type MoveOverlay,
   type PickerOverlay,
   type SyncOverlay,
   targetTask,
@@ -29,7 +29,7 @@ export const HELP: [keys: string, what: string][] = [
   ["enter", "Open the task (or the Backlog rail)"],
   [
     "alt+← → / < >",
-    "Move the card to the previous or next column (Complete asks who reviewed and tested)",
+    "Move the card to the previous or next column (may ask who did it, reviewed, tested)",
   ],
   ["alt+↑ ↓ / K J", "Move the card up or down in its column"],
   ["shift+← →", "Switch assignee filter: me, each member, unassigned, everyone"],
@@ -88,8 +88,8 @@ export function handleKey(store: Store, k: Key) {
       return confirmKey(store, top, k)
     case "sync":
       return syncKey(store, top, k)
-    case "complete":
-      return completeKey(store, top, k)
+    case "move":
+      return moveKey(store, top, k)
     case "help":
       if (k.name === "escape" || k.name === "?" || k.name === "q" || k.name === "return") {
         store.pop()
@@ -286,15 +286,15 @@ function confirmKey(store: Store, o: ConfirmOverlay, k: Key) {
 }
 
 // Up and down pick the question, left and right its answer.
-function completeKey(store: Store, o: CompleteOverlay, k: Key) {
+function moveKey(store: Store, o: MoveOverlay, k: Key) {
   if (k.name === "escape") return store.pop()
-  if (k.name === "return" || k.name === "linefeed") return store.completeApply(o)
+  if (k.name === "return" || k.name === "linefeed") return store.moveApply(o)
   if (alt(k) || k.ctrl) return
-  if (k.name === "up" || (plain(k) && k.name === "k")) return store.completeStep(o, -1)
-  if (k.name === "down" || (plain(k) && k.name === "j")) return store.completeStep(o, 1)
-  if (k.name === "left" || (plain(k) && k.name === "h")) return store.completeCycle(o, -1)
+  if (k.name === "up" || (plain(k) && k.name === "k")) return store.moveStep(o, -1)
+  if (k.name === "down" || (plain(k) && k.name === "j")) return store.moveStep(o, 1)
+  if (k.name === "left" || (plain(k) && k.name === "h")) return store.moveCycle(o, -1)
   if (k.name === "right" || (plain(k) && k.name === "l") || k.name === "space") {
-    return store.completeCycle(o, 1)
+    return store.moveCycle(o, 1)
   }
 }
 

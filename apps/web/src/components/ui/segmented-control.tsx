@@ -10,7 +10,8 @@ export function SegmentedControl<T extends string>({
   label,
 }: {
   segments: Segment<T>[]
-  value: T
+  /** Null while nothing is chosen. */
+  value: T | null
   onChange: (value: T) => void
   label: string
 }) {

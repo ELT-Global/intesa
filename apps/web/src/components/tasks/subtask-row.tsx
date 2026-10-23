@@ -24,6 +24,7 @@ import {
 } from "./properties"
 import { TaskKey } from "./task-key"
 import { TaskTitle } from "./task-title"
+import { useStatusChange } from "./use-status-change"
 
 // Controls other than the status icon and set values fade in on hover or focus at md+, and
 // are always shown on touch widths where there is no hover.
@@ -45,6 +46,7 @@ export function SubtaskRow({
   onRequestDelete: (request: DeleteRequest) => void
 }) {
   const update = useUpdateTask()
+  const changeStatus = useStatusChange()
   const [editing, setEditing] = useState(false)
   const complete = subtask.status === "complete"
   const rowRef = useRef<HTMLLIElement>(null)
@@ -88,7 +90,7 @@ export function SubtaskRow({
         <DropdownMenuContent align="start">
           <DropdownMenuRadioGroup
             value={subtask.status}
-            onValueChange={(v) => update.mutate({ ...base, patch: { status: v as TaskStatus } })}
+            onValueChange={(v) => changeStatus({ task: subtask, status: v as TaskStatus })}
           >
             <StatusOptions Item={DropdownMenuRadioItem} />
           </DropdownMenuRadioGroup>

@@ -1,17 +1,36 @@
 // The small overlays: menus, pickers, the delete confirmation, the subtask dialog and help.
-import { STATUS_LABELS } from "@intesa/task-query"
+import { joinNames, STATUS_LABELS } from "@intesa/task-query"
 import { plural } from "../api"
 import { HELP } from "../keymap"
 import {
-  type CompleteOverlay,
   type ConfirmOverlay,
   type MenuOverlay,
+  type MoveOverlay,
+  type MoveQuestion,
   type PickerOverlay,
   pickerItems,
   type SyncOverlay,
 } from "../state"
 import { fit, type Line, truncate, width, wrap } from "../text"
 import { type Kit, statusSeg, THEME } from "./kit"
+
+const ASKED: Record<MoveQuestion["field"], string> = {
+  doneBy: "who did it",
+  reviewedById: "who reviewed it",
+  testedById: "who tested it",
+}
+
+// What the move dialog is asking, and why: "WEB-1 is assigned to Ada. Say who did it before
+// moving it to In progress." or, with no one to ask about, "WEB-1 is moving to Complete. Say who
+// reviewed it and who tested it before completing it."
+function prompt(o: MoveOverlay) {
+  const label = STATUS_LABELS[o.status]
+  const lead = o.questions.some((q) => q.field === "doneBy")
+    ? `${o.task.key} is assigned to ${joinNames(o.task.assignees.map((a) => a.name))}.`
+    : `${o.task.key} is moving to ${label}.`
+  const before = o.status === "complete" ? "completing it" : `moving it to ${label}`
+  return `${lead} Say ${joinNames(o.questions.map((q) => ASKED[q.field]))} before ${before}.`
+}
 
 export function createDialogs(kit: Kit) {
   const { renderer, ui, focusFill, marker, panel } = kit
@@ -119,14 +138,11 @@ export function createDialogs(kit: Kit) {
     )
   }
 
-  // Moving a task into Complete: one row per question, its answer between arrows.
-  function complete(o: CompleteOverlay, z: number) {
+  // A move that needs answers: one row per question, its answer between arrows.
+  function move(o: MoveOverlay, z: number) {
     const w = Math.min(renderer.width - 2, 64)
     const cols = w - 4
-    const lines: Line[] = wrap(
-      `${o.task.key} is moving to Complete. Say who reviewed and who tested it.`,
-      cols,
-    ).map((l) => [{ text: l }])
+    const lines: Line[] = wrap(prompt(o), cols).map((l) => [{ text: l }])
     lines.push([])
     const labelW = Math.max(...o.questions.map((q) => width(q.label))) + 2
     const arrows = ui.unicode ? { l: "◀", r: "▶" } : { l: "<", r: ">" }
@@ -151,6 +167,7 @@ export function createDialogs(kit: Kit) {
       )
     })
     const ready = o.questions.every((q) => q.answer !== undefined)
+    const go = o.status === "complete" ? "complete" : "move"
     lines.push(
       [],
       [
@@ -161,12 +178,19 @@ export function createDialogs(kit: Kit) {
       ],
       [
         { text: "enter ", fg: ready ? THEME.accent : THEME.muted },
-        { text: ready ? "complete" : "answer every question first", fg: THEME.muted },
+        {
+          text: ready ? go : "answer every question first",
+          fg: THEME.muted,
+        },
         { text: " · esc cancel", fg: THEME.muted },
       ],
     )
     panel(
-      { title: "Complete task?", w, h: Math.min(renderer.height - 2, lines.length + 2) },
+      {
+        title: o.status === "complete" ? "Complete task?" : "Move task?",
+        w,
+        h: Math.min(renderer.height - 2, lines.length + 2),
+      },
       lines.map((l) => [{ text: " " }, ...l]),
       z,
     )
@@ -205,5 +229,5 @@ export function createDialogs(kit: Kit) {
     panel({ title: "Delete task?", w, h: lines.length + 2 }, lines, z)
   }
 
-  return { menu, picker, sync, complete, help, confirm }
+  return { menu, picker, sync, move, help, confirm }
 }

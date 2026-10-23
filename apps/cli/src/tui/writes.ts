@@ -1,13 +1,21 @@
 // Changes to tasks: shown at once, sent one at a time, put back if the server says no.
-import { isInPlace, type Placement, STATUS_LABELS, type TaskStatus } from "@intesa/task-query"
+import {
+  asksWhoDidIt,
+  isInPlace,
+  joinNames,
+  type Placement,
+  STATUS_LABELS,
+  type TaskStatus,
+} from "@intesa/task-query"
 import type { Artifact, Task, TaskDetail, TaskPatch } from "./api"
 import { fromDoc, toDoc } from "./edit-doc"
 import { applyChanges, type Changes, nextStatus, revert } from "./model"
 import {
-  type CompleteOverlay,
   type Core,
   DRAFT,
   detailItems,
+  type MoveOverlay,
+  type MoveQuestion,
   patchDetails,
   type State,
   selectedTask,
@@ -66,23 +74,41 @@ export function createWrites(core: Core, settled: () => void) {
       void update(task, { placement })
       return
     }
-    // A top-level task only completes once it is known who reviewed and tested it.
-    if (status === "complete" && !task.parentTaskId) {
-      void track(askCompletion(task, placement))
+    // Someone else's task being started, reviewed or completed is asked about, and a top-level
+    // task only completes once it is known who reviewed and tested it.
+    const takingOver = asksWhoDidIt(task, status, get().me?.id)
+    const signoff = status === "complete" && !task.parentTaskId
+    if (takingOver || signoff) {
+      void track(askMove(task, status, placement, { takingOver, signoff }))
       return
     }
-    commitMove(task, status, placement)
+    commitMove(task, status, { placement })
   }
 
-  // The move itself, with whatever else goes in the same request.
+  // The move itself, with whatever else goes in the same request. New assignees are shown on
+  // the card at once, and put back with it if the server says no.
   function commitMove(
     task: Task,
     status: TaskStatus,
-    placement?: Placement,
-    extra: Pick<TaskPatch, "reviewedById" | "testedById"> = {},
+    extra: {
+      placement?: Placement
+      assignees?: Task["assignees"]
+      reviewedById?: string | null
+      testedById?: string | null
+    } = {},
   ) {
+    const { placement, assignees, ...answers } = extra
     const followed = get().focus.taskId === task.id
-    const done = update(task, { status, ...(placement && { placement }), ...extra })
+    const done = update(
+      task,
+      {
+        status,
+        ...(placement && { placement }),
+        ...(assignees && { assigneeIds: assignees.map((a) => a.id) }),
+        ...answers,
+      },
+      assignees && { assignees },
+    )
     // The focus goes with the card, opening Backlog if that is where it went.
     if (followed) {
       set((s) => ({
@@ -97,31 +123,43 @@ export function createWrites(core: Core, settled: () => void) {
     }
   }
 
-  // Opens the dialog for moving `task` into Complete, with the answers it already has. The
-  // card stays where it is until the dialog is confirmed. If the task cannot be read, the
-  // dialog opens blank rather than blocking the move.
-  async function askCompletion(task: Task, placement?: Placement) {
-    let detail: TaskDetail | undefined
-    try {
-      detail = await api.task(task.id)
-    } catch {}
-    const { members, me } = get()
-    const people = [
-      { value: null, label: "Nobody" },
-      ...members.map((m) => ({
-        value: m.userId,
-        label: m.userId === me?.id ? `${m.name} (you)` : m.name,
-      })),
-    ]
-    // The key is absent while unanswered, null for nobody, else the person.
-    const answer = (who: TaskDetail["reviewedBy"]) =>
-      who === undefined ? undefined : (who?.id ?? null)
-    push({
-      kind: "complete",
-      task,
-      placement,
-      index: 0,
-      questions: [
+  // Opens the dialog for a move that needs answers. The card stays where it is until it is
+  // confirmed. The sign-off questions start from the answers the task has; if it cannot be read
+  // they start blank rather than blocking the move.
+  async function askMove(
+    task: Task,
+    status: TaskStatus,
+    placement: Placement | undefined,
+    ask: { takingOver: boolean; signoff: boolean },
+  ) {
+    const questions: MoveQuestion[] = []
+    if (ask.takingOver) {
+      questions.push({
+        field: "doneBy",
+        label: "Who did it?",
+        options: [
+          { value: "assignees", label: joinNames(task.assignees.map((a) => a.name)) },
+          { value: "me", label: "Me" },
+        ],
+      })
+    }
+    if (ask.signoff) {
+      let detail: TaskDetail | undefined
+      try {
+        detail = await api.task(task.id)
+      } catch {}
+      const { members, me } = get()
+      const people = [
+        { value: null, label: "Nobody" },
+        ...members.map((m) => ({
+          value: m.userId,
+          label: m.userId === me?.id ? `${m.name} (you)` : m.name,
+        })),
+      ]
+      // The key is absent while unanswered, null for nobody, else the person.
+      const answer = (who: TaskDetail["reviewedBy"]) =>
+        who === undefined ? undefined : (who?.id ?? null)
+      questions.push(
         {
           field: "reviewedById",
           label: "Reviewed by",
@@ -134,14 +172,23 @@ export function createWrites(core: Core, settled: () => void) {
           options: people,
           answer: answer(detail?.testedBy),
         },
-      ],
-    })
+      )
+    }
+    push({ kind: "move", task, status, placement, questions, index: 0 })
   }
 
-  // Confirms the dialog: one request with the move and every answer.
-  function completeTask(o: CompleteOverlay) {
-    const answers = Object.fromEntries(o.questions.map((q) => [q.field, q.answer]))
-    commitMove(o.task, "complete", o.placement, answers)
+  // Confirms the dialog: one request with the move and every answer. "Me" replaces the
+  // assignees with the signed-in user; choosing the assignees leaves them alone.
+  function applyMove(o: MoveOverlay) {
+    const { me } = get()
+    const extra: Parameters<typeof commitMove>[2] = { placement: o.placement }
+    for (const q of o.questions) {
+      if (q.field !== "doneBy") extra[q.field] = q.answer
+      else if (q.answer === "me" && me) {
+        extra.assignees = [{ id: me.id, name: me.name, avatarUrl: me.avatarUrl ?? null }]
+      }
+    }
+    commitMove(o.task, o.status, extra)
   }
 
   // After a column change, asks what should happen to subtasks in another status.
@@ -407,7 +454,7 @@ export function createWrites(core: Core, settled: () => void) {
   return {
     update,
     moveTo,
-    completeTask,
+    applyMove,
     moveBy,
     moveWithin,
     toggleMe,

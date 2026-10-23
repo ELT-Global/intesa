@@ -47,6 +47,22 @@ async function board(w: BoardWorld, opts?: Parameters<typeof openBoard>[1]) {
   return b
 }
 
+// The text inside the move dialog, its wrapped lines joined.
+function dialogText(frame: string) {
+  const all = frame.split("\n")
+  const title = /╭─ (Move|Complete) task\?/
+  const top = all.findIndex((row) => title.test(row))
+  const x0 = all[top]?.search(title) ?? -1
+  const x1 = all[top]?.indexOf("╮", x0) ?? -1
+  if (x0 < 0) throw new Error(`no move dialog:\n${frame}`)
+  const body: string[] = []
+  for (const row of all.slice(top + 1)) {
+    if (row.charAt(x0) === "╰") break
+    body.push(row.slice(x0 + 1, x1).trim())
+  }
+  return body.join(" ").replace(/\s+/g, " ")
+}
+
 // Todo reads WEB-3, WEB-2, WEB-1: new tasks go to the top of their column.
 async function threeTodos(w: BoardWorld) {
   const one = await w.addTask({ title: "One", assigneeIds: [w.me] })
@@ -447,7 +463,9 @@ describe("board: completing a task", () => {
 
     let frame = await b.arrow("right", { meta: true })
     expect(frame).toContain("Complete task?")
-    expect(frame).toContain("WEB-1 is moving to Complete. Say who reviewed and who tested")
+    expect(dialogText(frame)).toContain(
+      "WEB-1 is moving to Complete. Say who reviewed it and who tested it before completing it.",
+    )
     expect(frame).toMatch(/▌Reviewed by +◀ choose… ▶/)
     expect(frame).toMatch(/ Tested by +◀ choose… ▶/)
     expect(frame).toContain("enter answer every question first")
@@ -577,6 +595,212 @@ describe("board: completing a task", () => {
     const frame = await b.arrow("left", { meta: true })
     expect(frame).not.toContain("Complete task?")
     expect((await w.getTask(done.id)).status).toBe("review")
+  })
+})
+
+describe("board: who did it", () => {
+  const patches = (w: BoardWorld) => w.answered.filter((r) => r.startsWith("PATCH "))
+  // The board starts on my cards; this shows everyone's.
+  const everyone = (b: Board) => b.arrow("left", { shift: true })
+  // The PATCH bodies sent so far.
+  const patched = (w: BoardWorld) => w.sent.filter((r) => r.method === "PATCH").map((r) => r.body)
+  // Moves the focus to the card with this key by walking the columns.
+  async function focusCard(b: Board, key: string) {
+    let frame = await b.press("h", "h", "h", "h")
+    for (let column = 0; column < 4; column++) {
+      for (let card = 0; card < 5; card++) {
+        if (frame.includes(`▌${key} `)) return frame
+        frame = await b.press("j")
+      }
+      frame = await b.press("k", "k", "k", "k", "k", "l")
+    }
+    throw new Error(`no card ${key} to focus:\n${frame}`)
+  }
+  const ids = (task: { assignees: { id: string }[] }) => task.assignees.map((a) => a.id).sort()
+
+  // Ada's task in Todo.
+  async function adasTask(w: BoardWorld, extra: Record<string, unknown> = {}) {
+    const ada = await w.addPerson("Ada Lovelace")
+    const task = await w.addTask({ title: "Hers", assigneeIds: [ada.id], ...extra })
+    return { ada, task }
+  }
+
+  test("moving your own, an unassigned or a Backlog/Todo-bound task never asks", async () => {
+    const w = await boardWorld(server)
+    const ada = await w.addPerson("Ada Lovelace")
+    const mine = await w.addTask({ title: "Mine", assigneeIds: [w.me] })
+    const nobodys = await w.addTask({ title: "Nobody's" })
+    const hers = await w.addTask({ title: "Hers", status: "in_progress", assigneeIds: [ada.id] })
+    const b = await board(w)
+    await everyone(b)
+
+    for (const task of [mine, nobodys]) {
+      await focusCard(b, task.key)
+      const frame = await b.arrow("right", { meta: true })
+      expect(frame).not.toContain("Move task?")
+      expect((await w.getTask(task.id)).status).toBe("in_progress")
+    }
+    // Someone else's task going back to Todo, or into Backlog, is not asked about either.
+    await focusCard(b, hers.key)
+    for (const status of ["todo", "backlog"]) {
+      const frame = await b.press("<")
+      expect(frame).not.toContain("Move task?")
+      expect((await w.getTask(hers.id)).status).toBe(status)
+    }
+  })
+
+  test("someone else's task asks who did it; there is no default", async () => {
+    const w = await boardWorld(server)
+    const { task } = await adasTask(w)
+    const b = await board(w)
+    await everyone(b)
+    const before = patches(w).length
+
+    let frame = await b.arrow("right", { meta: true })
+    expect(frame).toContain("Move task?")
+    expect(dialogText(frame)).toContain(
+      "WEB-1 is assigned to Ada Lovelace. Say who did it before moving it to In progress.",
+    )
+    expect(frame).toMatch(/▌Who did it[?] +◀ choose… ▶/)
+    expect(frame).not.toContain("Reviewed by")
+    // Nothing moved or was sent yet.
+    expect(columnKeys(frame, "Todo")).toEqual(["WEB-1"])
+    expect(patches(w).length).toBe(before)
+
+    frame = await b.enter()
+    expect(frame).toContain("Move task?")
+    expect(rows(frame).at(-1)).toBe(" Answer every question first")
+    expect((await w.getTask(task.id)).status).toBe("todo")
+  })
+
+  test("Me reassigns to you in the same request as the move", async () => {
+    const w = await boardWorld(server)
+    const { task } = await adasTask(w)
+    const b = await board(w)
+    await everyone(b)
+    await b.arrow("right", { meta: true })
+    const before = patches(w).length
+
+    let frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Who did it[?] +◀ Ada Lovelace ▶/)
+    frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Who did it[?] +◀ Me ▶/)
+    frame = await b.enter()
+    expect(frame).not.toContain("Move task?")
+    expect(columnKeys(frame, "In progress")).toEqual(["WEB-1"])
+    expect(columnLines(frame, "In progress")[1]).toContain("@alan")
+    expect(patches(w).length).toBe(before + 1)
+    expect(patched(w).at(-1)).toEqual({ status: "in_progress", assigneeIds: [w.me] })
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("in_progress")
+    expect(ids(saved)).toEqual([w.me])
+  })
+
+  test("choosing the assignees changes only the status", async () => {
+    const w = await boardWorld(server)
+    const ada = await w.addPerson("Ada Lovelace")
+    const grace = await w.addPerson("Grace Hopper")
+    const task = await w.addTask({ title: "Shared", assigneeIds: [ada.id, grace.id] })
+    const b = await board(w)
+    await everyone(b)
+    await b.arrow("right", { meta: true })
+    let frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Who did it[?] +◀ Ada Lovelace and Grace Hopper ▶/)
+    frame = await b.enter()
+    expect(columnKeys(frame, "In progress")).toEqual(["WEB-1"])
+    // Only the status goes out; the assignees are not touched.
+    expect(patched(w).at(-1)).toEqual({ status: "in_progress" })
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("in_progress")
+    expect(ids(saved)).toEqual([ada.id, grace.id].sort())
+  })
+
+  test("Esc changes nothing", async () => {
+    const w = await boardWorld(server)
+    const { ada, task } = await adasTask(w)
+    const b = await board(w)
+    await everyone(b)
+    const before = patches(w).length
+    await b.arrow("right", { meta: true })
+    await b.arrow("right")
+    await b.arrow("right")
+    const frame = await b.escape()
+    expect(frame).not.toContain("Move task?")
+    expect(columnKeys(frame, "Todo")).toEqual(["WEB-1"])
+    expect(patches(w).length).toBe(before)
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("todo")
+    expect(ids(saved)).toEqual([ada.id])
+  })
+
+  test("a refused save puts the card and its assignee back", async () => {
+    const w = await boardWorld(server)
+    await adasTask(w)
+    const b = await board(w)
+    await everyone(b)
+    await b.arrow("right", { meta: true })
+    await b.arrow("right")
+    await b.arrow("right")
+    w.faults.failWrites = true
+    const frame = await b.enter()
+    expect(rows(frame).at(-1)).toContain("Could not save WEB-1")
+    expect(columnKeys(frame, "Todo")).toEqual(["WEB-1"])
+    expect(columnLines(frame, "Todo")[1]).toContain("@ada")
+  })
+
+  test("completing asks all three questions in one dialog and sends one request", async () => {
+    const w = await boardWorld(server)
+    const { task } = await adasTask(w, { status: "review" })
+    const b = await board(w)
+    await everyone(b)
+    await b.press("l", "l")
+    const before = patches(w).length
+
+    let frame = await b.arrow("right", { meta: true })
+    expect(frame).toContain("Complete task?")
+    const order = ["Who did it?", "Reviewed by", "Tested by"].map((q) => frame.indexOf(q))
+    expect(order.every((at) => at >= 0)).toBe(true)
+    expect([...order].sort((x, y) => x - y)).toEqual(order)
+
+    // Me, then nobody reviewed it and nobody tested it.
+    await b.arrow("right")
+    await b.arrow("right")
+    await b.arrow("down")
+    await b.arrow("right")
+    await b.arrow("down")
+    await b.arrow("right")
+    frame = await b.enter()
+    expect(frame).not.toContain("Complete task?")
+    expect(columnKeys(frame, "Complete")).toEqual(["WEB-1"])
+    expect(patches(w).length).toBe(before + 1)
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("complete")
+    expect(ids(saved)).toEqual([w.me])
+    expect(saved.reviewedBy).toBeNull()
+    expect(saved.testedBy).toBeNull()
+  })
+
+  test("a subtask asks only who did it, including when completed", async () => {
+    const w = await boardWorld(server)
+    const ada = await w.addPerson("Ada Lovelace")
+    const parent = await w.addTask({ title: "Parent", assigneeIds: [w.me] })
+    const kid = await w.addTask({ title: "Kid", parentTaskId: parent.id, assigneeIds: [ada.id] })
+    const b = await board(w)
+    await b.enter()
+    b.keys.pressTab()
+    await b.enter()
+
+    let frame = await b.press("s", "c")
+    expect(frame).toContain("Complete task?")
+    expect(frame).toContain("Who did it?")
+    expect(frame).not.toContain("Reviewed by")
+    await b.arrow("right")
+    await b.arrow("right")
+    frame = await b.enter()
+    expect(frame).not.toContain("Complete task?")
+    const saved = await w.getTask(kid.id)
+    expect(saved.status).toBe("complete")
+    expect(ids(saved)).toEqual([w.me])
   })
 })
 

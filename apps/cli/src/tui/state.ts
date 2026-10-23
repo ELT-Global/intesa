@@ -57,20 +57,21 @@ export type SyncOverlay = {
   picked: Record<string, TaskStatus>
   index: number
 }
-// One question of the dialog that moving a task into Complete opens. `answer` is the chosen
-// option's `value`: undefined while unanswered. Another question (who did it) is another entry
-// in `questions`, with its own options.
-export type CompleteQuestion = {
-  field: "reviewedById" | "testedById"
+// One question of the dialog a move can open: who did the work (when someone else's task is
+// started), and who reviewed and tested it (when completing). `answer` is the chosen option's
+// `value`: undefined while unanswered. A further question is one more entry in `questions`.
+export type MoveQuestion = {
+  field: "doneBy" | "reviewedById" | "testedById"
   label: string
   options: { value: string | null; label: string }[]
   answer?: string | null
 }
-export type CompleteOverlay = {
-  kind: "complete"
+export type MoveOverlay = {
+  kind: "move"
   task: Task
+  status: TaskStatus
   placement?: Placement
-  questions: CompleteQuestion[]
+  questions: MoveQuestion[]
   index: number
 }
 export type Overlay =
@@ -80,7 +81,7 @@ export type Overlay =
   | PickerOverlay
   | ConfirmOverlay
   | SyncOverlay
-  | CompleteOverlay
+  | MoveOverlay
   | { kind: "help" }
 
 export type DetailEntry = {

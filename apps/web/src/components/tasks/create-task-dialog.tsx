@@ -21,8 +21,8 @@ import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
 import { TASK_BODY_MAX_LENGTH, type TaskSummary, type UserRef, useCreateTask } from "@/lib/tasks"
 import { AssigneePicker } from "./assignee-picker"
-import { type CompletionAnswers, CompletionDialog } from "./completion-dialog"
 import { DuePicker, PriorityPicker, StatusPicker } from "./properties"
+import { type SignoffAnswers, StatusChangeDialog } from "./status-change-dialog"
 import { TagDot } from "./tag-chip"
 import { TagPicker } from "./tag-picker"
 import { newTaskAssigneeIds } from "./use-board-assignee-filter"
@@ -131,7 +131,7 @@ function CreateTaskForm({
     else send()
   }
 
-  function send(answers?: CompletionAnswers) {
+  function send(signoff?: SignoffAnswers) {
     const trimmed = title.trim()
     create.mutate(
       {
@@ -142,9 +142,9 @@ function CreateTaskForm({
         dueAt: dueRef.current,
         assigneeIds: assignees.length ? assignees.map((a) => a.id) : undefined,
         tagIds: tags.length ? tags.map((t) => t.id) : undefined,
-        ...(answers && {
-          reviewedById: answers.reviewedBy?.id ?? null,
-          testedById: answers.testedBy?.id ?? null,
+        ...(signoff && {
+          reviewedById: signoff.reviewedBy?.id ?? null,
+          testedById: signoff.testedBy?.id ?? null,
         }),
       },
       {
@@ -252,11 +252,11 @@ function CreateTaskForm({
           </Button>
         </DialogFooter>
       </form>
-      <CompletionDialog
-        target={signingOff ? { projectId, label: "the new task" } : null}
-        onConfirm={(answers) => {
+      <StatusChangeDialog
+        target={signingOff ? { projectId, label: "the new task", signoff: true } : null}
+        onConfirm={({ signoff }) => {
           setSigningOff(false)
-          send(answers)
+          send(signoff)
         }}
         onCancel={() => setSigningOff(false)}
       />

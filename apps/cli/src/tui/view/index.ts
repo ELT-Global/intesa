@@ -92,8 +92,8 @@ export function createView(renderer: CliRenderer, store: Store, ui: Ui) {
         return dialogs.picker(o, z)
       case "sync":
         return dialogs.sync(o, z)
-      case "complete":
-        return dialogs.complete(o, z)
+      case "move":
+        return dialogs.move(o, z)
       case "help":
         return dialogs.help(z)
       case "confirm":

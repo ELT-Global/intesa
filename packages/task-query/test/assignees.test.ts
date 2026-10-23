@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
+  asksWhoDidIt,
   assigneeViews,
+  joinNames,
   matchesAssignees,
   newTaskAssignees,
   stepAssigneeView,
@@ -68,5 +70,38 @@ describe("newTaskAssignees", () => {
     expect(newTaskAssignees([], "me")).toEqual(["me"])
     expect(newTaskAssignees(["ann", "bob"], "me")).toEqual(["me"])
     expect(newTaskAssignees([], undefined)).toEqual([])
+  })
+})
+
+describe("asksWhoDidIt", () => {
+  const ada = { id: "ada" }
+  const task = { status: "todo" as const, assignees: [ada] }
+
+  test("someone else's task going into In progress, Review or Complete asks", () => {
+    for (const status of ["in_progress", "review", "complete"] as const) {
+      expect(asksWhoDidIt(task, status, "me")).toBe(true)
+    }
+  })
+
+  test("not for Backlog or Todo, the same status, or nobody signed in", () => {
+    expect(asksWhoDidIt({ ...task, status: "review" }, "todo", "me")).toBe(false)
+    expect(asksWhoDidIt({ ...task, status: "review" }, "backlog", "me")).toBe(false)
+    expect(asksWhoDidIt({ ...task, status: "review" }, "review", "me")).toBe(false)
+    expect(asksWhoDidIt(task, "in_progress", undefined)).toBe(false)
+  })
+
+  test("not for unassigned tasks or the mover's own, however many others share it", () => {
+    expect(asksWhoDidIt({ ...task, assignees: [] }, "review", "me")).toBe(false)
+    expect(asksWhoDidIt({ ...task, assignees: [ada, { id: "me" }] }, "review", "me")).toBe(false)
+    expect(asksWhoDidIt({ ...task, assignees: [ada, { id: "bo" }] }, "review", "me")).toBe(true)
+  })
+})
+
+describe("joinNames", () => {
+  test("reads as a sentence", () => {
+    expect(joinNames([])).toBe("")
+    expect(joinNames(["Ada"])).toBe("Ada")
+    expect(joinNames(["Ada", "Grace"])).toBe("Ada and Grace")
+    expect(joinNames(["Ada", "Grace", "Alan"])).toBe("Ada, Grace and Alan")
   })
 })

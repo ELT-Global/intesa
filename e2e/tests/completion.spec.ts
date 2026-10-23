@@ -1,24 +1,11 @@
 import { type Browser, expect, type Page, test } from "@playwright/test"
-import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
-import { addMember, pageAs } from "../support/members"
-import {
-  createProject,
-  createTaskViaApi,
-  setTaskStatus,
-  workspaceIdBySlug,
-} from "../support/projects"
+import { workspaceWithMember } from "../support/members"
+import { createProject, createTaskViaApi, setTaskStatus } from "../support/projects"
+import { answer, answerBoth, column, completeDialog } from "../support/status-change"
 
 // Wide enough for all five columns: the Complete column is the last one, and a drag onto a column
 // that is partly scrolled out of view would also set the board scrolling.
 test.use({ viewport: { width: 1800, height: 900 } })
-
-const column = (page: Page, name: string) => page.getByRole("region", { name, exact: true })
-const completeDialog = (page: Page) => page.getByRole("dialog", { name: "Complete task" })
-
-async function userId(page: Page): Promise<string> {
-  const res = await page.request.get("/api/me")
-  return ((await res.json()) as { user: { id: string } }).user.id
-}
 
 /** Ada owns the workspace and Grace is its other member; the tasks are created on the way. */
 async function setup(
@@ -27,37 +14,13 @@ async function setup(
   tasks: { title: string; status?: string }[],
   view: "board" | "table" = "board",
 ) {
-  const graceEmail = uniqueEmail("grace")
-  await signIn(page, { email: uniqueEmail("ada"), name: "Ada Lovelace" })
-  const slug = await createWorkspace(page, uniqueName())
-  const workspaceId = await workspaceIdBySlug(page, slug)
-  const grace = await pageAs(browser, graceEmail, "Grace Hopper")
-  const graceId = await userId(grace)
-  await grace.context().close()
-  await addMember(page, workspaceId, graceEmail)
-  const adaId = await userId(page)
-
-  const project = await createProject(page, workspaceId, uniqueName("Project"))
+  const { slug, workspaceId, adaId, graceId } = await workspaceWithMember(page, browser)
+  const project = await createProject(page, workspaceId, "Project")
   const created = []
   for (const t of tasks) created.push(await createTaskViaApi(page, project.id, t))
   const base = `/w/${slug}/projects/${project.id}`
   await page.goto(`${base}/${view}`)
   return { slug, base, project, tasks: created, adaId, graceId }
-}
-
-/** Answers one question of the completion dialog: "Reviewed by"/"Tested by" with a member or "Nobody". */
-async function answer(page: Page, question: string, who: string | RegExp) {
-  await completeDialog(page)
-    .getByRole("button", { name: new RegExp(`^${question}:`) })
-    .click()
-  await page.getByRole("option", { name: who }).click()
-  // The picker animates out; the next one must not find its options.
-  await expect(page.getByRole("option")).toHaveCount(0)
-}
-
-async function answerBoth(page: Page, reviewer: string | RegExp, tester: string | RegExp) {
-  await answer(page, "Reviewed by", reviewer)
-  await answer(page, "Tested by", tester)
 }
 
 test("dragging a card to Complete asks first; Cancel leaves it where it was", async ({

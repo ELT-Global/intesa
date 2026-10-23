@@ -69,6 +69,8 @@ export async function boardWorld(server: TestServer, opts: { editor?: string } =
   // Answers held back until released, and every request answered, as "METHOD /path".
   const holds: { method: string; path: string; arrived: () => void; gate: Promise<void> }[] = []
   const answered: string[] = []
+  // The JSON body of every write sent, for tests that check exactly what went out.
+  const sent: { method: string; path: string; body: Record<string, unknown> }[] = []
   const http = createHttp({
     host: server.url,
     token,
@@ -80,6 +82,13 @@ export async function boardWorld(server: TestServer, opts: { editor?: string } =
       const path = new URL(req.url).pathname
       if (faults.failWrites && req.method !== "GET") {
         return Response.json({ code: "INTERNAL", message: "boom" }, { status: 500 })
+      }
+      if (req.method !== "GET" && req.headers.get("content-type")?.includes("json")) {
+        sent.push({
+          method: req.method,
+          path,
+          body: (await req.clone().json()) as Record<string, unknown>,
+        })
       }
       const res = await fetch(req)
       const at = holds.findIndex((h) => h.method === req.method && h.path === path)
@@ -165,6 +174,7 @@ export async function boardWorld(server: TestServer, opts: { editor?: string } =
     ctx,
     faults,
     answered,
+    sent,
     /**
      * Holds back the server's answer to the next `method path` (sent and answered by the
      * server, not yet given to the board) until `release()`.
