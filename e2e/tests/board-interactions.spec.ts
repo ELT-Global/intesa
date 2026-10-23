@@ -129,7 +129,9 @@ for (const close of ["Cancel", "Close", "Escape"] as const) {
     page,
   }) => {
     await setup(page, ["Write spec", "Keep me"])
-    await column(page, "Todo").getByRole("button", { name: /Write spec/ }).click({ button: "right" })
+    await column(page, "Todo")
+      .getByRole("button", { name: /Write spec/ })
+      .click({ button: "right" })
     await page.getByRole("menuitem", { name: /^Delete/ }).click()
     const confirm = page.getByRole("dialog", { name: "Delete task?" })
     if (close === "Escape") await page.keyboard.press("Escape")
@@ -137,7 +139,9 @@ for (const close of ["Cancel", "Close", "Escape"] as const) {
     await expect(confirm).toBeHidden()
 
     await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none")
-    await column(page, "Todo").getByRole("button", { name: /Keep me/ }).click({ timeout: 2000 })
+    await column(page, "Todo")
+      .getByRole("button", { name: /Keep me/ })
+      .click({ timeout: 2000 })
     await expect(page).toHaveURL(/task=/)
   })
 }
