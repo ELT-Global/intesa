@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { SIGNOFF_REQUIRED } from "../src/tasks/schemas"
 import { loadTaskSummaries } from "../src/tasks/service"
 import { addMember, addTag, createTestApp, setupProject, signIn, userId } from "./helpers"
 
@@ -207,7 +208,11 @@ describe("updating tasks", () => {
     const task = await create()
     await owner.call("PATCH", `/api/tasks/${task.id}`, { status: "in_progress" })
     await owner.call("PATCH", `/api/tasks/${task.id}`, { status: "in_progress", title: "Same" })
-    await owner.call("PATCH", `/api/tasks/${task.id}`, { status: "complete" })
+    await owner.call("PATCH", `/api/tasks/${task.id}`, {
+      status: "complete",
+      reviewedById: null,
+      testedById: null,
+    })
 
     const { history } = (await owner.call("GET", `/api/tasks/${task.id}/history`)).body
     expect(
@@ -231,6 +236,8 @@ describe("updating tasks", () => {
     const res = await owner.call("PATCH", `/api/tasks/${task.id}`, {
       title: "Changed",
       status: "complete",
+      reviewedById: null,
+      testedById: null,
       assigneeIds: [strangerId],
     })
     expect(res.status).toBe(400)
@@ -464,5 +471,215 @@ describe("task by key", () => {
     const foreign = await owner.call("GET", byKey(other.workspaceId, theirs.body.task.key))
     expect(foreign.status).toBe(404)
     expect(foreign.body.code).toBe("NOT_FOUND")
+  })
+})
+
+describe("review and test sign-off", () => {
+  const RULE = SIGNOFF_REQUIRED
+  const nobody = { reviewedById: null, testedById: null }
+
+  async function signoffSetup() {
+    const s = await setup()
+    await signIn(s.t.app, "ada@example.com", "Ada")
+    const ada = await addMember(s.t, s.workspaceId, "ada@example.com")
+    const ownerId = await userId(s.t, "owner@example.com")
+    const patch = (id: string, body: Record<string, unknown>) =>
+      s.owner.call("PATCH", `/api/tasks/${id}`, body)
+    const detail = async (id: string) => (await s.owner.call("GET", `/api/tasks/${id}`)).body.task
+    return { ...s, ada, ownerId, patch, detail }
+  }
+
+  test.each(["todo", "in_progress", "review"])(
+    "a top-level task cannot move from %s to complete while unanswered",
+    async (from) => {
+      const { owner, create, patch, detail } = await signoffSetup()
+      const task = await create({ title: "Keep", status: from })
+
+      const res = await patch(task.id, { title: "Changed", status: "complete" })
+      expect(res.status).toBe(400)
+      expect(res.body).toEqual({ code: "VALIDATION_ERROR", message: RULE })
+      expect(await detail(task.id)).toMatchObject({ title: "Keep", status: from })
+      const { history } = (await owner.call("GET", `/api/tasks/${task.id}/history`)).body
+      expect(history).toHaveLength(1)
+    },
+  )
+
+  test("an empty id is a malformed request, not an answer", async () => {
+    const { project, owner, create, patch } = await signoffSetup()
+    const task = await create()
+    for (const field of ["reviewedById", "testedById"]) {
+      const res = await patch(task.id, { [field]: "" })
+      expect(res.status, field).toBe(400)
+      expect(res.body.code).toBe("VALIDATION_ERROR")
+      const made = await owner.call("POST", `/api/projects/${project.id}/tasks`, {
+        title: "New",
+        [field]: "",
+      })
+      expect(made.status, field).toBe(400)
+    }
+  })
+
+  test("answering only one of the two is not enough, and leaves no answer behind", async () => {
+    const { create, patch, detail, ada } = await signoffSetup()
+    const task = await create()
+    expect((await patch(task.id, { status: "complete", reviewedById: ada })).status).toBe(400)
+    expect((await patch(task.id, { status: "complete", testedById: null })).status).toBe(400)
+
+    const after = await detail(task.id)
+    expect(after.status).toBe("todo")
+    expect("reviewedBy" in after).toBe(false)
+    expect("testedBy" in after).toBe(false)
+  })
+
+  test("completes once both are answered, even if the answers came in earlier requests", async () => {
+    const { create, patch, detail } = await signoffSetup()
+    const task = await create()
+    expect((await patch(task.id, nobody)).status).toBe(200)
+    expect((await patch(task.id, { status: "complete" })).status).toBe(200)
+    expect(await detail(task.id)).toMatchObject({
+      status: "complete",
+      reviewedBy: null,
+      testedBy: null,
+    })
+  })
+
+  test("one PATCH can answer both, complete and change other fields", async () => {
+    const { create, patch, detail, ada } = await signoffSetup()
+    const task = await create()
+    const res = await patch(task.id, {
+      status: "complete",
+      reviewedById: ada,
+      testedById: null,
+      assigneeIds: [ada],
+      placement: "last",
+    })
+    expect(res.status).toBe(200)
+    expect(await detail(task.id)).toMatchObject({
+      status: "complete",
+      reviewedBy: { id: ada, name: "Ada" },
+      testedBy: null,
+      assignees: [{ id: ada }],
+    })
+  })
+
+  test("a non-member answer fails the whole PATCH, so the task does not complete", async () => {
+    const { t, create, patch, detail } = await signoffSetup()
+    await signIn(t.app, "stranger@example.com")
+    const stranger = await userId(t, "stranger@example.com")
+    const task = await create()
+
+    for (const field of ["reviewedById", "testedById"]) {
+      const res = await patch(task.id, { status: "complete", ...nobody, [field]: stranger })
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe("VALIDATION_ERROR")
+      expect(res.body.message).toContain(field)
+    }
+    const after = await detail(task.id)
+    expect(after.status).toBe("todo")
+    expect("reviewedBy" in after).toBe(false)
+  })
+
+  test("subtasks complete without any answers", async () => {
+    const { create, patch, detail } = await signoffSetup()
+    const parent = await create({ title: "Parent" })
+    const child = await create({ title: "Child", parentTaskId: parent.id })
+    expect((await patch(child.id, { status: "complete" })).status).toBe(200)
+    expect((await detail(child.id)).status).toBe("complete")
+
+    const born = await create({ title: "Born done", parentTaskId: parent.id, status: "complete" })
+    expect((await detail(born.id)).status).toBe("complete")
+  })
+
+  test("a top-level task can be created complete only with both answers", async () => {
+    const { owner, project, ada, detail } = await signoffSetup()
+    const post = (body: Record<string, unknown>) =>
+      owner.call("POST", `/api/projects/${project.id}/tasks`, { title: "Done", ...body })
+
+    for (const body of [
+      { status: "complete" },
+      { status: "complete", reviewedById: ada },
+      { status: "complete", testedById: null },
+    ]) {
+      const res = await post(body)
+      expect(res.status).toBe(400)
+      expect(res.body.message).toBe(RULE)
+    }
+    const list = await owner.call("GET", `/api/projects/${project.id}/tasks`)
+    expect(list.body.tasks).toHaveLength(0)
+
+    const ok = await post({ status: "complete", reviewedById: ada, testedById: null })
+    expect(ok.status).toBe(201)
+    expect(await detail(ok.body.task.id)).toMatchObject({
+      status: "complete",
+      reviewedBy: { id: ada },
+      testedBy: null,
+    })
+  })
+
+  test("create rejects a reviewer or tester outside the workspace", async () => {
+    const { t, owner, project } = await signoffSetup()
+    await signIn(t.app, "stranger@example.com")
+    const stranger = await userId(t, "stranger@example.com")
+    for (const field of ["reviewedById", "testedById"]) {
+      const res = await owner.call("POST", `/api/projects/${project.id}/tasks`, {
+        title: "X",
+        [field]: stranger,
+      })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toContain(field)
+    }
+  })
+
+  test("detail leaves a key out when unanswered, shows null for nobody and the user otherwise", async () => {
+    const { create, patch, detail, ada } = await signoffSetup()
+    const task = await create()
+    const fresh = await detail(task.id)
+    expect("reviewedBy" in fresh).toBe(false)
+    expect("testedBy" in fresh).toBe(false)
+
+    await patch(task.id, { reviewedById: null })
+    const half = await detail(task.id)
+    expect(half.reviewedBy).toBeNull()
+    expect("testedBy" in half).toBe(false)
+
+    await patch(task.id, { testedById: ada })
+    expect(await detail(task.id)).toMatchObject({
+      reviewedBy: null,
+      testedBy: { id: ada, name: "Ada", avatarUrl: null },
+    })
+  })
+
+  test("both answers can be edited at any status, including after completion", async () => {
+    const { create, patch, detail, ada, ownerId } = await signoffSetup()
+    const task = await create({ title: "Edit me" })
+    expect((await patch(task.id, { reviewedById: ada, testedById: ada })).status).toBe(200)
+    await patch(task.id, { status: "complete" })
+
+    expect((await patch(task.id, { reviewedById: ownerId })).status).toBe(200)
+    expect((await patch(task.id, { testedById: null })).status).toBe(200)
+    expect(await detail(task.id)).toMatchObject({
+      status: "complete",
+      reviewedBy: { id: ownerId },
+      testedBy: null,
+    })
+    // An answer the request does not mention stays as it was.
+    expect((await patch(task.id, { title: "Renamed" })).status).toBe(200)
+    expect(await detail(task.id)).toMatchObject({ reviewedBy: { id: ownerId }, testedBy: null })
+  })
+
+  test("saving an already complete task as complete is not a move", async () => {
+    const { t, create, patch } = await signoffSetup()
+    const task = await create()
+    await t.db.updateTable("tasks").set({ status: "complete" }).where("id", "=", task.id).execute()
+    expect((await patch(task.id, { status: "complete", title: "Same column" })).status).toBe(200)
+  })
+
+  test("leaving complete and coming back keeps the recorded answers", async () => {
+    const { create, patch, detail } = await signoffSetup()
+    const task = await create()
+    await patch(task.id, { status: "complete", ...nobody })
+    expect((await patch(task.id, { status: "review" })).status).toBe(200)
+    expect((await patch(task.id, { status: "complete" })).status).toBe(200)
+    expect((await detail(task.id)).status).toBe("complete")
   })
 })

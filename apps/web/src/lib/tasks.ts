@@ -38,7 +38,13 @@ const moveToIndex = (list: TaskSummary[], taskId: string, index: number) => {
 }
 
 /** Resolved people/tags matching a patch's id sets, so the cache can update before the server answers. */
-export type TaskPatchView = { assignees?: UserRef[]; tags?: TagRef[] }
+export type TaskPatchView = {
+  assignees?: UserRef[]
+  tags?: TagRef[]
+  /** Who reviewed/tested it, null for nobody. Only the detail shows these. */
+  reviewedBy?: UserRef | null
+  testedBy?: UserRef | null
+}
 
 const taskApi = {
   list: (projectId: string) => unwrap(projectTasks.$get({ param: { projectId } })),
@@ -189,6 +195,8 @@ function updateOptions(qc: QueryClient, vars: UpdateVars, onFailed?: () => void)
       if (resolved.tags) summaryChanges.tags = resolved.tags
       const detailChanges: Record<string, unknown> = { ...summaryChanges }
       if (patch.body !== undefined) detailChanges.body = patch.body
+      if (resolved.reviewedBy !== undefined) detailChanges.reviewedBy = resolved.reviewedBy
+      if (resolved.testedBy !== undefined) detailChanges.testedBy = resolved.testedBy
 
       const previousFields = detail
         ? Object.fromEntries(

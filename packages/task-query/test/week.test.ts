@@ -5,6 +5,7 @@ import {
   shiftWeek,
   type WeekTaskInput,
   weekBounds,
+  weekCheckRole,
   weekCounts,
   weekDueState,
   weekLogHtml,
@@ -522,5 +523,100 @@ describe("weekLogMarkdown", () => {
     expect(html).toContain("<h3>Bo &lt;b&gt;</h3>")
     expect(html).toContain("A &amp; &quot;B&quot; &lt;i&gt;")
     expect(html).toContain("<p><strong>Nothing this week:</strong> Grace Hopper</p>")
+  })
+
+  describe("reviewed or tested", () => {
+    const shipIt = { key: "WEB-20", title: "Ship *it*", reviewed: true, tested: true }
+    const rateLimit = { key: "API-7", title: "Rate limit", reviewed: true, tested: false }
+    const backups = { key: "OPS-2", title: "Backups", reviewed: false, tested: true }
+    const withChecks = {
+      people: [
+        {
+          user: { name: "Ada" },
+          member: true,
+          tasks: [task({ key: "WEB-1" })],
+          checks: [shipIt, rateLimit, backups],
+        },
+        // Checked work alone gets a person listed, and keeps them out of the idle names.
+        { user: { name: "Bo" }, member: true, tasks: [], checks: [rateLimit] },
+        { user: { name: "Cy" }, member: true, tasks: [], checks: [] },
+        { user: { name: "Di" }, member: true, tasks: [] },
+        { user: { name: "Ex Member" }, member: false, tasks: [], checks: [backups] },
+      ],
+    }
+    const checkOpts = {
+      ...opts,
+      checkUrl: (c: { key: string }) => `https://intesa.test/t/${c.key}`,
+    }
+
+    test("Markdown lists them after the person's tasks, linked", () => {
+      const markdown = weekLogMarkdown(withChecks, checkOpts)
+      expect(markdown).toContain(
+        [
+          "## Ada",
+          "",
+          "1 pending",
+          "",
+          "**Pending**",
+          "",
+          "- [ ] [WEB-1](https://intesa.test/t/WEB-1) Task — Todo · assigned Mon, Oct 12",
+          "",
+          "**Reviewed or tested**",
+          "",
+          "- [x] [WEB-20](https://intesa.test/t/WEB-20) Ship \\*it\\* (reviewed, tested)",
+          "- [x] [API-7](https://intesa.test/t/API-7) Rate limit (reviewed)",
+          "- [x] [OPS-2](https://intesa.test/t/OPS-2) Backups (tested)",
+          "",
+        ].join("\n"),
+      )
+      // Totals count tasks, not checks.
+      expect(markdown).toContain("Acme · 1 pending\n")
+    })
+
+    test("a person with checks and no tasks is listed, not idle", () => {
+      const markdown = weekLogMarkdown(withChecks, checkOpts)
+      expect(markdown).toContain(
+        "## Bo\n\nNo tasks\n\n**Reviewed or tested**\n\n- [x] [API-7](https://intesa.test/t/API-7) Rate limit (reviewed)\n",
+      )
+      expect(markdown).toContain("## Ex Member\n")
+      expect(markdown).toContain("**Nothing this week:** Cy, Di\n")
+    })
+
+    test("keys are plain text without checkUrl", () => {
+      expect(weekLogMarkdown(withChecks, opts)).toContain(
+        "- [x] WEB-20 Ship \\*it\\* (reviewed, tested)\n",
+      )
+    })
+
+    test("simple Markdown and HTML have the group too", () => {
+      const simple = weekLogSimpleMarkdown(withChecks, checkOpts)
+      expect(simple).toContain(
+        "_Reviewed or tested_\n- WEB-20 Ship *it* (reviewed, tested)\n- API-7 Rate limit (reviewed)\n- OPS-2 Backups (tested)\n",
+      )
+      expect(simple).toContain("*Nothing this week:* Cy, Di\n")
+
+      const html = weekLogHtml(withChecks, checkOpts)
+      expect(html).toContain("<p><strong>Reviewed or tested</strong></p>")
+      expect(html).toContain(
+        '&#9745;</span> <a href="https://intesa.test/t/API-7">API-7</a> Rate limit <span style="color:#6b7280">(reviewed)</span></li>',
+      )
+      expect(html).toContain("(reviewed, tested)</span>")
+      expect(html).toContain("<p><strong>Nothing this week:</strong> Cy, Di</p>")
+    })
+
+    test("people without checks get no group", () => {
+      const none = { people: [{ user: { name: "Ada" }, member: true, tasks: [task()] }] }
+      expect(weekLogMarkdown(none, opts)).not.toContain("Reviewed or tested")
+      expect(weekLogSimpleMarkdown(none, opts)).not.toContain("Reviewed or tested")
+      expect(weekLogHtml(none, opts)).not.toContain("Reviewed or tested")
+    })
+  })
+})
+
+describe("weekCheckRole", () => {
+  test("names what the person did", () => {
+    expect(weekCheckRole({ reviewed: true, tested: true })).toBe("reviewed, tested")
+    expect(weekCheckRole({ reviewed: true, tested: false })).toBe("reviewed")
+    expect(weekCheckRole({ reviewed: false, tested: true })).toBe("tested")
   })
 })

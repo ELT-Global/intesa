@@ -12,6 +12,8 @@ import { usageError } from "../output/errors"
 //   due: 2026-10-15
 //   assignees: [Mei Chen, @me]
 //   tags: [auth, bug]
+//   reviewedBy: Mei Chen
+//   testedBy: none
 //   fields: { Estimate: 3, Stage: null }
 //   ---
 //   Markdown body…
@@ -20,6 +22,8 @@ import { usageError } from "../output/errors"
 // quoted scalars, inline lists `[a, b]` (or a bare `a, b` for assignees and tags) and inline
 // maps `{ K: v }`, and `#` comments on their own line or after a value that cannot contain
 // one. A key that is left out changes nothing; an empty value, `null` or `~` clears.
+// The exception is reviewedBy and testedBy, which are empty until someone answers them: a
+// person (a name, an email or @me) or `none` for nobody. An answer cannot be made empty again.
 
 export type Scalar = string | null
 
@@ -30,6 +34,9 @@ export type TaskDoc = {
   due?: string | null
   assignees?: string[]
   tags?: string[]
+  // A person as written in the document, "none" for nobody, null while unanswered.
+  reviewedBy?: string | null
+  testedBy?: string | null
   // By field name; values stay text until they are checked against the field's type.
   fields?: Record<string, Scalar>
   body: string
@@ -43,6 +50,9 @@ type DocTask = {
   dueAt: string | null
   assignees: readonly { id: string; name: string }[]
   tags: readonly { name: string }[]
+  // Absent while unanswered, null for nobody.
+  reviewedBy?: { id: string; name: string } | null
+  testedBy?: { id: string; name: string } | null
   customFields: Record<string, unknown>
 }
 
@@ -54,7 +64,17 @@ export type DocNames = {
   fields?: readonly { id: string; name: string }[]
 }
 
-const KEYS = ["title", "status", "priority", "due", "assignees", "tags", "fields"] as const
+const KEYS = [
+  "title",
+  "status",
+  "priority",
+  "due",
+  "assignees",
+  "tags",
+  "reviewedBy",
+  "testedBy",
+  "fields",
+] as const
 type Key = (typeof KEYS)[number]
 
 const NULLS = ["", "null", "~"]
@@ -80,6 +100,8 @@ export function formatTaskDoc(doc: TaskDoc): string {
   if (doc.due !== undefined) put("due", doc.due ?? "")
   if (doc.assignees !== undefined) put("assignees", list(doc.assignees))
   if (doc.tags !== undefined) put("tags", list(doc.tags))
+  if (doc.reviewedBy !== undefined) put("reviewedBy", doc.reviewedBy ? scalar(doc.reviewedBy) : "")
+  if (doc.testedBy !== undefined) put("testedBy", doc.testedBy ? scalar(doc.testedBy) : "")
   if (doc.fields !== undefined) {
     const entries = Object.entries(doc.fields).map(([k, v]) => `${scalar(k)}: ${scalar(v)}`)
     put("fields", entries.length > 0 ? `{ ${entries.join(", ")} }` : "{}")
@@ -99,6 +121,8 @@ export function toTaskDoc(task: DocTask, names: DocNames = {}): string {
     const namesakes = members.filter((m) => m.name.toLowerCase() === a.name.toLowerCase())
     return namesakes.length > 1 ? (members.find((m) => m.userId === a.id)?.email ?? a.id) : a.name
   }
+  const signoff = (who: { id: string; name: string } | null | undefined) =>
+    who === undefined ? null : who === null ? "none" : person(who)
   return formatTaskDoc({
     title: task.title,
     status: task.status,
@@ -106,6 +130,8 @@ export function toTaskDoc(task: DocTask, names: DocNames = {}): string {
     due: task.dueAt,
     assignees: task.assignees.map(person),
     tags: task.tags.map((t) => t.name),
+    reviewedBy: signoff(task.reviewedBy),
+    testedBy: signoff(task.testedBy),
     fields: Object.fromEntries(
       (names.fields ?? []).map((f) => [f.name, fieldText(task.customFields[f.id])]),
     ),
@@ -279,6 +305,10 @@ function setKey(doc: TaskDoc, key: Key, value: Value) {
     case "tags":
       doc[key] = asList(key, value)
       return
+    case "reviewedBy":
+    case "testedBy":
+      doc[key] = asText(key, value)?.trim() || null
+      return
     case "fields":
       if (value === null) doc.fields = {}
       else if (typeof value === "object" && !Array.isArray(value)) doc.fields = value
@@ -306,14 +336,15 @@ export function parseTaskDoc(text: string): TaskDoc {
     // `s`: a value may hold U+2028 and U+2029, which `.` would stop at.
     const match = /^\s*([A-Za-z]+)\s*:(.*)$/s.exec(line)
     if (!match) throw at(i, `expected KEY: VALUE, got "${line.trim()}"`)
-    const key = (match[1] ?? "").toLowerCase()
-    if (!KEYS.includes(key as Key)) {
+    const typed = (match[1] ?? "").toLowerCase()
+    const key = KEYS.find((k) => k.toLowerCase() === typed)
+    if (!key) {
       throw at(i, `unknown key "${match[1]}": expected ${KEYS.join(", ")}`)
     }
     if (seen.has(key)) throw at(i, `${key} is given twice`)
     seen.add(key)
     try {
-      setKey(doc, key as Key, parseValue(key as Key, match[2] ?? ""))
+      setKey(doc, key, parseValue(key, match[2] ?? ""))
     } catch (err) {
       if (err instanceof DocError) throw at(i, err.message)
       throw err
@@ -346,6 +377,15 @@ export function diffTaskDoc(before: TaskDoc, after: TaskDoc): Partial<TaskDoc> {
     change.assignees = after.assignees
   }
   if (after.tags !== undefined && !sameSet(after.tags, before.tags ?? [])) change.tags = after.tags
+  for (const key of ["reviewedBy", "testedBy"] as const) {
+    const now = after[key]
+    // Null-safe: an unanswered (null) document value equals an unanswered one in `before`.
+    if (now === undefined || now?.toLowerCase() === before[key]?.toLowerCase()) continue
+    if (now === null) {
+      throw usageError(`${key} is already answered: write none for nobody, or a person`)
+    }
+    change[key] = now
+  }
   const fields = Object.entries(after.fields ?? {}).filter(([k, v]) => before.fields?.[k] !== v)
   if (fields.length > 0) change.fields = Object.fromEntries(fields)
   if (after.body !== before.body) change.body = after.body

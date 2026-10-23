@@ -424,6 +424,28 @@ const taskAssignments: Migration = {
   },
 }
 
+// Who reviewed the code and who tested it. Each answer is a user, "nobody" or not given yet:
+// `*_by` holds the user, and `*_by_set` says whether the question has been answered, so a null
+// `*_by` is "nobody" when set and "unanswered" when not. Tasks that already exist predate the
+// question and are backfilled to "nobody". Deleting a user turns their answers into "nobody".
+const reviewAndTest: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      for (const column of ["reviewed_by", "tested_by"]) {
+        await trx.schema
+          .alterTable("tasks")
+          .addColumn(column, text, (c) => c.references("users.id").onDelete("set null"))
+          .execute()
+        await trx.schema
+          .alterTable("tasks")
+          .addColumn(`${column}_set`, "integer", (c) => c.notNull().defaultTo(0))
+          .execute()
+      }
+      await sql`update tasks set reviewed_by_set = 1, tested_by_set = 1`.execute(trx)
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -432,4 +454,5 @@ export const migrations: Record<string, Migration> = {
   "0005_artifacts": artifacts,
   "0006_api_tokens_device_auth": apiTokensAndDeviceAuth,
   "0007_task_assignments": taskAssignments,
+  "0008_review_and_test": reviewAndTest,
 }

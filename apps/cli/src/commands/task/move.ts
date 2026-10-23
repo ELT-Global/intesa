@@ -10,6 +10,8 @@ import { type Ctx, defineCommand } from "../../registry/define"
 import {
   plural,
   showTasks,
+  signoffFlags,
+  signoffId,
   splitList,
   type TaskDetail,
   type TaskSummary,
@@ -38,6 +40,7 @@ const moveFlags = z.object({
     description:
       "What happens to subtasks in another status (default: ask on a terminal, else keep)",
   }),
+  ...signoffFlags,
 })
 type MoveFlags = z.output<typeof moveFlags>
 
@@ -107,10 +110,13 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
             ? ("last" as const)
             : undefined
 
+  const reviewedById = await signoffId(ctx, flags.reviewedBy)
+  const testedById = await signoffId(ctx, flags.testedBy)
+
   const { client } = await ctx.http()
   const res = await client.api.tasks[":taskId"].$patch({
     param: { taskId: task.id },
-    json: { status, ...(placement && { placement }) },
+    json: { status, reviewedById, testedById, ...(placement && { placement }) },
   })
   const moved = (await webLinks(ctx, task.project.workspaceId)).task((await res.json()).task)
   return withSubtaskSync(ctx, task, status, moved, flags.subtasks)
@@ -184,7 +190,10 @@ export const move = defineCommand({
     "to the new status, a status moves all of them there, and ask lets you pick; ask needs\n" +
     "a terminal, and without one the default is keep. One request is sent per subtask; when\n" +
     "some fail, the others still move, the result is printed and the exit code is the first\n" +
-    "failure's.",
+    "failure's.\n\n" +
+    "A top-level task cannot move to complete until who reviewed and who tested it is known:\n" +
+    "pass --reviewed-by and --tested-by (a person, or none for nobody) unless it already has\n" +
+    "both answers. Subtasks are exempt.",
   args: [
     taskArg,
     { name: "status", required: true, enum: STATUSES, description: "The status to move it to" },
@@ -197,12 +206,13 @@ export const move = defineCommand({
     "intesa task move WEB-12 todo --top",
     "intesa task move WEB-12 in_progress --after WEB-9",
     "intesa task move WEB-12 complete --subtasks match --json",
+    "intesa task move WEB-12 complete --reviewed-by mei@example.com --tested-by @me",
   ],
   run: (ctx, { task, status }, flags) => moveTask(ctx, task, status as Status, flags),
   human: showTasks,
 })
 
-const shorthand = (name: string, status: Status) =>
+const shorthand = (name: string, status: Status, more: string[] = []) =>
   defineCommand({
     name,
     summary: `Move a task to ${STATUS_LABELS[status]}`,
@@ -211,14 +221,16 @@ const shorthand = (name: string, status: Status) =>
     flags: moveFlags,
     context: ["workspace", "project"],
     output: "taskMove",
-    examples: [`intesa task ${name} WEB-12`],
+    examples: [`intesa task ${name} WEB-12`, ...more],
     run: (ctx, { task }, flags) => moveTask(ctx, task, status, flags),
     human: showTasks,
   })
 
 export const start = shorthand("start", "in_progress")
 export const review = shorthand("review", "review")
-export const done = shorthand("done", "complete")
+export const done = shorthand("done", "complete", [
+  "intesa task done WEB-12 --reviewed-by mei@example.com --tested-by none",
+])
 
 const peopleArg = {
   name: "people",

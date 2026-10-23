@@ -74,7 +74,17 @@ export async function createProject(
   return project
 }
 
-/** Creates a task through the API. */
+/**
+ * What the API requires to complete a task: who reviewed and who tested it. Specs that only need
+ * a completed task say "nobody" for both; `input` can name members instead.
+ */
+export function completionAnswers<T extends { status?: string }>(
+  input: T,
+): T & { reviewedById?: string | null; testedById?: string | null } {
+  return input.status === "complete" ? { reviewedById: null, testedById: null, ...input } : input
+}
+
+/** Creates a task through the API; one created as complete is signed off by nobody unless told otherwise. */
 export async function createTaskViaApi(
   page: Page,
   projectId: string,
@@ -84,9 +94,26 @@ export async function createTaskViaApi(
     assigneeIds?: string[]
     dueAt?: string
     parentTaskId?: string
+    reviewedById?: string | null
+    testedById?: string | null
   },
 ): Promise<{ id: string; key: string }> {
-  const res = await page.request.post(`/api/projects/${projectId}/tasks`, { data: input })
+  const res = await page.request.post(`/api/projects/${projectId}/tasks`, {
+    data: completionAnswers(input),
+  })
   expect(res.status()).toBe(201)
   return ((await res.json()) as { task: { id: string; key: string } }).task
+}
+
+/** Moves a task to `status` through the API (completing it needs the sign-off, see completionAnswers). */
+export async function setTaskStatus(
+  page: Page,
+  taskId: string,
+  status: string,
+  answers: { reviewedById?: string | null; testedById?: string | null } = {},
+) {
+  const res = await page.request.patch(`/api/tasks/${taskId}`, {
+    data: completionAnswers({ status, ...answers }),
+  })
+  expect(res.ok()).toBe(true)
 }

@@ -1,7 +1,12 @@
 import { type Browser, expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { addMember, pageAs } from "../support/members"
-import { createProject, createTaskViaApi, workspaceIdBySlug } from "../support/projects"
+import {
+  createProject,
+  createTaskViaApi,
+  setTaskStatus,
+  workspaceIdBySlug,
+} from "../support/projects"
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] })
 
@@ -22,11 +27,6 @@ async function userId(page: Page): Promise<string> {
   return ((await res.json()) as { user: { id: string } }).user.id
 }
 
-async function setStatus(page: Page, taskId: string, status: string) {
-  const res = await page.request.patch(`/api/tasks/${taskId}`, { data: { status } })
-  expect(res.ok()).toBe(true)
-}
-
 async function setup(page: Page, browser: Browser) {
   const otherEmail = uniqueEmail("grace")
   await signIn(page, { email: uniqueEmail("ada"), name: "Ada Lovelace" })
@@ -44,8 +44,8 @@ async function setup(page: Page, browser: Browser) {
     title: "Fix login redirect",
     assigneeIds: [myId],
   })
-  await setStatus(page, done.id, "in_progress")
-  await setStatus(page, done.id, "complete")
+  await setTaskStatus(page, done.id, "in_progress")
+  await setTaskStatus(page, done.id, "complete")
   const todo = await createTaskViaApi(page, project.id, {
     title: "Write release notes",
     assigneeIds: [myId],
@@ -60,7 +60,7 @@ async function setup(page: Page, browser: Browser) {
   // Two subtasks, one complete, and an open blocker, all on the pending task.
   const sub = async (title: string) =>
     createTaskViaApi(page, project.id, { title, parentTaskId: todo.id })
-  await setStatus(page, (await sub("Draft")).id, "complete")
+  await setTaskStatus(page, (await sub("Draft")).id, "complete")
   await sub("Review")
   const blocks = await page.request.post(`/api/tasks/${theirs.id}/relationships`, {
     data: { type: "blocks", taskId: todo.id },

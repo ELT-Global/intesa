@@ -1,3 +1,4 @@
+import type { Generated } from "kysely"
 import type { TokenKind, TokenScope } from "../schemas"
 
 // Column names are camelCase here; CamelCasePlugin maps them to snake_case in SQL.
@@ -91,6 +92,12 @@ export type TaskTable = {
   dueAt: string | null
   // Fractional-index key ordering the task within its board column; see tasks/order.ts.
   position: string
+  // Who reviewed the code / tested it. The `*Set` flag says the question was answered, so a
+  // null user with the flag set means "nobody" and with it clear means "not answered yet".
+  reviewedBy: string | null
+  reviewedBySet: Generated<number>
+  testedBy: string | null
+  testedBySet: Generated<number>
   createdBy: string
   createdAt: string
   updatedAt: string

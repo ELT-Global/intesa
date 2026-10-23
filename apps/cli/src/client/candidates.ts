@@ -31,6 +31,12 @@ export const tagNames: Complete = async (ctx, { word }) =>
 export const people: Complete = async (ctx, { word }) =>
   wordsStarting(["@me", ...(await resolver(ctx).members()).flatMap((m) => [m.email, m.name])], word)
 
+// For --reviewed-by and --tested-by: the same people, or `none` for nobody.
+export const signoffPeople: Complete = async (ctx, input) => [
+  ...wordsStarting(["none"], input.word),
+  ...(await people(ctx, input)),
+]
+
 const fieldNames = async (ctx: Parameters<Complete>[0]) => {
   const r = resolver(ctx)
   return (await r.fields((await r.project()).id)).map((f) => f.name)

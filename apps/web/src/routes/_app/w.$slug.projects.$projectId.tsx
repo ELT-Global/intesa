@@ -11,6 +11,7 @@ import { PageSkeleton } from "@/components/skeleton"
 import { AssigneePicker } from "@/components/tasks/assignee-picker"
 import { CreateTaskDialog } from "@/components/tasks/create-task-dialog"
 import { CustomFieldValues } from "@/components/tasks/custom-field-values"
+import { SignoffProperties } from "@/components/tasks/signoff-picker"
 import { TagChips, TagPicker } from "@/components/tasks/tag-picker"
 import { TaskDetailSheet } from "@/components/tasks/task-detail-sheet"
 import { TaskStructureSections } from "@/components/tasks/task-relations"
@@ -176,6 +177,7 @@ function ProjectLayout() {
             <AssigneePicker task={task} workspaceId={workspace.id} />
             <TagPicker task={task} workspaceId={workspace.id} />
             <TagChips task={task} />
+            <SignoffProperties task={task} workspaceId={workspace.id} />
           </>
         )}
       />

@@ -430,6 +430,156 @@ describe("board: moving cards", () => {
   })
 })
 
+describe("board: completing a task", () => {
+  const patches = (w: BoardWorld) => w.answered.filter((r) => r.startsWith("PATCH "))
+
+  // A task in Review, so one move reaches Complete.
+  async function inReview(w: BoardWorld, extra: Record<string, unknown> = {}) {
+    return w.addTask({ title: "Ready", status: "review", assigneeIds: [w.me], ...extra })
+  }
+
+  test("moving into Complete asks who reviewed and tested; esc leaves the card where it was", async () => {
+    const w = await boardWorld(server)
+    const task = await inReview(w)
+    const b = await board(w)
+    await b.press("l", "l")
+    const before = patches(w).length
+
+    let frame = await b.arrow("right", { meta: true })
+    expect(frame).toContain("Complete task?")
+    expect(frame).toContain("WEB-1 is moving to Complete. Say who reviewed and who tested")
+    expect(frame).toMatch(/▌Reviewed by +◀ choose… ▶/)
+    expect(frame).toMatch(/ Tested by +◀ choose… ▶/)
+    expect(frame).toContain("enter answer every question first")
+    // Nothing moved yet: the card is in Review and the server has heard nothing.
+    expect(columnKeys(frame, "Review")).toEqual(["WEB-1"])
+    expect(columnKeys(frame, "Complete")).toEqual([])
+    expect(patches(w).length).toBe(before)
+
+    frame = await b.escape()
+    expect(frame).not.toContain("Complete task?")
+    expect(columnKeys(frame, "Review")).toEqual(["WEB-1"])
+    expect((await w.getTask(task.id)).status).toBe("review")
+    expect(patches(w).length).toBe(before)
+  })
+
+  test("both answers are needed; confirming sends one request with the move and the answers", async () => {
+    const w = await boardWorld(server)
+    const mei = await w.addPerson("Mei Member")
+    const task = await inReview(w)
+    const b = await board(w)
+    await b.press("l", "l")
+    await b.arrow("right", { meta: true })
+    const before = patches(w).length
+
+    // Enter with nothing answered does nothing but say so.
+    let frame = await b.enter()
+    expect(frame).toContain("Complete task?")
+    expect(rows(frame).at(-1)).toBe(" Answer every question first")
+
+    // Right from unanswered is the first option, Nobody; the next ones are the members.
+    frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Reviewed by +◀ Nobody ▶/)
+    frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Reviewed by +◀ Alan Owner \(you\) ▶/)
+    frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Reviewed by +◀ Mei Member ▶/)
+    // Only one answered so far.
+    frame = await b.enter()
+    expect(frame).toContain("Complete task?")
+    expect(patches(w).length).toBe(before)
+
+    frame = await b.arrow("down")
+    frame = await b.arrow("right")
+    expect(frame).toMatch(/▌Tested by +◀ Nobody ▶/)
+    expect(frame).toContain("enter complete")
+
+    frame = await b.enter()
+    expect(frame).not.toContain("Complete task?")
+    expect(columnKeys(frame, "Complete")).toEqual(["WEB-1"])
+    expect(patches(w).length).toBe(before + 1)
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("complete")
+    expect(saved.reviewedBy).toMatchObject({ id: mei.id })
+    expect(saved.testedBy).toBeNull()
+  })
+
+  test("the dialog starts from the answers the task has", async () => {
+    const w = await boardWorld(server)
+    const mei = await w.addPerson("Mei Member")
+    const task = await inReview(w)
+    await w.patchTask(task.id, {
+      reviewedById: mei.id,
+      testedById: null,
+    })
+    const b = await board(w)
+    await b.press("l", "l")
+    let frame = await b.arrow("right", { meta: true })
+    expect(frame).toMatch(/▌Reviewed by +◀ Mei Member ▶/)
+    expect(frame).toMatch(/ Tested by +◀ Nobody ▶/)
+    expect(frame).toContain("enter complete")
+
+    // Changing one answer keeps the other.
+    frame = await b.arrow("left")
+    expect(frame).toMatch(/▌Reviewed by +◀ Alan Owner \(you\) ▶/)
+    await b.enter()
+    const saved = await w.getTask(task.id)
+    expect(saved.status).toBe("complete")
+    expect(saved.reviewedBy).toMatchObject({ id: w.me })
+    expect(saved.testedBy).toBeNull()
+  })
+
+  test("the status menu asks too; a refused save puts the card back", async () => {
+    const w = await boardWorld(server)
+    await w.addTask({ title: "Early", assigneeIds: [w.me] })
+    const b = await board(w)
+    // Todo to Complete through the menu.
+    let frame = await b.press("s", "c")
+    expect(frame).toContain("Complete task?")
+    expect(columnKeys(frame, "Todo")).toEqual(["WEB-1"])
+    await b.arrow("right")
+    await b.arrow("down")
+    await b.arrow("right")
+    w.faults.failWrites = true
+    frame = await b.enter()
+    expect(rows(frame).at(-1)).toContain("Could not save WEB-1")
+    expect(columnKeys(frame, "Todo")).toEqual(["WEB-1"])
+    expect(columnKeys(frame, "Complete")).toEqual([])
+  })
+
+  test("subtasks, and moves not into Complete, do not ask", async () => {
+    const w = await boardWorld(server)
+    const parent = await w.addTask({ title: "Parent", status: "review", assigneeIds: [w.me] })
+    const kid = await w.addTask({ title: "Kid", parentTaskId: parent.id, status: "review" })
+    const b = await board(w)
+    await b.press("l", "l")
+    // Open the parent, select its subtask and open that, then set it to Complete.
+    await b.enter()
+    b.keys.pressTab()
+    await b.enter()
+    const frame = await b.press("s", "c")
+    expect(frame).not.toContain("Complete task?")
+    expect((await w.getTask(kid.id)).status).toBe("complete")
+    await b.escape()
+    await b.escape()
+
+    // Back one column and out of Review: no dialog either way.
+    const moved = await b.arrow("left", { meta: true })
+    expect(moved).not.toContain("Complete task?")
+    expect((await w.getTask(parent.id)).status).toBe("in_progress")
+  })
+
+  test("a task already complete moves out of Complete without asking", async () => {
+    const w = await boardWorld(server)
+    const done = await w.addTask({ title: "Done", status: "complete", assigneeIds: [w.me] })
+    const b = await board(w)
+    await b.press("l", "l", "l")
+    const frame = await b.arrow("left", { meta: true })
+    expect(frame).not.toContain("Complete task?")
+    expect((await w.getTask(done.id)).status).toBe("review")
+  })
+})
+
 describe("board: keeping up with the server", () => {
   const list = (w: BoardWorld) => `/api/projects/${w.project.id}/tasks`
 

@@ -46,6 +46,7 @@ import { useTaskParam } from "./task-param"
 import { TaskSearch } from "./task-search"
 import { useBoardAssigneeFilter } from "./use-board-assignee-filter"
 import { CARD_DRAG_TYPE, useDragAutoScroll } from "./use-drag-auto-scroll"
+import { useStatusChange } from "./use-status-change"
 
 const DRAG_HINT_ID = "kanban-drag-hint"
 
@@ -57,6 +58,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const tasks = useQuery(projectTasksQuery(projectId))
   const { openTask } = useTaskParam()
   const { mutate } = useUpdateTask()
+  const changeStatus = useStatusChange()
   const autoScroll = useDragAutoScroll()
   const [createStatus, setCreateStatus] = useState<TaskStatus | null>(null)
   const all = tasks.data
@@ -123,8 +125,15 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const [sync, setSync] = useState<SubtaskSync | null>(null)
   const shownRef = useRef(shown)
   shownRef.current = shown
+  // `moved` runs once the move is applied, `cancelled` if the completion dialog (which a move
+  // into Complete opens first) was dismissed. Until then the card stays where it was.
   const move = useCallback(
-    (taskId: string, status: TaskStatus, placement?: Placement) => {
+    (
+      taskId: string,
+      status: TaskStatus,
+      placement?: Placement,
+      callbacks?: { moved?: () => void; cancelled?: () => void },
+    ) => {
       const list = currentTasks()
       const task = list?.find((t) => t.id === taskId)
       if (!list || !task) return
@@ -133,20 +142,29 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         mutate({ taskId, projectId, patch: { placement } })
         return
       }
-      mutate({ taskId, projectId, patch: { status, ...(placement && { placement }) } })
-      // The card has moved; offer to bring its subtasks along.
-      if (task.subtaskCount > 0) {
-        qc.fetchQuery(taskQuery(taskId))
-          .then((detail) => {
-            // Skipped if the card has been moved on again while the subtasks loaded.
-            if (currentTasks()?.find((t) => t.id === taskId)?.status !== status) return
-            const { subtasks } = detail
-            if (subtasks.some((s) => s.status !== status)) setSync({ task, status, subtasks })
-          })
-          .catch(() => {})
-      }
+      changeStatus({
+        task,
+        status,
+        placement,
+        onCancel: callbacks?.cancelled,
+        onApplied: () => {
+          callbacks?.moved?.()
+          // The card has moved; offer to bring its subtasks along.
+          if (task.subtaskCount === 0) return
+          qc.fetchQuery(taskQuery(taskId))
+            .then((detail) => {
+              // Skipped if the card has been moved on again while the subtasks loaded. Its new status
+              // may not be in the cache yet: the update applies it a moment after it is sent.
+              const now = currentTasks()?.find((t) => t.id === taskId)?.status
+              if (now !== status && now !== task.status) return
+              const { subtasks } = detail
+              if (subtasks.some((s) => s.status !== status)) setSync({ task, status, subtasks })
+            })
+            .catch(() => {})
+        },
+      })
     },
-    [mutate, projectId, currentTasks, qc],
+    [mutate, changeStatus, projectId, currentTasks, qc],
   )
   const [announcement, setAnnouncement] = useState("")
   const moveBy = useCallback(
@@ -160,9 +178,15 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         )
         return
       }
-      focusAfterMove.current = taskId
-      setAnnouncement(`${task.title} moved to ${STATUS_LABELS[next]}`)
-      move(taskId, next)
+      move(taskId, next, undefined, {
+        moved: () => {
+          focusAfterMove.current = taskId
+          setAnnouncement(`${task.title} moved to ${STATUS_LABELS[next]}`)
+        },
+        cancelled: () => {
+          setAnnouncement(`${task.title} stays in ${STATUS_LABELS[task.status]}`)
+        },
+      })
     },
     [move, currentTasks],
   )

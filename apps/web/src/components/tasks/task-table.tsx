@@ -8,6 +8,7 @@ import { DueDateChip, PriorityChip, PriorityPicker, StatusIcon, StatusPicker } f
 import { TagDot } from "./tag-chip"
 import { TaskContextMenu } from "./task-context-menu"
 import { TaskTitle } from "./task-title"
+import { useStatusChange } from "./use-status-change"
 
 export type TableTask = TaskSummary & { project?: { id: string; name: string; key: string } }
 export type TableColumn = "task" | "project" | "status" | "priority" | "assignees" | "tags" | "due"
@@ -234,10 +235,13 @@ export function TaskTable({
   const rows = useMemo(() => (sort ? [...tasks].sort(compareBy(sort)) : tasks), [tasks, sort])
 
   const update = useUpdateTask()
+  const changeStatus = useStatusChange()
   const onPatch = useCallback(
     (task: TableTask, patch: RowPatch) =>
-      update.mutate({ taskId: task.id, projectId: task.projectId, patch }),
-    [update.mutate],
+      "status" in patch
+        ? changeStatus({ task, status: patch.status })
+        : update.mutate({ taskId: task.id, projectId: task.projectId, patch }),
+    [update.mutate, changeStatus],
   )
   const onSort = (key: SortKey) => setSort((s) => nextSort(s, key))
 

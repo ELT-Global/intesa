@@ -245,6 +245,8 @@ describe("custom field values", () => {
     const res = await owner.call("PATCH", `/api/tasks/${t1.id}`, {
       title: "Changed",
       status: "complete",
+      reviewedById: null,
+      testedById: null,
       customFields: { [f.id]: "oops" },
     })
     expect(res.status).toBe(400)

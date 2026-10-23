@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router"
 import { useEffect } from "react"
+import { StatusChangeProvider } from "@/components/tasks/use-status-change"
 import { ApiError } from "@/lib/api"
 import { preloadEditorWhenIdle } from "@/lib/preload-editor"
 import { meQuery } from "@/lib/queries"
@@ -30,5 +31,9 @@ export const Route = createFileRoute("/_app")({
 
 function AppLayout() {
   useEffect(preloadEditorWhenIdle, [])
-  return <Outlet />
+  return (
+    <StatusChangeProvider>
+      <Outlet />
+    </StatusChangeProvider>
+  )
 }

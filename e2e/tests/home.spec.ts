@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
-import { createProject, workspaceIdBySlug } from "../support/projects"
+import { completionAnswers, createProject, workspaceIdBySlug } from "../support/projects"
 
 function tomorrow(): string {
   const d = new Date()
@@ -19,7 +19,7 @@ test("home shows my open tasks and due-soon work, hides completed ones, and open
 
   async function assignedTask(title: string, status: string) {
     const created = await page.request.post(`/api/projects/${project.id}/tasks`, {
-      data: { title, status, dueAt: tomorrow() },
+      data: completionAnswers({ title, status, dueAt: tomorrow() }),
     })
     expect(created.status()).toBe(201)
     const { task } = (await created.json()) as { task: { id: string } }

@@ -12,7 +12,7 @@ import {
   type UserRef,
   useUpdateTask,
 } from "@/lib/tasks"
-import { PickerPopover } from "./picker-popover"
+import { filterPeople, PersonOption, PickerPopover } from "./picker-popover"
 
 export function AssigneePicker({
   task,
@@ -41,10 +41,7 @@ export function AssigneePicker({
   const assignees = value ?? task?.assignees ?? []
   const assignedIds = new Set(assignees.map((a) => a.id))
   const needle = filter.trim().toLowerCase()
-  const visible = members.filter(
-    (m) =>
-      !needle || m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle),
-  )
+  const visible = filterPeople(members, filter)
 
   const meMember = members.find((m) => m.userId === me?.id)
   const showMe =
@@ -135,15 +132,7 @@ export function AssigneePicker({
           label: `${m.name} ${m.email}`,
           selected: assignedIds.has(m.userId),
           onSelect: () => toggle(m),
-          content: (
-            <>
-              <Avatar name={m.name} />
-              <span className="min-w-0 flex-1 truncate">
-                {m.name}
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">{m.email}</span>
-              </span>
-            </>
-          ),
+          content: <PersonOption name={m.name} email={m.email} />,
         })),
       ]}
     />

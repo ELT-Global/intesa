@@ -204,6 +204,76 @@ describe("task create", () => {
     expect(r.stderr.match(/^> (POST|PATCH|PUT|DELETE) /gm)).toEqual(["> POST "])
     expect((await w.getTask(r.json().id)).customFields).toEqual({ [w.fields.estimate]: 2 })
   })
+
+  test("--reviewed-by and --tested-by record the answers; none is nobody", async () => {
+    const r = await w.box.run([
+      "task",
+      "create",
+      "-p",
+      "WEB",
+      "-T",
+      "Signed off",
+      "--reviewed-by",
+      "Mei Member",
+      "--tested-by",
+      "none",
+      "--json",
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
+    const task = await w.getTask(r.json().id)
+    expect(task.reviewedBy).toMatchObject({ id: w.mei.id })
+    expect(task.testedBy).toBeNull()
+
+    // Unanswered by default: the keys are absent.
+    const plain = await w.getTask((await w.addTask({ title: "Plain" })).id)
+    expect(plain).not.toHaveProperty("reviewedBy")
+    expect(plain).not.toHaveProperty("testedBy")
+  })
+
+  test("a top-level task is created complete only with both answers; a subtask needs none", async () => {
+    const refused = await w.box.run(["task", "create", "-p", "WEB", "-T", "Done", "-s", "complete"])
+    expect(refused.exitCode).toBe(8)
+    expect(refused.stderr).toContain("Pass --reviewed-by and --tested-by")
+
+    const done = await w.box.run(
+      ["task", "create", "-p", "WEB", "-T", "Done", "-s", "complete"].concat([
+        "--reviewed-by",
+        "@me",
+        "--tested-by",
+        "@me",
+      ]),
+    )
+    expect(done.exitCode, done.stderr).toBe(0)
+
+    const parent = await w.addTask({ title: "Parent" })
+    const kid = await w.box.run([
+      "task",
+      "create",
+      "--parent",
+      parent.key,
+      "-T",
+      "Kid",
+      "-s",
+      "complete",
+    ])
+    expect(kid.exitCode, kid.stderr).toBe(0)
+  })
+
+  test("an unknown person exits 5 before anything is created", async () => {
+    const before = (await w.projectTasks()).length
+    const r = await w.box.run([
+      "task",
+      "create",
+      "-p",
+      "WEB",
+      "-T",
+      "Nobody home",
+      "--reviewed-by",
+      "ghost@example.com",
+    ])
+    expect(r.exitCode).toBe(5)
+    expect((await w.projectTasks()).length).toBe(before)
+  })
 })
 
 describe("task edit", () => {
@@ -296,6 +366,34 @@ describe("task edit", () => {
     const r = await w.box.run(["task", "edit", task.key])
     expect(r.exitCode).toBe(2)
     expect(r.stderr).toContain("--title")
+  })
+
+  test("--reviewed-by and --tested-by change just those answers, at any status", async () => {
+    const task = await w.addTask({ title: "Reviewed", priority: "high" })
+    const set = await w.box.run([
+      "task",
+      "edit",
+      task.key,
+      "--reviewed-by",
+      w.mei.name,
+      "--tested-by",
+      "me",
+    ])
+    expect(set.exitCode, set.stderr).toBe(0)
+    const saved = await w.getTask(task.id)
+    expect(saved).toMatchObject({
+      priority: "high",
+      reviewedBy: { id: w.mei.id },
+      testedBy: { id: w.me },
+    })
+
+    // One at a time; the other stays.
+    const nobody = await w.box.run(["task", "edit", task.key, "--tested-by", "none"])
+    expect(nobody.exitCode, nobody.stderr).toBe(0)
+    expect(await w.getTask(task.id)).toMatchObject({
+      reviewedBy: { id: w.mei.id },
+      testedBy: null,
+    })
   })
 })
 

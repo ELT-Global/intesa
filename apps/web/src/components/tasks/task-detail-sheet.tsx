@@ -23,6 +23,7 @@ import { DuePicker, PriorityPicker, StatusIcon, StatusPicker } from "./propertie
 import { TaskArtifacts } from "./task-artifacts"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
+import { useStatusChange } from "./use-status-change"
 
 /**
  * Right-hand sheet (full screen on mobile) showing the task named by `?task=`.
@@ -138,6 +139,7 @@ function SheetBody({
 }) {
   const { openTask } = useTaskParam()
   const update = useUpdateTask()
+  const changeStatus = useStatusChange()
   const patch = (p: Parameters<typeof update.mutate>[0]["patch"], onError?: () => void) =>
     update.mutate({ taskId: task.id, projectId: task.projectId, patch: p }, { onError })
 
@@ -151,7 +153,7 @@ function SheetBody({
       </header>
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b border-border px-3 py-2">
-          <StatusPicker value={task.status} onChange={(status) => patch({ status })} />
+          <StatusPicker value={task.status} onChange={(status) => changeStatus({ task, status })} />
           <PriorityPicker value={task.priority} onChange={(priority) => patch({ priority })} />
           <DuePicker
             value={task.dueAt}

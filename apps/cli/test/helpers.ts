@@ -241,7 +241,12 @@ export async function world(server: TestServer, opts: { scope?: "read" | "write"
   const project = await addProject("Web", "WEB")
 
   const addTask = async (body: Record<string, unknown>, projectId = project.id): Promise<Json> => {
-    const res = await session.call("POST", `/api/projects/${projectId}/tasks`, body)
+    // A top-level task is only created complete once reviewing and testing are answered.
+    const signed = body.status === "complete" && !body.parentTaskId
+    const res = await session.call("POST", `/api/projects/${projectId}/tasks`, {
+      ...(signed && { reviewedById: null, testedById: null }),
+      ...body,
+    })
     if (res.status !== 201) throw new Error(`task creation failed: ${JSON.stringify(res.body)}`)
     return res.body.task
   }

@@ -168,7 +168,11 @@ describe("relationships", () => {
   test("related tasks carry their current status", async () => {
     const { owner, a, b, link, detail } = await setup()
     await link(a, "related", b)
-    await owner.call("PATCH", `/api/tasks/${b.id}`, { status: "complete" })
+    await owner.call("PATCH", `/api/tasks/${b.id}`, {
+      status: "complete",
+      reviewedById: null,
+      testedById: null,
+    })
     expect((await detail(a)).related[0]).toMatchObject({ id: b.id, status: "complete" })
   })
 })

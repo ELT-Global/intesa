@@ -171,7 +171,18 @@ describe("task move: subtasks", () => {
 
   test("done takes --subtasks too", async () => {
     const { w, parent, todo } = await family()
-    expect((await w.box.run(["task", "done", parent.key, "--subtasks", "match"])).exitCode).toBe(0)
+    const r = await w.box.run([
+      "task",
+      "done",
+      parent.key,
+      "--subtasks",
+      "match",
+      "--reviewed-by",
+      "@me",
+      "--tested-by",
+      "none",
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
     expect(await statusOf(w, parent.id)).toBe("complete")
     expect(await statusOf(w, todo.id)).toBe("complete")
   })
@@ -185,8 +196,160 @@ describe("task start, review, done", () => {
     expect(start.json()).toMatchObject({ key: task.key, status: "in_progress" })
     await w.box.run(["task", "review", task.key])
     expect(await statusOf(w, task.id)).toBe("review")
-    await w.box.run(["task", "done", task.key])
+    const done = await w.box.run([
+      "task",
+      "done",
+      task.key,
+      "--reviewed-by",
+      "me",
+      "--tested-by",
+      "me",
+    ])
+    expect(done.exitCode, done.stderr).toBe(0)
     expect(await statusOf(w, task.id)).toBe("complete")
+  })
+})
+
+describe("task move: reviewed and tested by", () => {
+  const signoff = async (w: World, id: string) => {
+    const task = await w.getTask(id)
+    return { reviewedBy: task.reviewedBy, testedBy: task.testedBy }
+  }
+
+  test("completing a top-level task needs both answers, and the error says how", async () => {
+    const w = await world(server)
+    const task = await w.addTask({ title: "Ship it" })
+    const r = await w.box.run(["task", "done", task.key])
+    expect(r.exitCode).toBe(8)
+    expect(r.stderr).toContain("Record who reviewed and who tested")
+    expect(r.stderr).toContain("Pass --reviewed-by and --tested-by")
+    expect(await statusOf(w, task.id)).toBe("todo")
+
+    const json = await w.box.run(["task", "move", task.key, "complete", "--json"])
+    expect(json.exitCode).toBe(8)
+    expect(JSON.parse(json.stderr).error).toMatchObject({
+      code: "VALIDATION_ERROR",
+      hint: expect.stringContaining("--reviewed-by"),
+    })
+
+    // One answer is not enough.
+    const half = await w.box.run(["task", "done", task.key, "--reviewed-by", "me"])
+    expect(half.exitCode).toBe(8)
+    expect(half.stderr).toContain("--tested-by")
+    expect(await statusOf(w, task.id)).toBe("todo")
+  })
+
+  test("a person, @me or none answer each; the result shows them", async () => {
+    const w = await world(server)
+    const mei = await w.addPerson("Mei Chen")
+    const task = await w.addTask({ title: "Ship it" })
+    const r = await w.box.run([
+      "task",
+      "move",
+      task.key,
+      "complete",
+      "--reviewed-by",
+      mei.email,
+      "--tested-by",
+      "none",
+      "--json",
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
+    expect(r.json()).toMatchObject({ status: "complete" })
+    expect(await signoff(w, task.id)).toMatchObject({
+      reviewedBy: { id: mei.id, name: "Mei Chen" },
+      testedBy: null,
+    })
+
+    // By name, and "none" in any case; @me works too.
+    const other = await w.addTask({ title: "Ship it too" })
+    const byName = await w.box.run([
+      "task",
+      "done",
+      other.key,
+      "--reviewed-by",
+      "Mei Chen",
+      "--tested-by",
+      "@me",
+    ])
+    expect(byName.exitCode, byName.stderr).toBe(0)
+    expect(await signoff(w, other.id)).toMatchObject({
+      reviewedBy: { id: mei.id },
+      testedBy: { id: w.me },
+    })
+  })
+
+  test("answers recorded earlier are enough, and the flags can change them any time", async () => {
+    const w = await world(server)
+    const task = await w.addTask({ title: "Ship it" })
+    const set = await w.box.run([
+      "task",
+      "move",
+      task.key,
+      "review",
+      "--reviewed-by",
+      "me",
+      "--tested-by",
+      "none",
+    ])
+    expect(set.exitCode, set.stderr).toBe(0)
+    expect(await signoff(w, task.id)).toMatchObject({ reviewedBy: { id: w.me }, testedBy: null })
+
+    const done = await w.box.run(["task", "done", task.key])
+    expect(done.exitCode, done.stderr).toBe(0)
+
+    const changed = await w.box.run(["task", "edit", task.key, "--reviewed-by", "none"])
+    expect(changed.exitCode, changed.stderr).toBe(0)
+    expect(await signoff(w, task.id)).toMatchObject({ reviewedBy: null, testedBy: null })
+    expect(await statusOf(w, task.id)).toBe("complete")
+  })
+
+  test("an unknown person fails before anything moves", async () => {
+    const w = await world(server)
+    const task = await w.addTask({ title: "Ship it" })
+    const r = await w.box.run([
+      "task",
+      "done",
+      task.key,
+      "--reviewed-by",
+      "nobody@example.com",
+      "--tested-by",
+      "none",
+    ])
+    expect(r.exitCode).toBe(5)
+    expect(await statusOf(w, task.id)).toBe("todo")
+  })
+
+  test("subtasks do not need them", async () => {
+    const w = await world(server)
+    const parent = await w.addTask({ title: "Parent" })
+    const sub = await w.addTask({ title: "Kid", parentTaskId: parent.id })
+    const r = await w.box.run(["task", "done", sub.key])
+    expect(r.exitCode, r.stderr).toBe(0)
+    expect(await statusOf(w, sub.id)).toBe("complete")
+  })
+
+  test("the flags complete in the shell", async () => {
+    const w = await world(server)
+    const mei = await w.addPerson("Mei Chen")
+    const run = async (word: string) =>
+      lines(
+        (
+          await w.box.run([
+            "__complete",
+            `--word=${word}`,
+            "--",
+            "task",
+            "move",
+            "WEB-1",
+            "complete",
+            "--reviewed-by",
+          ])
+        ).stdout,
+      )
+    expect(await run("no")).toEqual(["none"])
+    expect(await run("@")).toEqual(["@me"])
+    expect(await run("mei")).toContain(mei.email)
   })
 })
 

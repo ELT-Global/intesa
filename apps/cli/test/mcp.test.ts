@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { join, resolve } from "node:path"
+import { SIGNOFF_REQUIRED } from "@intesa/api/schemas"
 import { z } from "zod"
 import pkg from "../package.json"
 import { allCommands } from "../src/commands"
@@ -294,6 +295,37 @@ describe("intesa mcp", () => {
   )
 
   test(
+    "completing a task without saying who reviewed and tested it fails with the flags as the hint",
+    async () => {
+      const w = await world(server)
+      const task = await w.addTask({ title: "Ship it" })
+      const c = connect(w)
+      await c.initialize()
+
+      const refused = await c.call("task_move", { task: task.key, status: "complete" })
+      expect(refused.isError).toBe(true)
+      expect(refused.data().error).toMatchObject({
+        code: "VALIDATION_ERROR",
+        exitCode: 8,
+        message: SIGNOFF_REQUIRED,
+        hint: expect.stringContaining("--reviewed-by"),
+      })
+      expect((await w.getTask(task.id)).status).toBe("todo")
+
+      const moved = await c.call("task_move", {
+        task: task.key,
+        status: "complete",
+        "reviewed-by": "none",
+        "tested-by": "@me",
+      })
+      expect(moved.isError).toBe(false)
+      expect(moved.data()).toMatchObject({ key: task.key, status: "complete" })
+      await c.close()
+    },
+    TIMEOUT,
+  )
+
+  test(
     "a destructive tool runs only with confirm: true",
     async () => {
       const w = await world(server)
@@ -507,6 +539,23 @@ describe("tools", () => {
   test("a command that is not classified is not offered", () => {
     const cmd = { name: "frob", summary: "Frob", run() {} } as unknown as Command
     expect(buildTools([{ cmd, path: ["frob"] }])).toEqual([])
+  })
+
+  test("create, edit, move and done take who reviewed and tested the task", async () => {
+    const tools = buildTools(await allCommands())
+    for (const name of ["task_create", "task_edit", "task_move", "task_done"]) {
+      const tool = tools.find((t) => t.definition.name === name)
+      if (!tool) throw new Error(`no ${name}`)
+      const { properties } = tool.definition.inputSchema
+      expect(properties["reviewed-by"], name).toMatchObject({ type: "string" })
+      expect(properties["tested-by"], name).toMatchObject({ type: "string" })
+    }
+    const done = tools.find((t) => t.definition.name === "task_done")
+    if (!done) throw new Error("no task_done")
+    const argv = toArgv(done, { task: "WEB-1", "reviewed-by": "none", "tested-by": "@me" }, {})
+    expect(argv).toEqual(
+      expect.arrayContaining(["--reviewed-by=none", "--tested-by=@me", "--", "WEB-1"]),
+    )
   })
 
   test("a call naming its own workspace does not get the server's project", async () => {

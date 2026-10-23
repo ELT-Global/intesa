@@ -129,6 +129,48 @@ describe("intesa week", () => {
     expect(r.stdout).toMatch(new RegExp(`${parked.key}.*Parked — Backlog · assigned `))
   })
 
+  test("the tasks someone reviewed or tested are listed under them, in every format and the JSON", async () => {
+    const w = await world(server)
+    const grace = await w.addPerson("Grace Hopper")
+    const task = await w.addTask({ title: "Ship the CSV export", assigneeIds: [grace.id] })
+    const done = await w.patchTask(task.id, {
+      status: "complete",
+      reviewedById: w.me,
+      testedById: w.me,
+    })
+    expect(done.status).toBe(200)
+    const link = `${server.url}/w/${w.workspace.slug}/projects/${w.project.id}?task=${task.id}`
+
+    const json = await w.box.run(["week", "--json"], { env })
+    expect(json.exitCode, json.stderr).toBe(0)
+    const me = json.json().people.find((p: { user: { id: string } }) => p.user.id === w.me)
+    expect(me.tasks).toEqual([])
+    expect(me.checks).toEqual([
+      expect.objectContaining({
+        key: task.key,
+        title: "Ship the CSV export",
+        reviewed: true,
+        tested: true,
+        url: link,
+      }),
+    ])
+
+    const markdown = await w.box.run(["week", "--raw"], { env })
+    expect(markdown.stdout).toContain(
+      `## Alan Owner\n\nNo tasks\n\n**Reviewed or tested**\n\n- [x] [${task.key}](${link}) Ship the CSV export (reviewed, tested)\n`,
+    )
+    // Not idle, though they were assigned nothing.
+    expect(markdown.stdout).not.toContain("Nothing this week")
+
+    const simple = await w.box.run(["week", "--format", "simple"], { env })
+    expect(simple.stdout).toContain(
+      `_Reviewed or tested_\n- ${task.key} Ship the CSV export (reviewed, tested)\n`,
+    )
+    const html = await w.box.run(["week", "--format", "html"], { env })
+    expect(html.stdout).toContain("<p><strong>Reviewed or tested</strong></p>")
+    expect(html.stdout).toContain(`<a href="${link}">${task.key}</a> Ship the CSV export`)
+  })
+
   test("a bad week is a usage error", async () => {
     const w = await world(server)
     for (const input of ["soon", "2026-13-01", "2026-02-31"]) {

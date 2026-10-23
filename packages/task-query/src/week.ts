@@ -139,22 +139,52 @@ export function weekDueState(
   return dueState(task.dueAt, task.status, now < lastDay ? now : lastDay)
 }
 
-export type WeekPersonInput<T extends WeekTaskInput = WeekTaskInput> = {
+/** How someone is tied to a task they checked: "reviewed, tested", "reviewed" or "tested". */
+export const weekCheckRole = (check: Pick<WeekCheckInput, "reviewed" | "tested">) =>
+  [check.reviewed && "reviewed", check.tested && "tested"].filter(Boolean).join(", ")
+
+/** Whether the person has anything to show: tasks, or tasks they reviewed or tested. */
+const hasWork = (person: { tasks: unknown[]; checks?: unknown[] }) =>
+  person.tasks.length > 0 || Boolean(person.checks?.length)
+
+/** A task the person reviewed or tested that moved to complete in the week. */
+export type WeekCheckInput = {
+  key: string
+  title: string
+  /** They are its reviewer. */
+  reviewed: boolean
+  /** They are its tester. */
+  tested: boolean
+}
+
+export type WeekPersonInput<
+  T extends WeekTaskInput = WeekTaskInput,
+  C extends WeekCheckInput = WeekCheckInput,
+> = {
   user: { name: string }
   member: boolean
   tasks: T[]
+  checks?: C[]
 }
 
-export type WeekLogInput<T extends WeekTaskInput = WeekTaskInput> = {
-  people: WeekPersonInput<T>[]
+export type WeekLogInput<
+  T extends WeekTaskInput = WeekTaskInput,
+  C extends WeekCheckInput = WeekCheckInput,
+> = {
+  people: WeekPersonInput<T, C>[]
 }
 
-export type WeekLogMarkdownOptions<T extends WeekTaskInput = WeekTaskInput> = {
+export type WeekLogMarkdownOptions<
+  T extends WeekTaskInput = WeekTaskInput,
+  C extends WeekCheckInput = WeekCheckInput,
+> = {
   /** The Monday of the week, YYYY-MM-DD. */
   week: string
   workspace?: string
   /** Makes the task key a link. */
   taskUrl?: (task: T) => string
+  /** Makes the key of a reviewed or tested task a link. */
+  checkUrl?: (check: C) => string
   now?: Date
 }
 
@@ -200,12 +230,20 @@ type ReportTask = {
   /** "WEB-3 Fix the build, API-2 Add limits", while something still blocks it. */
   blockedBy?: string
 }
+type ReportCheck = {
+  key: string
+  url?: string
+  title: string
+  /** "reviewed", "tested" or "reviewed, tested". */
+  role: string
+}
 type ReportPerson = {
   name: string
   counts: string
   completed: ReportTask[]
   pending: ReportTask[]
   backlog: ReportTask[]
+  checks: ReportCheck[]
 }
 // The week as plain text pieces, which each format below lays out and escapes its own way.
 type WeekReport = {
@@ -218,9 +256,9 @@ type WeekReport = {
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim()
 
-function weekReport<T extends WeekTaskInput>(
-  log: WeekLogInput<T>,
-  opts: WeekLogMarkdownOptions<T>,
+function weekReport<T extends WeekTaskInput, C extends WeekCheckInput>(
+  log: WeekLogInput<T, C>,
+  opts: WeekLogMarkdownOptions<T, C>,
 ): WeekReport {
   const now = opts.now ?? new Date()
   const weekYear = (parseDay(opts.week) ?? now).getFullYear()
@@ -260,7 +298,15 @@ function weekReport<T extends WeekTaskInput>(
     }
   }
 
-  const people = log.people.filter((person) => person.tasks.length > 0)
+  const check = (c: C): ReportCheck => ({
+    key: c.key,
+    url: opts.checkUrl?.(c),
+    title: oneLine(c.title),
+    role: weekCheckRole(c),
+  })
+
+  // Someone who only reviewed or tested work still has something to show.
+  const people = log.people.filter(hasWork)
   return {
     title: `Weekly log · ${formatWeek(opts.week, now)}`,
     workspace: opts.workspace && oneLine(opts.workspace),
@@ -273,17 +319,18 @@ function weekReport<T extends WeekTaskInput>(
         .filter((task) => task.status !== "complete" && task.status !== "backlog")
         .map(item),
       backlog: person.tasks.filter((task) => task.status === "backlog").map(item),
+      checks: (person.checks ?? []).map(check),
     })),
     idle: log.people
-      .filter((person) => person.member && person.tasks.length === 0)
+      .filter((person) => person.member && !hasWork(person))
       .map((person) => oneLine(person.user.name)),
   }
 }
 
 /** The whole week as Markdown: what the web page copies and the CLI prints by default. */
-export function weekLogMarkdown<T extends WeekTaskInput>(
-  log: WeekLogInput<T>,
-  opts: WeekLogMarkdownOptions<T>,
+export function weekLogMarkdown<T extends WeekTaskInput, C extends WeekCheckInput>(
+  log: WeekLogInput<T, C>,
+  opts: WeekLogMarkdownOptions<T, C>,
 ): string {
   const report = weekReport(log, opts)
   const line = (task: ReportTask) => {
@@ -291,6 +338,11 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
     const label = task.url ? `[${key}](${linkTarget(task.url)})` : key
     const blocked = task.blockedBy ? `\n  - Blocked by ${escapeMarkdown(task.blockedBy)}` : ""
     return `- [${task.done ? "x" : " "}] ${label} ${escapeMarkdown(task.title)} — ${task.details}${blocked}`
+  }
+  const checkLine = (check: ReportCheck) => {
+    const key = escapeMarkdown(check.key)
+    const label = check.url ? `[${key}](${linkTarget(check.url)})` : key
+    return `- [x] ${label} ${escapeMarkdown(check.title)} (${check.role})`
   }
   const workspace = report.workspace ? `${escapeMarkdown(report.workspace)} · ` : ""
   const blocks = [`# ${report.title}`, `${workspace}${report.counts}`]
@@ -301,6 +353,9 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
     }
     if (person.pending.length > 0) blocks.push("**Pending**", person.pending.map(line).join("\n"))
     if (person.backlog.length > 0) blocks.push("**Backlog**", person.backlog.map(line).join("\n"))
+    if (person.checks.length > 0) {
+      blocks.push("**Reviewed or tested**", person.checks.map(checkLine).join("\n"))
+    }
   }
   if (report.idle.length > 0) {
     blocks.push(`**Nothing this week:** ${report.idle.map(escapeMarkdown).join(", ")}`)
@@ -313,23 +368,26 @@ export function weekLogMarkdown<T extends WeekTaskInput>(
  * emphasis, plain `- ` lists, no headings, checkboxes or links (Slack has no escapes, so text
  * is left as written). Each group is its own paragraph so Markdown keeps the line breaks.
  */
-export function weekLogSimpleMarkdown<T extends WeekTaskInput>(
-  log: WeekLogInput<T>,
-  opts: WeekLogMarkdownOptions<T>,
+export function weekLogSimpleMarkdown<T extends WeekTaskInput, C extends WeekCheckInput>(
+  log: WeekLogInput<T, C>,
+  opts: WeekLogMarkdownOptions<T, C>,
 ): string {
   const report = weekReport(log, opts)
   const line = (task: ReportTask) => {
     const blocked = task.blockedBy ? `\n  ↳ Blocked by ${task.blockedBy}` : ""
     return `- ${task.key} ${task.title} — ${task.details}${blocked}`
   }
-  const list = (title: string, tasks: ReportTask[]) => `_${title}_\n${tasks.map(line).join("\n")}`
+  const checkLine = (c: ReportCheck) => `- ${c.key} ${c.title} (${c.role})`
+  const list = <I>(title: string, items: I[], render: (i: I) => string) =>
+    `_${title}_\n${items.map(render).join("\n")}`
   const workspace = report.workspace ? `${report.workspace} · ` : ""
   const blocks = [`*${report.title}*`, `${workspace}${report.counts}`]
   for (const person of report.people) {
     blocks.push(`*${person.name}* · ${person.counts}`)
-    if (person.completed.length > 0) blocks.push(list("Completed", person.completed))
-    if (person.pending.length > 0) blocks.push(list("Pending", person.pending))
-    if (person.backlog.length > 0) blocks.push(list("Backlog", person.backlog))
+    if (person.completed.length > 0) blocks.push(list("Completed", person.completed, line))
+    if (person.pending.length > 0) blocks.push(list("Pending", person.pending, line))
+    if (person.backlog.length > 0) blocks.push(list("Backlog", person.backlog, line))
+    if (person.checks.length > 0) blocks.push(list("Reviewed or tested", person.checks, checkLine))
   }
   if (report.idle.length > 0) blocks.push(`*Nothing this week:* ${report.idle.join(", ")}`)
   return `${blocks.join("\n\n")}\n`
@@ -342,9 +400,9 @@ const escapeHtml = (text: string) =>
  * The week as an HTML fragment for pasting as rich text into email and documents. Styles are
  * inline and few, since mail clients drop stylesheets; fonts come from where it is pasted.
  */
-export function weekLogHtml<T extends WeekTaskInput>(
-  log: WeekLogInput<T>,
-  opts: WeekLogMarkdownOptions<T>,
+export function weekLogHtml<T extends WeekTaskInput, C extends WeekCheckInput>(
+  log: WeekLogInput<T, C>,
+  opts: WeekLogMarkdownOptions<T, C>,
 ): string {
   const report = weekReport(log, opts)
   const muted = 'style="color:#6b7280"'
@@ -360,13 +418,19 @@ export function weekLogHtml<T extends WeekTaskInput>(
       : ""
     return `<li style="margin:0 0 6px">${box(task.done)} ${label} ${escapeHtml(task.title)} <span ${muted}>— ${escapeHtml(task.details)}</span>${blocked}</li>`
   }
-  const list = (title: string, tasks: ReportTask[]) =>
-    tasks.length > 0
+  const checkItem = (check: ReportCheck) => {
+    const key = escapeHtml(check.key)
+    const label = check.url ? `<a href="${escapeHtml(check.url)}">${key}</a>` : key
+    return `<li style="margin:0 0 6px">${box(true)} ${label} ${escapeHtml(check.title)} <span ${muted}>(${check.role})</span></li>`
+  }
+  const group = <I>(title: string, items: I[], render: (i: I) => string) =>
+    items.length > 0
       ? [
           `<p><strong>${title}</strong></p>`,
-          `<ul style="list-style:none;margin:0 0 12px;padding:0">${tasks.map(item).join("")}</ul>`,
+          `<ul style="list-style:none;margin:0 0 12px;padding:0">${items.map(render).join("")}</ul>`,
         ]
       : []
+  const list = (title: string, tasks: ReportTask[]) => group(title, tasks, item)
   const workspace = report.workspace ? `${escapeHtml(report.workspace)} · ` : ""
   const parts = [
     `<h2>${escapeHtml(report.title)}</h2>`,
@@ -379,6 +443,7 @@ export function weekLogHtml<T extends WeekTaskInput>(
       ...list("Completed", person.completed),
       ...list("Pending", person.pending),
       ...list("Backlog", person.backlog),
+      ...group("Reviewed or tested", person.checks, checkItem),
     )
   }
   if (report.idle.length > 0) {

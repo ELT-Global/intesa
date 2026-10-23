@@ -1,3 +1,5 @@
+import { SIGNOFF_REQUIRED } from "@intesa/api/schemas"
+
 export const EXIT_CODES = [
   { code: 0, name: "OK", meaning: "Success" },
   { code: 1, name: "ERROR", meaning: "Unexpected error: network, server error, rate limited" },
@@ -102,6 +104,9 @@ export function apiError(status: number, body: unknown, hasToken: boolean): CliE
   let hint: string | undefined
   if (code === "UNAUTHORIZED") {
     hint = hasToken ? `Your token may be expired or revoked. ${LOGIN_HINT}` : LOGIN_HINT
+  }
+  if (code === "VALIDATION_ERROR" && message === SIGNOFF_REQUIRED) {
+    hint = "Pass --reviewed-by and --tested-by (a member, or `none` for nobody)."
   }
   return new CliError(message, { code, exitCode, hint })
 }

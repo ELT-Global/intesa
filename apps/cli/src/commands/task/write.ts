@@ -17,6 +17,8 @@ import {
   dueDate,
   readBody,
   showTasks,
+  signoffFlags,
+  signoffId,
   splitList,
   tagIds,
   taskArg,
@@ -57,7 +59,9 @@ export const create = defineCommand({
     "status, priority, people, tags, due date and the description. Otherwise -T is required.\n\n" +
     "People are emails, names or @me; tags are names. Unknown tags are an error unless\n" +
     "--create-tags is given. Custom field values are checked locally: numbers, true/false,\n" +
-    "YYYY-MM-DD dates and the options of a select field.",
+    "YYYY-MM-DD dates and the options of a select field.\n\n" +
+    "A top-level task cannot be created as complete until --reviewed-by and --tested-by say who\n" +
+    "reviewed and tested it (a person, or none for nobody).",
   flags: z.object({
     ...textFlags,
     status: z
@@ -85,6 +89,7 @@ export const create = defineCommand({
       description: "Create a subtask of this task, in its project",
       complete: taskKeys,
     }),
+    ...signoffFlags,
     field: fieldFlag,
   }),
   context: ["workspace", "project"],
@@ -93,6 +98,7 @@ export const create = defineCommand({
     'intesa task create -T "Fix login redirect" -a @me -t auth --priority high',
     'intesa task create --parent WEB-12 -T "Write tests"',
     "intesa task create -p WEB -T Notes -F notes.md --field Estimate=3",
+    'intesa task create -T "Hotfix" -s complete --reviewed-by @me --tested-by none',
   ],
   async run(ctx, _args, flags) {
     // Without a title a person fills in the rest too, in a form like the web's dialog.
@@ -110,6 +116,8 @@ export const create = defineCommand({
     const projectId = project.id
     const values = await customFields(ctx, projectId, flags.field)
     const people = await userIds(ctx, splitList(flags.assignee))
+    const reviewedById = await signoffId(ctx, flags.reviewedBy)
+    const testedById = await signoffId(ctx, flags.testedBy)
 
     const form =
       flags.title === undefined ? await (await import("./form")).createForm(ctx, flags) : undefined
@@ -134,6 +142,8 @@ export const create = defineCommand({
         dueAt,
         body,
         parentTaskId: parent?.id,
+        reviewedById,
+        testedById,
         ...(assigneeIds.length > 0 && { assigneeIds }),
         ...(tags.length > 0 && { tagIds: tags }),
         ...(Object.keys(values).length > 0 && { customFields: values }),
@@ -149,7 +159,9 @@ export const edit = defineCommand({
   summary: "Change a task's title, description, priority, due date, people, tags or fields",
   description:
     "Change a task with one request. Assignees and tags are added and removed one by one;\n" +
-    "the rest of the task is left as it is. Use `task move` to change the status.\n\n" +
+    "the rest of the task is left as it is. Use `task move` to change the status.\n" +
+    "--reviewed-by and --tested-by record who reviewed and who tested it (a person, or none\n" +
+    "for nobody), at any status.\n\n" +
     "Without flags the task opens in your editor as a document: its properties between\n" +
     "--- lines, then the description.\n\n" +
     "  ---\n" +
@@ -159,11 +171,14 @@ export const edit = defineCommand({
     "  due: 2026-10-15\n" +
     "  assignees: [Mei Chen, @me]\n" +
     "  tags: [auth, bug]\n" +
+    "  reviewedBy: Mei Chen\n" +
+    "  testedBy: none\n" +
     "  fields: { Estimate: 3 }\n" +
     "  ---\n" +
     "  The description, in Markdown.\n\n" +
     "What changed is saved with one request; a status change then treats subtasks as\n" +
-    "`task move` does. An empty value clears. Without a terminal this needs INTESA_EDITOR, a\n" +
+    "`task move` does. An empty value clears, except that reviewedBy and testedBy stay empty\n" +
+    "until answered (none means nobody). Without a terminal this needs INTESA_EDITOR, a\n" +
     "command that edits the file it is given and exits.",
   args: [taskArg],
   flags: z.object({
@@ -195,6 +210,7 @@ export const edit = defineCommand({
       .default([])
       .meta({ placeholder: "tag", description: "Remove a tag", complete: tagNames }),
     createTags,
+    ...signoffFlags,
     field: fieldFlag,
     clearField: z.array(z.string()).default([]).meta({
       placeholder: "NAME",
@@ -208,15 +224,22 @@ export const edit = defineCommand({
     'intesa task edit WEB-12 -T "Fix the login redirect" --priority urgent',
     "intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due",
     "intesa task edit WEB-12 --field Estimate=5 --clear-field Stage",
+    "intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none",
     "intesa task edit WEB-12",
   ],
   async run(ctx, { task: ref }, flags) {
     const people = flags.addAssignee.length > 0 || flags.removeAssignee.length > 0
     const labels = flags.addTag.length > 0 || flags.removeTag.length > 0
     const nothing =
-      [flags.title, flags.body, flags.bodyFile, flags.priority, flags.due].every(
-        (v) => v === undefined,
-      ) &&
+      [
+        flags.title,
+        flags.body,
+        flags.bodyFile,
+        flags.priority,
+        flags.due,
+        flags.reviewedBy,
+        flags.testedBy,
+      ].every((v) => v === undefined) &&
       !people &&
       !labels &&
       flags.field.length === 0 &&
@@ -227,6 +250,8 @@ export const edit = defineCommand({
     const dueAt = dueDate(flags.due)
     const task = await resolver(ctx).task(ref)
     const values = await customFields(ctx, task.projectId, flags.field, flags.clearField)
+    const reviewedById = await signoffId(ctx, flags.reviewedBy)
+    const testedById = await signoffId(ctx, flags.testedBy)
 
     // The API replaces whole sets, so the new set is worked out from the current one.
     const nextSet = (current: string[], add: string[], remove: string[]) => {
@@ -258,6 +283,8 @@ export const edit = defineCommand({
         dueAt,
         assigneeIds,
         tagIds: nextTags,
+        reviewedById,
+        testedById,
         ...(Object.keys(values).length > 0 && { customFields: values }),
       },
     })

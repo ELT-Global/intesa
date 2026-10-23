@@ -26,6 +26,10 @@ const size = (bytes: number) =>
       ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / 1048576).toFixed(1)} MB`
 
+// The name, "nobody" once answered that way, and a dash while nobody has answered.
+const signoff = (who: { name: string } | null | undefined) =>
+  who === undefined ? "—" : who === null ? "nobody" : who.name
+
 const fieldText = (value: unknown) =>
   value === undefined || value === null
     ? ""
@@ -57,6 +61,8 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
     ["Due", task.dueAt ? (tty ? dueText(task.dueAt, task.status, style) : task.dueAt) : ""],
     ["Assignees", task.assignees.map((a) => a.name).join(", ")],
     ["Tags", task.tags.map((g) => g.name).join(", ")],
+    ["Reviewed by", signoff(task.reviewedBy)],
+    ["Tested by", signoff(task.testedBy)],
     ["Project", `${task.project.name} (${task.project.key})`],
     ["Parent", task.parent ? `${task.parent.key}  ${task.parent.title}` : ""],
     ["Created", when(task.createdAt)],

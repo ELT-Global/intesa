@@ -22,6 +22,7 @@ import {
 } from "./api"
 import { createMenus } from "./menus"
 import {
+  type CompleteOverlay,
   type ConfirmOverlay,
   type Core,
   clamp,
@@ -47,7 +48,7 @@ import { createWrites } from "./writes"
 
 export const POLL_MS = 30_000
 // While these are open the board does not poll: a refresh could move what they are about.
-const BLOCKING = new Set(["input", "menu", "picker", "confirm", "sync"])
+const BLOCKING = new Set(["input", "menu", "picker", "confirm", "sync", "complete"])
 
 // What could not be saved by the time the board closed, with the error that said so.
 export type Lost = { text: string; err?: unknown }
@@ -560,6 +561,28 @@ export function createStore(
         if (status) void writes.update(s, { status })
       }
       if (changed.length > 0) toast(`Updated ${plural(changed.length, "subtask")}`)
+    },
+    completeStep(o: CompleteOverlay, delta: number) {
+      edit(o, { index: (o.index + delta + o.questions.length) % o.questions.length })
+    },
+    // The next or previous option of the selected question; the first move from unanswered
+    // lands on the first or last option.
+    completeCycle(o: CompleteOverlay, delta: -1 | 1) {
+      const question = o.questions[o.index]
+      if (!question) return
+      const count = question.options.length
+      const at = question.options.findIndex((opt) => opt.value === question.answer)
+      const next = at < 0 ? (delta > 0 ? 0 : count - 1) : (at + delta + count) % count
+      const answer = question.options[next]?.value
+      const questions = o.questions.map((q, i) => (i === o.index ? { ...q, answer } : q))
+      edit(o, { questions })
+    },
+    completeApply(o: CompleteOverlay) {
+      if (o.questions.some((q) => q.answer === undefined)) {
+        return toast("Answer every question first")
+      }
+      pop()
+      writes.completeTask(o)
     },
     top,
   }

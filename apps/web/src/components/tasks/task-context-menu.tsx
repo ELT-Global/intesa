@@ -21,6 +21,7 @@ import { meQuery } from "@/lib/queries"
 import { type TaskSummary, useDeleteTask, useUpdateTask } from "@/lib/tasks"
 import { NO_PRIORITY, PriorityOptions, priorityFromValue, StatusOptions } from "./properties"
 import { useTaskParam } from "./task-param"
+import { useStatusChange } from "./use-status-change"
 
 const PRIMARY = "[data-task-primary]"
 
@@ -33,6 +34,7 @@ export function TaskContextMenu({ task, children }: { task: TaskSummary; childre
   const [confirming, setConfirming] = useState(false)
   const anchor = useRef<HTMLElement>(null)
   const returnFocus = useRef<HTMLElement | null>(null)
+  const changeStatus = useStatusChange()
 
   // Radix opens on the contextmenu event, which browsers do not reliably send for the
   // keyboard. Only the card's own button counts, not pickers inside a row.
@@ -63,6 +65,10 @@ export function TaskContextMenu({ task, children }: { task: TaskSummary; childre
         <ContextMenuContent aria-label={`Actions for ${task.key}`}>
           <TaskMenuItems
             task={task}
+            onStatus={(status) => {
+              returnFocus.current = anchor.current?.querySelector<HTMLElement>(PRIMARY) ?? null
+              changeStatus({ task, status, returnFocusRef: returnFocus })
+            }}
             onDelete={() => {
               returnFocus.current = anchor.current?.querySelector<HTMLElement>(PRIMARY) ?? null
               setConfirming(true)
@@ -84,7 +90,15 @@ export function TaskContextMenu({ task, children }: { task: TaskSummary; childre
   )
 }
 
-function TaskMenuItems({ task, onDelete }: { task: TaskSummary; onDelete: () => void }) {
+function TaskMenuItems({
+  task,
+  onStatus,
+  onDelete,
+}: {
+  task: TaskSummary
+  onStatus: (status: TaskStatus) => void
+  onDelete: () => void
+}) {
   const update = useUpdateTask()
   const me = useQuery(meQuery).data
   const { slug } = useParams({ strict: false })
@@ -126,7 +140,7 @@ function TaskMenuItems({ task, onDelete }: { task: TaskSummary; onDelete: () => 
         <ContextMenuSubContent>
           <ContextMenuRadioGroup
             value={task.status}
-            onValueChange={(v) => patch({ status: v as TaskStatus })}
+            onValueChange={(v) => onStatus(v as TaskStatus)}
           >
             <StatusOptions Item={ContextMenuRadioItem} />
           </ContextMenuRadioGroup>

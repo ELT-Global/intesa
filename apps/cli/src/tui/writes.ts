@@ -4,6 +4,7 @@ import type { Artifact, Task, TaskDetail, TaskPatch } from "./api"
 import { fromDoc, toDoc } from "./edit-doc"
 import { applyChanges, type Changes, nextStatus, revert } from "./model"
 import {
+  type CompleteOverlay,
   type Core,
   DRAFT,
   detailItems,
@@ -65,8 +66,23 @@ export function createWrites(core: Core, settled: () => void) {
       void update(task, { placement })
       return
     }
+    // A top-level task only completes once it is known who reviewed and tested it.
+    if (status === "complete" && !task.parentTaskId) {
+      void track(askCompletion(task, placement))
+      return
+    }
+    commitMove(task, status, placement)
+  }
+
+  // The move itself, with whatever else goes in the same request.
+  function commitMove(
+    task: Task,
+    status: TaskStatus,
+    placement?: Placement,
+    extra: Pick<TaskPatch, "reviewedById" | "testedById"> = {},
+  ) {
     const followed = get().focus.taskId === task.id
-    const done = update(task, { status, ...(placement && { placement }) })
+    const done = update(task, { status, ...(placement && { placement }), ...extra })
     // The focus goes with the card, opening Backlog if that is where it went.
     if (followed) {
       set((s) => ({
@@ -79,6 +95,53 @@ export function createWrites(core: Core, settled: () => void) {
         if (ok) void track(offerSync(task.id, status))
       })
     }
+  }
+
+  // Opens the dialog for moving `task` into Complete, with the answers it already has. The
+  // card stays where it is until the dialog is confirmed. If the task cannot be read, the
+  // dialog opens blank rather than blocking the move.
+  async function askCompletion(task: Task, placement?: Placement) {
+    let detail: TaskDetail | undefined
+    try {
+      detail = await api.task(task.id)
+    } catch {}
+    const { members, me } = get()
+    const people = [
+      { value: null, label: "Nobody" },
+      ...members.map((m) => ({
+        value: m.userId,
+        label: m.userId === me?.id ? `${m.name} (you)` : m.name,
+      })),
+    ]
+    // The key is absent while unanswered, null for nobody, else the person.
+    const answer = (who: TaskDetail["reviewedBy"]) =>
+      who === undefined ? undefined : (who?.id ?? null)
+    push({
+      kind: "complete",
+      task,
+      placement,
+      index: 0,
+      questions: [
+        {
+          field: "reviewedById",
+          label: "Reviewed by",
+          options: people,
+          answer: answer(detail?.reviewedBy),
+        },
+        {
+          field: "testedById",
+          label: "Tested by",
+          options: people,
+          answer: answer(detail?.testedBy),
+        },
+      ],
+    })
+  }
+
+  // Confirms the dialog: one request with the move and every answer.
+  function completeTask(o: CompleteOverlay) {
+    const answers = Object.fromEntries(o.questions.map((q) => [q.field, q.answer]))
+    commitMove(o.task, "complete", o.placement, answers)
   }
 
   // After a column change, asks what should happen to subtasks in another status.
@@ -344,6 +407,7 @@ export function createWrites(core: Core, settled: () => void) {
   return {
     update,
     moveTo,
+    completeTask,
     moveBy,
     moveWithin,
     toggleMe,

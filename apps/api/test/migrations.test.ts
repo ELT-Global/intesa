@@ -426,3 +426,97 @@ describe.each(targets)("migration 0007 (task assignments) on %s", (_name, open) 
     await close()
   })
 })
+
+describe.each(targets)("migration 0008 (review and test) on %s", (_name, open) => {
+  test("existing tasks become answered with nobody, new ones start unanswered", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0007_task_assignments")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values(
+        ["u1", "u2"].map((id) => ({
+          id,
+          name: id,
+          email: `${id}@x.com`,
+          totpEnabled: 0,
+          createdAt: ts,
+          updatedAt: ts,
+        })),
+      )
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 2,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    const task = (id: string, number: number, status: string) => ({
+      id,
+      workspaceId: "w",
+      projectId: "p",
+      number,
+      title: id,
+      status,
+      position: `a${number}`,
+      createdBy: "u1",
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    // `tasks` lacks the new columns at this schema version, which the types already include.
+    await db
+      .insertInto("tasks")
+      .values([task("old1", 1, "todo"), task("old2", 2, "complete")] as never)
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    const columns = ["id", "reviewedBy", "reviewedBySet", "testedBy", "testedBySet"] as const
+    expect(await db.selectFrom("tasks").select(columns).orderBy("id").execute()).toEqual([
+      { id: "old1", reviewedBy: null, reviewedBySet: 1, testedBy: null, testedBySet: 1 },
+      { id: "old2", reviewedBy: null, reviewedBySet: 1, testedBy: null, testedBySet: 1 },
+    ])
+
+    // A task written afterwards without answers is unanswered, and answers can name a user.
+    // Separate inserts: a multi-row insert would fill the missing columns with explicit NULLs.
+    await db
+      .insertInto("tasks")
+      .values(task("new", 3, "todo"))
+      .execute()
+    await db
+      .insertInto("tasks")
+      .values({ ...task("checked", 4, "todo"), reviewedBy: "u2", reviewedBySet: 1 })
+      .execute()
+    expect(
+      await db
+        .selectFrom("tasks")
+        .select(columns)
+        .where("id", "in", ["new", "checked"])
+        .orderBy("id")
+        .execute(),
+    ).toEqual([
+      { id: "checked", reviewedBy: "u2", reviewedBySet: 1, testedBy: null, testedBySet: 0 },
+      { id: "new", reviewedBy: null, reviewedBySet: 0, testedBy: null, testedBySet: 0 },
+    ])
+
+    // Deleting the user turns their answer into "nobody", not into "unanswered".
+    await db.deleteFrom("users").where("id", "=", "u2").execute()
+    expect(
+      await db.selectFrom("tasks").select(columns).where("id", "=", "checked").execute(),
+    ).toEqual([
+      { id: "checked", reviewedBy: null, reviewedBySet: 1, testedBy: null, testedBySet: 0 },
+    ])
+    await close()
+  })
+})

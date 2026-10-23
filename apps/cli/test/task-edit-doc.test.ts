@@ -84,6 +84,8 @@ describe("task edit in the editor", () => {
         "due: 2030-01-02",
         "assignees: [@me]",
         "tags: [auth]",
+        "reviewedBy:",
+        "testedBy:",
         "fields: { Estimate: null }",
         "---",
         "Old notes.",
@@ -92,6 +94,45 @@ describe("task edit in the editor", () => {
     )
     expect(r.stderr).toContain("No changes")
     expect(patches(r.stderr)).toEqual([])
+  })
+
+  test("reviewedBy and testedBy answer who reviewed and tested it, and none is nobody", async () => {
+    const task = await seed()
+    const r = await edit(task.key, [
+      ["reviewedBy:", "reviewedBy: Mei Member"],
+      ["testedBy:", "testedBy: none"],
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
+    expect(patches(r.stderr)).toHaveLength(1)
+    const saved = await w.getTask(task.id)
+    expect(saved.reviewedBy).toMatchObject({ id: mei.id })
+    expect(saved.testedBy).toBeNull()
+
+    // Shown the same way next time; an answer can change but not go back to empty.
+    const copy = join(w.box.root, "answered.md")
+    const again = await edit(task.key, [], { COPY_TO: copy })
+    expect(again.stderr).toContain("No changes")
+    expect(readFileSync(copy, "utf8")).toContain("\nreviewedBy: Mei Member\ntestedBy: none\n")
+    const cleared = await edit(task.key, [["reviewedBy: Mei Member", "reviewedBy:"]])
+    expect(cleared.exitCode).toBe(2)
+    expect(errorOf(cleared).message).toContain("reviewedBy is already answered")
+    expect((await w.getTask(task.id)).reviewedBy).toMatchObject({ id: mei.id })
+  })
+
+  test("completing from the document needs the answers", async () => {
+    const task = await seed()
+    const refused = await edit(task.key, [["status: todo", "status: complete"]])
+    expect(refused.exitCode).toBe(8)
+    expect(errorOf(refused).message).toContain("Record who reviewed and who tested")
+    expect((await w.getTask(task.id)).status).toBe("todo")
+
+    const r = await edit(task.key, [
+      ["status: todo", "status: complete"],
+      ["reviewedBy:", "reviewedBy: @me"],
+      ["testedBy:", "testedBy: none"],
+    ])
+    expect(r.exitCode, r.stderr).toBe(0)
+    expect((await w.getTask(task.id)).status).toBe("complete")
   })
 
   test("status, a tag and the description change with one PATCH", async () => {

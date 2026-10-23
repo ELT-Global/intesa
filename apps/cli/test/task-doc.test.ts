@@ -59,6 +59,8 @@ describe("toTaskDoc", () => {
         "due: 2026-10-15",
         "assignees: [@me, Mei Chen]",
         "tags: [auth, bug]",
+        "reviewedBy:",
+        "testedBy:",
         "fields: { Estimate: 3, Stage: null, Shipped: true }",
         "---",
         "Markdown body",
@@ -67,6 +69,16 @@ describe("toTaskDoc", () => {
         "",
       ].join("\n"),
     )
+  })
+
+  test("reviewedBy and testedBy: empty while unanswered, none for nobody, else the person", () => {
+    const text = toTaskDoc(
+      { ...task, reviewedBy: { id: "u-mei", name: "Mei Chen" }, testedBy: null },
+      names,
+    )
+    expect(text).toContain("\nreviewedBy: Mei Chen\ntestedBy: none\n")
+    const me = toTaskDoc({ ...task, testedBy: { id: "u-alan", name: "Alan Owner" } }, names)
+    expect(me).toContain("\nreviewedBy:\ntestedBy: @me\n")
   })
 
   test("empty values for no priority, no due date and no description", () => {
@@ -99,8 +111,17 @@ describe("parseTaskDoc", () => {
       due: "2026-10-15",
       assignees: ["@me", "Mei Chen"],
       tags: ["auth", "bug"],
+      reviewedBy: null,
+      testedBy: null,
       fields: { Estimate: "3", Stage: null, Shipped: "true" },
       body: "Markdown body\n\n- with a list",
+    })
+  })
+
+  test("reviewedBy and testedBy keys are read without regard to case", () => {
+    expect(parseTaskDoc(doc("reviewedby: Mei Chen", "TESTEDBY: none"))).toMatchObject({
+      reviewedBy: "Mei Chen",
+      testedBy: "none",
     })
   })
 
@@ -263,6 +284,20 @@ describe("diffTaskDoc", () => {
     expect(edit("Estimate: 3", "Estimate: 5")).toEqual({ fields: { Estimate: "5" } })
     expect(edit("Shipped: true", "Shipped: null")).toEqual({ fields: { Shipped: null } })
     expect(edit("Stage: null", "Stage: null, Points: 2")).toEqual({ fields: { Points: "2" } })
+  })
+
+  test("answering who reviewed or tested is a change; emptying an answer is refused", () => {
+    expect(edit("testedBy:", "testedBy: none")).toEqual({ testedBy: "none" })
+    expect(edit("reviewedBy:", "reviewedBy: Mei Chen")).toEqual({ reviewedBy: "Mei Chen" })
+    // Answered the same way is no change.
+    const answered = parseTaskDoc(
+      toTaskDoc({ ...task, reviewedBy: { id: "u-mei", name: "Mei Chen" } }, names),
+    )
+    const same = { ...answered, reviewedBy: "mei chen" }
+    expect(diffTaskDoc(answered, same)).toEqual({})
+    expect(() => diffTaskDoc(answered, { ...answered, reviewedBy: null })).toThrow(
+      "reviewedBy is already answered",
+    )
   })
 
   test("a key that was deleted changes nothing; an emptied description does", () => {

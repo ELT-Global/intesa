@@ -3,6 +3,7 @@
 import type { SortKey } from "@intesa/task-query"
 import type { Task } from "./api"
 import {
+  type CompleteOverlay,
   type ConfirmOverlay,
   type DetailOverlay,
   type InputOverlay,
@@ -26,7 +27,10 @@ export type Key = {
 export const HELP: [keys: string, what: string][] = [
   ["← ↓ ↑ → / h j k l", "Move between cards"],
   ["enter", "Open the task (or the Backlog rail)"],
-  ["alt+← → / < >", "Move the card to the previous or next column"],
+  [
+    "alt+← → / < >",
+    "Move the card to the previous or next column (Complete asks who reviewed and tested)",
+  ],
   ["alt+↑ ↓ / K J", "Move the card up or down in its column"],
   ["shift+← →", "Switch assignee filter: me, each member, unassigned, everyone"],
   ["/ or f", "Search (status:, assignee:, tag:, priority:, due:, has:, no:)"],
@@ -84,6 +88,8 @@ export function handleKey(store: Store, k: Key) {
       return confirmKey(store, top, k)
     case "sync":
       return syncKey(store, top, k)
+    case "complete":
+      return completeKey(store, top, k)
     case "help":
       if (k.name === "escape" || k.name === "?" || k.name === "q" || k.name === "return") {
         store.pop()
@@ -276,6 +282,19 @@ function confirmKey(store: Store, o: ConfirmOverlay, k: Key) {
   if (enter || (plain(k) && k.name === "y")) store.confirm(o, true)
   else if (k.name === "escape" || (plain(k) && (k.name === "n" || k.name === "q"))) {
     store.confirm(o, false)
+  }
+}
+
+// Up and down pick the question, left and right its answer.
+function completeKey(store: Store, o: CompleteOverlay, k: Key) {
+  if (k.name === "escape") return store.pop()
+  if (k.name === "return" || k.name === "linefeed") return store.completeApply(o)
+  if (alt(k) || k.ctrl) return
+  if (k.name === "up" || (plain(k) && k.name === "k")) return store.completeStep(o, -1)
+  if (k.name === "down" || (plain(k) && k.name === "j")) return store.completeStep(o, 1)
+  if (k.name === "left" || (plain(k) && k.name === "h")) return store.completeCycle(o, -1)
+  if (k.name === "right" || (plain(k) && k.name === "l") || k.name === "space") {
+    return store.completeCycle(o, 1)
   }
 }
 

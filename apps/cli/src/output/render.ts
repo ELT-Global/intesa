@@ -22,6 +22,9 @@ const TASK = [
   "updatedAt",
   "url",
 ] as const
+// What `task view` adds to a summary: who reviewed and tested the task, each absent while
+// unanswered and null for nobody.
+const SIGNOFF = ["reviewedBy", "testedBy"] as const
 const TASK_COLUMNS = ["key", "status", "priority", "title", "assignees", "tags", "dueAt"] as const
 const TOKEN = ["id", "name", "kind", "scope", "lastFour", "createdAt", "lastUsedAt", "expiresAt"]
 const ACCOUNT = ["id", "name", "email", "avatarUrl", "totpEnabled"] as const
@@ -86,6 +89,7 @@ export const FIELD_SETS = {
   taskDetail: {
     fields: [
       ...TASK,
+      ...SIGNOFF,
       "project",
       "parent",
       "subtasks",
@@ -111,8 +115,8 @@ export const FIELD_SETS = {
   },
   // `status`: the Home page's sections; each task carries its `key` and `url`.
   status: { fields: ["projects", "assigned", "dueSoon"] },
-  // `week`: the Monday of the week, its bounds as ISO instants, then each person with their tasks;
-  // every task carries its `url`.
+  // `week`: the Monday of the week, its bounds as ISO instants, then each person with their
+  // tasks and the tasks they reviewed or tested (checks); every one carries its `url`.
   week: { fields: ["week", "from", "to", "people"] },
   // `url` is the artifact's own address under /api; a browser needs a web session to open it.
   artifact: { fields: ARTIFACT, columns: ["id", "name", "mimeType", "size", "updatedAt"] },

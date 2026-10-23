@@ -7,7 +7,7 @@ import { diffTaskDoc, parseTaskDoc, type TaskDoc, toTaskDoc } from "../../io/tas
 import { CliError, cancelled, formatError, usageError } from "../../output/errors"
 import type { Ctx } from "../../registry/define"
 import { withSubtaskSync } from "./move"
-import { fieldValue, type TaskDetail, tagIds, userIds } from "./shared"
+import { fieldValue, signoffId, type TaskDetail, tagIds, userIds } from "./shared"
 
 // The edit as one PATCH body. Names are resolved here, so a mistake fails before any write.
 async function toPatch(ctx: Ctx, task: TaskDetail, change: Partial<TaskDoc>) {
@@ -25,6 +25,8 @@ async function toPatch(ctx: Ctx, task: TaskDetail, change: Partial<TaskDoc>) {
     body: change.body === undefined ? undefined : change.body || null,
     assigneeIds: change.assignees && (await userIds(ctx, change.assignees)),
     tagIds: change.tags && (await tagIds(ctx, change.tags)),
+    reviewedById: change.reviewedBy && (await signoffId(ctx, change.reviewedBy)),
+    testedById: change.testedBy && (await signoffId(ctx, change.testedBy)),
     ...(Object.keys(values).length > 0 && { customFields: values }),
   }
   return patch

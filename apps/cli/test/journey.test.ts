@@ -124,10 +124,22 @@ test("a journey from an empty account to a finished task and back to signed out"
     ["WEB-3", "review"],
   ])
 
-  // Completing it without --subtasks leaves them behind, and says so.
-  const done = await run(["task", "done", "WEB-1", "--json"])
-  expect(done.exitCode).toBe(0)
+  // Completing it needs to know who reviewed and tested it. Without --subtasks the subtasks
+  // are left behind, and it says so.
+  const done = await run([
+    "task",
+    "done",
+    "WEB-1",
+    "--reviewed-by",
+    "@me",
+    "--tested-by",
+    "none",
+    "--json",
+  ])
+  expect(done.exitCode, done.stderr).toBe(0)
   expect(done.json()).toMatchObject({ key: "WEB-1", status: "complete" })
+  const signed = await run(["task", "view", "WEB-1", "--json", "--fields", "reviewedBy,testedBy"])
+  expect(signed.json()).toEqual({ reviewedBy: expect.objectContaining({ id: me }), testedBy: null })
   const outOfSync = done.json().subtasksOutOfSync as { key: string; status: string }[]
   expect(outOfSync.sort((a, b) => a.key.localeCompare(b.key))).toEqual([
     { key: "WEB-2", status: "review" },

@@ -21,6 +21,7 @@ import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
 import { TASK_BODY_MAX_LENGTH, type TaskSummary, type UserRef, useCreateTask } from "@/lib/tasks"
 import { AssigneePicker } from "./assignee-picker"
+import { type CompletionAnswers, CompletionDialog } from "./completion-dialog"
 import { DuePicker, PriorityPicker, StatusPicker } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TagPicker } from "./tag-picker"
@@ -120,11 +121,18 @@ function CreateTaskForm({
   const [tags, setTags] = useState<Tag[]>([])
   const [createMore, setCreateMore] = useState(false)
   const [created, setCreated] = useState<string | null>(null)
+  // A task created as Complete is asked who reviewed and tested it first.
+  const [signingOff, setSigningOff] = useState(false)
 
   function submit(e?: FormEvent) {
     e?.preventDefault()
+    if (!title.trim() || create.isPending) return
+    if (status === "complete") setSigningOff(true)
+    else send()
+  }
+
+  function send(answers?: CompletionAnswers) {
     const trimmed = title.trim()
-    if (!trimmed || create.isPending) return
     create.mutate(
       {
         title: trimmed,
@@ -134,6 +142,10 @@ function CreateTaskForm({
         dueAt: dueRef.current,
         assigneeIds: assignees.length ? assignees.map((a) => a.id) : undefined,
         tagIds: tags.length ? tags.map((t) => t.id) : undefined,
+        ...(answers && {
+          reviewedById: answers.reviewedBy?.id ?? null,
+          testedById: answers.testedBy?.id ?? null,
+        }),
       },
       {
         onSuccess: (task) => {
@@ -160,84 +172,94 @@ function CreateTaskForm({
   }
 
   return (
-    <form onSubmit={submit} onKeyDown={onKeyDown} className="flex flex-col">
-      <div className="flex flex-col gap-2 px-5 pt-4">
-        <input
-          ref={titleRef}
-          aria-label="Title"
-          placeholder="Task title"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value)
-            setCreated(null)
-          }}
-          maxLength={200}
-          autoComplete="off"
-          // biome-ignore lint/a11y/noAutofocus: the composer exists to type a title
-          autoFocus
-          className="w-full bg-transparent text-xl font-semibold tracking-[-0.02em] outline-none placeholder:text-muted-foreground"
-        />
-        <MarkdownEditor
-          label="Description"
-          placeholder="Add a description."
-          maxLength={TASK_BODY_MAX_LENGTH}
-          className="max-h-64 min-h-[5.5rem] overflow-y-auto"
-          value={body}
-          onChange={(v) => {
-            setBody(v)
-            setCreated(null)
-          }}
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-1 px-4 py-3">
-        <StatusPicker value={status} onChange={setStatus} />
-        <PriorityPicker value={priority} onChange={setPriority} />
-        {workspaceId && (
-          <AssigneePicker
-            workspaceId={workspaceId}
-            value={assignees}
-            onChange={(next) => {
-              assigneeSeeded.current = true
-              setAssignees(next)
+    <>
+      <form onSubmit={submit} onKeyDown={onKeyDown} className="flex flex-col">
+        <div className="flex flex-col gap-2 px-5 pt-4">
+          <input
+            ref={titleRef}
+            aria-label="Title"
+            placeholder="Task title"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value)
+              setCreated(null)
+            }}
+            maxLength={200}
+            autoComplete="off"
+            // biome-ignore lint/a11y/noAutofocus: the composer exists to type a title
+            autoFocus
+            className="w-full bg-transparent text-xl font-semibold tracking-[-0.02em] outline-none placeholder:text-muted-foreground"
+          />
+          <MarkdownEditor
+            label="Description"
+            placeholder="Add a description."
+            maxLength={TASK_BODY_MAX_LENGTH}
+            className="max-h-64 min-h-[5.5rem] overflow-y-auto"
+            value={body}
+            onChange={(v) => {
+              setBody(v)
+              setCreated(null)
             }}
           />
-        )}
-        <DuePicker value={dueAt} status={status} onChange={changeDue} />
-        {workspaceId && <TagPicker workspaceId={workspaceId} value={tags} onChange={setTags} />}
-        {tags.map((t) => (
-          <TagDot key={t.id} name={t.name} color={t.color} />
-        ))}
-      </div>
-      <div className="px-5">
-        <FormError
-          message={
-            create.error &&
-            (create.error instanceof ApiError && create.error.status < 500
-              ? create.error.message
-              : "Could not create the task.")
-          }
-        />
-      </div>
-      <DialogFooter className="mt-0 items-center gap-3 border-t border-border px-5 py-3">
-        <label
-          htmlFor={moreId}
-          className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
-        >
-          <Checkbox
-            id={moreId}
-            checked={createMore}
-            onChange={(e) => setCreateMore(e.target.checked)}
+        </div>
+        <div className="flex flex-wrap items-center gap-1 px-4 py-3">
+          <StatusPicker value={status} onChange={setStatus} />
+          <PriorityPicker value={priority} onChange={setPriority} />
+          {workspaceId && (
+            <AssigneePicker
+              workspaceId={workspaceId}
+              value={assignees}
+              onChange={(next) => {
+                assigneeSeeded.current = true
+                setAssignees(next)
+              }}
+            />
+          )}
+          <DuePicker value={dueAt} status={status} onChange={changeDue} />
+          {workspaceId && <TagPicker workspaceId={workspaceId} value={tags} onChange={setTags} />}
+          {tags.map((t) => (
+            <TagDot key={t.id} name={t.name} color={t.color} />
+          ))}
+        </div>
+        <div className="px-5">
+          <FormError
+            message={
+              create.error &&
+              (create.error instanceof ApiError && create.error.status < 500
+                ? create.error.message
+                : "Could not create the task.")
+            }
           />
-          Create more
-        </label>
-        <p role="status" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {created && `Created ${created}.`}
-        </p>
-        <Kbd aria-hidden>{isMac() ? "⌘↵" : "Ctrl ↵"}</Kbd>
-        <Button type="submit" variant="primary" size="sm" pending={create.isPending}>
-          Create task
-        </Button>
-      </DialogFooter>
-    </form>
+        </div>
+        <DialogFooter className="mt-0 items-center gap-3 border-t border-border px-5 py-3">
+          <label
+            htmlFor={moreId}
+            className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+          >
+            <Checkbox
+              id={moreId}
+              checked={createMore}
+              onChange={(e) => setCreateMore(e.target.checked)}
+            />
+            Create more
+          </label>
+          <p role="status" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {created && `Created ${created}.`}
+          </p>
+          <Kbd aria-hidden>{isMac() ? "⌘↵" : "Ctrl ↵"}</Kbd>
+          <Button type="submit" variant="primary" size="sm" pending={create.isPending}>
+            Create task
+          </Button>
+        </DialogFooter>
+      </form>
+      <CompletionDialog
+        target={signingOff ? { projectId, label: "the new task" } : null}
+        onConfirm={(answers) => {
+          setSigningOff(false)
+          send(answers)
+        }}
+        onCancel={() => setSigningOff(false)}
+      />
+    </>
   )
 }

@@ -92,6 +92,13 @@ intesa task review WEB-12 --subtasks match --json --fields key,status,subtasksOu
 intesa task move WEB-12 in_progress --after WEB-9 --json    # any status, optionally placed in the column
 \`\`\`
 
+Complete a task. A top-level task cannot reach \`complete\` until who reviewed it and who tested it is recorded; the API refuses with exit 8 (\`Record who reviewed and who tested a task…\`) and the hint names the flags. Pass \`--reviewed-by\` and \`--tested-by\` on \`task create\`, \`task edit\`, \`task move\` or \`task done\`: a person (\`@me\`, an email or an exact name) or \`none\` for nobody. Ask the user who it was rather than guessing. The answers stay on the task, so they are needed once, and can be changed at any status. Subtasks are exempt. \`task view\` shows them as \`reviewedBy\` and \`testedBy\` (absent while unanswered, \`null\` for nobody):
+
+\`\`\`sh
+intesa task done WEB-12 --reviewed-by mei@example.com --tested-by @me --json --fields key,status
+intesa task edit WEB-12 --reviewed-by none    # change an answer later
+\`\`\`
+
 Attach a file (HTML, PDF, Markdown, Word or OpenDocument, up to 5 MB each; the whole upload is refused with exit 8 if one file is not acceptable) and fetch one back:
 
 \`\`\`sh
@@ -99,7 +106,7 @@ intesa artifact upload WEB-12 spec.pdf notes.md --json
 intesa artifact download WEB-12 spec.pdf -o ./downloads    # -o - writes the bytes to stdout
 \`\`\`
 
-Edit several things of a task in one go through a document. With no flags \`task edit\` opens the task as a document (front matter with title, status, priority, due, assignees, tags and fields, then the Markdown body). Without a terminal it only works if \`INTESA_EDITOR\` names a program; intesa runs it with the path of a temporary file as its last argument, and the program edits that file in place and exits 0. A key left out of the front matter changes nothing, an empty value clears it, and only the differences are sent. For a few fields, prefer flags (\`task edit WEB-12 --priority urgent --add-assignee @me --no-due\`).
+Edit several things of a task in one go through a document. With no flags \`task edit\` opens the task as a document (front matter with title, status, priority, due, assignees, tags, reviewedBy, testedBy and fields, then the Markdown body). Without a terminal it only works if \`INTESA_EDITOR\` names a program; intesa runs it with the path of a temporary file as its last argument, and the program edits that file in place and exits 0. A key left out of the front matter changes nothing, an empty value clears it (except \`reviewedBy\` and \`testedBy\`, which take a person or \`none\` for nobody and cannot be emptied once answered), and only the differences are sent. For a few fields, prefer flags (\`task edit WEB-12 --priority urgent --add-assignee @me --no-due\`).
 
 \`\`\`sh
 INTESA_EDITOR="bun fix-task.ts" intesa task edit WEB-12 --json

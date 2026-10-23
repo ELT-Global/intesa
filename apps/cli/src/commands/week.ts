@@ -14,7 +14,8 @@ import { type Arg, type Ctx, defineCommand } from "../registry/define"
 
 type Log = Awaited<ReturnType<typeof loadWeek>>
 
-// The week's tasks, each with its web link, for the person doing the reading.
+// The week's tasks and the ones reviewed or tested, each with its web link, for the person
+// doing the reading.
 async function loadWeek(ctx: Ctx, week: string) {
   const http = await ctx.http()
   const ws = await resolver(ctx).workspace()
@@ -34,6 +35,10 @@ async function loadWeek(ctx: Ctx, week: string) {
         ...t,
         url: link.task({ id: t.id, projectId: t.project.id }).url,
       })),
+      checks: (person.checks ?? []).map((c) => ({
+        ...c,
+        url: link.task({ id: c.id, projectId: c.project.id }).url,
+      })),
     })),
   }
 }
@@ -51,7 +56,12 @@ async function format(ctx: Ctx, log: Log, as: Format, raw: boolean) {
   const r = resolver(ctx)
   const { id } = await r.workspace()
   const workspace = (await r.workspaces()).find((w) => w.id === id)?.name
-  const text = FORMATS[as](log, { week: log.week, workspace, taskUrl: (t) => t.url })
+  const text = FORMATS[as](log, {
+    week: log.week,
+    workspace,
+    taskUrl: (t) => t.url,
+    checkUrl: (c) => c.url,
+  })
   return as === "markdown" && ctx.mode.tty && !raw ? renderMarkdown(text, ctx.mode) : text
 }
 
@@ -68,7 +78,8 @@ export default defineCommand({
   description:
     "Show the workspace's weekly log: for each person the tasks assigned to them that week, which\n" +
     "were completed and which are still pending, when each was assigned and whether it was\n" +
-    "carried over from an earlier week. Weeks run Monday to Sunday in local time. WEEK is `this`\n" +
+    "carried over from an earlier week. Under them, the tasks they reviewed or tested that\n" +
+    "were completed that week. Weeks run Monday to Sunday in local time. WEEK is `this`\n" +
     "(the default), `last`, `next` or any day as YYYY-MM-DD. The output is Markdown: rendered on\n" +
     "a terminal, its source when piped or with --raw. --format simple prints Markdown that Slack\n" +
     "also reads (no headings or links) and --format html prints it for pasting as rich text.\n" +

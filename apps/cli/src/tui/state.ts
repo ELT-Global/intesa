@@ -1,6 +1,12 @@
 // The board's state, its overlays, and what is derived from it. Pure: the store changes it,
 // the keymap and the view read it.
-import { compareBy, type Sort, type TaskStatus, UNASSIGNED } from "@intesa/task-query"
+import {
+  compareBy,
+  type Placement,
+  type Sort,
+  type TaskStatus,
+  UNASSIGNED,
+} from "@intesa/task-query"
 import type {
   Artifact,
   BoardApi,
@@ -51,6 +57,22 @@ export type SyncOverlay = {
   picked: Record<string, TaskStatus>
   index: number
 }
+// One question of the dialog that moving a task into Complete opens. `answer` is the chosen
+// option's `value`: undefined while unanswered. Another question (who did it) is another entry
+// in `questions`, with its own options.
+export type CompleteQuestion = {
+  field: "reviewedById" | "testedById"
+  label: string
+  options: { value: string | null; label: string }[]
+  answer?: string | null
+}
+export type CompleteOverlay = {
+  kind: "complete"
+  task: Task
+  placement?: Placement
+  questions: CompleteQuestion[]
+  index: number
+}
 export type Overlay =
   | DetailOverlay
   | InputOverlay
@@ -58,6 +80,7 @@ export type Overlay =
   | PickerOverlay
   | ConfirmOverlay
   | SyncOverlay
+  | CompleteOverlay
   | { kind: "help" }
 
 export type DetailEntry = {

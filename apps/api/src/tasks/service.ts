@@ -3,7 +3,7 @@ import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import type { ProjectRow } from "../projects/service"
-import { TASK_KEY_PATTERN } from "../schemas"
+import { SIGNOFF_REQUIRED, TASK_KEY_PATTERN } from "../schemas"
 import type { Role } from "../workspaces/membership"
 import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
 import { byBoardOrder, positionFor } from "./order"
@@ -44,6 +44,10 @@ export type TaskDetail = TaskSummary & {
   blocks: TaskRef[]
   related: TaskRef[]
   customFields: Record<string, unknown>
+  /** Who reviewed it: a member, null for nobody; absent while unanswered. */
+  reviewedBy?: UserRef | null
+  /** Who tested it: a member, null for nobody; absent while unanswered. */
+  testedBy?: UserRef | null
 }
 
 export type HistoryEntry = {
@@ -225,10 +229,23 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
   const [summary] = await loadTaskSummaries(db, [taskId])
   if (!summary) throw new ApiError("NOT_FOUND", "Task not found")
 
+  // The reviewer and tester come from the same row, with their names, so they cost no round trip.
   const task = await db
     .selectFrom("tasks")
-    .select("workspaceId")
-    .where("id", "=", taskId)
+    .leftJoin("users as reviewer", "reviewer.id", "tasks.reviewedBy")
+    .leftJoin("users as tester", "tester.id", "tasks.testedBy")
+    .select([
+      "tasks.workspaceId",
+      "tasks.reviewedBySet",
+      "tasks.testedBySet",
+      "reviewer.id as reviewerId",
+      "reviewer.name as reviewerName",
+      "reviewer.avatarUrl as reviewerAvatarUrl",
+      "tester.id as testerId",
+      "tester.name as testerName",
+      "tester.avatarUrl as testerAvatarUrl",
+    ])
+    .where("tasks.id", "=", taskId)
     .executeTakeFirstOrThrow()
 
   const [project, parent, children, relationships, customFields] = await Promise.all([
@@ -272,6 +289,17 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     ),
     ...relationships,
     customFields,
+    // Unanswered leaves the key out; "nobody" is an explicit null.
+    ...(task.reviewedBySet === 1 && {
+      reviewedBy: task.reviewerId
+        ? { id: task.reviewerId, name: task.reviewerName ?? "", avatarUrl: task.reviewerAvatarUrl }
+        : null,
+    }),
+    ...(task.testedBySet === 1 && {
+      testedBy: task.testerId
+        ? { id: task.testerId, name: task.testerName ?? "", avatarUrl: task.testerAvatarUrl }
+        : null,
+    }),
   }
 }
 
@@ -326,6 +354,41 @@ async function assertAssignees(db: Db, workspaceId: string, userIds: string[]) {
     .execute()
   if (rows.length !== userIds.length) {
     throw new ApiError("VALIDATION_ERROR", "assigneeIds: every assignee must be a workspace member")
+  }
+}
+
+// Reviewer and tester must belong to the workspace; null (nobody) and undefined (untouched) pass.
+async function assertSignoffs(
+  db: Db,
+  workspaceId: string,
+  { reviewedById, testedById }: { reviewedById?: string | null; testedById?: string | null },
+) {
+  const named: { name: string; id: string }[] = []
+  if (reviewedById) named.push({ name: "reviewedById", id: reviewedById })
+  if (testedById) named.push({ name: "testedById", id: testedById })
+  if (named.length === 0) return
+  const rows = await db
+    .selectFrom("workspaceMembers")
+    .select("userId")
+    .where("workspaceId", "=", workspaceId)
+    .where(
+      "userId",
+      "in",
+      named.map((n) => n.id),
+    )
+    .execute()
+  const members = new Set(rows.map((r) => r.userId))
+  for (const { name, id } of named) {
+    if (!members.has(id))
+      throw new ApiError("VALIDATION_ERROR", `${name}: must be a workspace member`)
+  }
+}
+
+// A top-level task can only be completed once both questions have an answer (a subtask is a
+// step of its parent and is exempt). Checked against the task as it will be after the write.
+function assertSignedOff(signoffs: { reviewedBySet: number; testedBySet: number }) {
+  if (!signoffs.reviewedBySet || !signoffs.testedBySet) {
+    throw new ApiError("VALIDATION_ERROR", SIGNOFF_REQUIRED)
   }
 }
 
@@ -425,6 +488,12 @@ export async function createTask(
     }
     await assertAssignees(trx, project.workspaceId, assigneeIds)
     await assertTags(trx, project.workspaceId, tagIds)
+    await assertSignoffs(trx, project.workspaceId, input)
+    const signoffs = {
+      reviewedBySet: input.reviewedById === undefined ? 0 : 1,
+      testedBySet: input.testedById === undefined ? 0 : 1,
+    }
+    if (input.status === "complete" && !input.parentTaskId) assertSignedOff(signoffs)
 
     // The increment and the insert share a transaction, so numbers are gap-free and unique.
     const { taskCounter } = await trx
@@ -457,6 +526,9 @@ export async function createTask(
         priority: input.priority ?? null,
         dueAt: input.dueAt ?? null,
         position,
+        reviewedBy: input.reviewedById ?? null,
+        testedBy: input.testedById ?? null,
+        ...signoffs,
         createdBy: userId,
         createdAt: ts,
         updatedAt: ts,
@@ -502,29 +574,6 @@ const insertHistory = (
     })
     .execute()
 
-// Writes the new status and its history row together, or neither. Returns false when the
-// status was already the requested one.
-export async function changeTaskStatus(
-  db: Db,
-  taskId: string,
-  status: Status,
-  userId: string,
-): Promise<boolean> {
-  return inTransaction(db, async (trx) => {
-    const current = await trx
-      .selectFrom("tasks")
-      .select("status")
-      .where("id", "=", taskId)
-      .executeTakeFirstOrThrow()
-    if (current.status === status) return false
-
-    const ts = now()
-    await trx.updateTable("tasks").set({ status, updatedAt: ts }).where("id", "=", taskId).execute()
-    await insertHistory(trx, taskId, current.status, status, userId, ts)
-    return true
-  })
-}
-
 // Applies every field of the patch in one transaction, writing the task row (and its
 // updatedAt) once at the end; a rejected value rolls everything back. Moving a card within
 // its column changes only its position, which is not an edit and leaves updatedAt alone.
@@ -537,6 +586,7 @@ export async function updateTask(
   await inTransaction(db, async (trx) => {
     if (patch.assigneeIds) await assertAssignees(trx, task.workspaceId, unique(patch.assigneeIds))
     if (patch.tagIds) await assertTags(trx, task.workspaceId, unique(patch.tagIds))
+    await assertSignoffs(trx, task.workspaceId, patch)
 
     const ts = now()
     const { placement } = patch
@@ -545,6 +595,11 @@ export async function updateTask(
       ...(patch.body !== undefined && { body: patch.body }),
       ...(patch.priority !== undefined && { priority: patch.priority }),
       ...(patch.dueAt !== undefined && { dueAt: patch.dueAt }),
+      ...(patch.reviewedById !== undefined && {
+        reviewedBy: patch.reviewedById,
+        reviewedBySet: 1,
+      }),
+      ...(patch.testedById !== undefined && { testedBy: patch.testedById, testedBySet: 1 }),
     }
     let changed =
       Object.keys(set).length > 0 ||
@@ -556,12 +611,19 @@ export async function updateTask(
     if (patch.status !== undefined || placement !== undefined) {
       const current = await trx
         .selectFrom("tasks")
-        .select("status")
+        .select(["status", "reviewedBySet", "testedBySet"])
         .where("id", "=", task.id)
         .executeTakeFirstOrThrow()
       const status = patch.status ?? (current.status as Status)
       const column = { projectId: task.projectId, parentTaskId: task.parentTaskId, status }
       if (current.status !== status) {
+        // The same write may answer the questions, so check them as they will be afterwards.
+        if (status === "complete" && !task.parentTaskId) {
+          assertSignedOff({
+            reviewedBySet: set.reviewedBySet ?? current.reviewedBySet,
+            testedBySet: set.testedBySet ?? current.testedBySet,
+          })
+        }
         set.status = status
         await insertHistory(trx, task.id, current.status, status, userId, ts)
         changed = true

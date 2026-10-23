@@ -36,6 +36,15 @@ const dueAt = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
   .refine(isRealDate, "Not a valid date")
 
+// What the API says when a top-level task is completed before both questions are answered;
+// clients recognise the error by it.
+export const SIGNOFF_REQUIRED =
+  "Record who reviewed and who tested a task before completing it (reviewedById, testedById; null for nobody)"
+
+// Who reviewed / tested the task: a member's id, or null for nobody. Omitted leaves the
+// answer as it is (unanswered, for a new task).
+const signoff = z.string().min(1).nullable().optional()
+
 export const createTaskBody = z.object({
   title,
   status: status.default("todo"),
@@ -45,6 +54,8 @@ export const createTaskBody = z.object({
   parentTaskId: z.string().min(1).nullish(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
+  reviewedById: signoff,
+  testedById: signoff,
   customFields: customFields.optional(),
 })
 
@@ -66,6 +77,8 @@ export const patchTaskBody = z.object({
   dueAt: dueAt.nullable().optional(),
   assigneeIds: ids.optional(),
   tagIds: ids.optional(),
+  reviewedById: signoff,
+  testedById: signoff,
   customFields: customFields.optional(),
 })
 

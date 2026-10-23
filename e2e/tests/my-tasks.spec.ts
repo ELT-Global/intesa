@@ -1,7 +1,7 @@
 import { type Browser, expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { addMember, pageAs } from "../support/members"
-import { createProject, workspaceIdBySlug } from "../support/projects"
+import { completionAnswers, createProject, workspaceIdBySlug } from "../support/projects"
 
 async function userId(page: Page): Promise<string> {
   const res = await page.request.get("/api/me")
@@ -24,7 +24,7 @@ async function setup(page: Page, browser: Browser) {
 
   async function task(projectId: string, title: string, status: string, assignee: string | null) {
     const created = await page.request.post(`/api/projects/${projectId}/tasks`, {
-      data: { title, status },
+      data: completionAnswers({ title, status }),
     })
     expect(created.status()).toBe(201)
     const { task } = (await created.json()) as { task: { id: string } }

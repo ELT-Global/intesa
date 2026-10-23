@@ -106,7 +106,8 @@ describe("task history", () => {
   test("every status change, oldest first", async () => {
     const t = await w.addTask({ title: "Moves around" })
     for (const status of ["in_progress", "review", "complete"]) {
-      expect((await w.box.run(["task", "move", t.key, status])).exitCode).toBe(0)
+      const signoff = status === "complete" ? ["--reviewed-by", "me", "--tested-by", "me"] : []
+      expect((await w.box.run(["task", "move", t.key, status, ...signoff])).exitCode).toBe(0)
     }
     const r = await w.box.run(["task", "history", t.key, "--json"])
     expect(r.exitCode, r.stderr).toBe(0)

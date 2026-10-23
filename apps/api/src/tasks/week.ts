@@ -45,7 +45,26 @@ export type WeekTask = {
   blockedBy: { id: string; key: string; title: string; status: Status }[]
 }
 
-export type WeekPerson = { user: UserRef; member: boolean; tasks: WeekTask[] }
+/** A task they reviewed or tested that moved to complete inside the week. */
+export type WeekCheck = {
+  id: string
+  key: string
+  title: string
+  project: { id: string; name: string; key: string }
+  /** When it last moved to complete inside the week. */
+  completedAt: string
+  /** They are its reviewer. */
+  reviewed: boolean
+  /** They are its tester. */
+  tested: boolean
+}
+
+export type WeekPerson = {
+  user: UserRef
+  member: boolean
+  tasks: WeekTask[]
+  checks: WeekCheck[]
+}
 
 export type WeekLog = { from: string; to: string; people: WeekPerson[] }
 
@@ -83,7 +102,7 @@ export async function loadWeekLog(
   from: string,
   to: string,
 ): Promise<WeekLog> {
-  const [members, assignments, history, subtaskCounts, blockers] = await Promise.all([
+  const [members, assignments, history, subtaskCounts, blockers, checked] = await Promise.all([
     db
       .selectFrom("workspaceMembers")
       .innerJoin("users", "users.id", "workspaceMembers.userId")
@@ -189,6 +208,48 @@ export async function loadWeekLog(
       .orderBy("projects.key")
       .orderBy("blocker.number")
       .execute(),
+    // Tasks completed inside the week that have a reviewer or tester (current ones, whatever
+    // the task's status is now), with when each last moved to complete in the week.
+    db
+      .selectFrom("tasks")
+      .innerJoin(
+        db
+          .selectFrom("taskStatusHistory")
+          .select((h) => [
+            "taskStatusHistory.taskId",
+            h.fn.max<string>("updatedAt").as("completedAt"),
+          ])
+          .where("taskStatusHistory.toStatus", "=", "complete")
+          .where("taskStatusHistory.updatedAt", ">=", from)
+          .where("taskStatusHistory.updatedAt", "<", to)
+          .groupBy("taskStatusHistory.taskId")
+          .as("completion"),
+        "completion.taskId",
+        "tasks.id",
+      )
+      .innerJoin("projects", "projects.id", "tasks.projectId")
+      .leftJoin("users as reviewer", "reviewer.id", "tasks.reviewedBy")
+      .leftJoin("users as tester", "tester.id", "tasks.testedBy")
+      .select([
+        "tasks.id",
+        "tasks.number",
+        "tasks.title",
+        "tasks.reviewedBy",
+        "tasks.testedBy",
+        "projects.id as projectId",
+        "projects.name as projectName",
+        "projects.key as projectKey",
+        "reviewer.name as reviewerName",
+        "reviewer.avatarUrl as reviewerAvatarUrl",
+        "tester.name as testerName",
+        "tester.avatarUrl as testerAvatarUrl",
+        "completion.completedAt",
+      ])
+      .where("tasks.workspaceId", "=", workspaceId)
+      .where((eb) =>
+        eb.or([eb("tasks.reviewedBy", "is not", null), eb("tasks.testedBy", "is not", null)]),
+      )
+      .execute(),
   ])
 
   const subtasksByTask = new Map(
@@ -230,13 +291,19 @@ export async function loadWeekLog(
     lastEnd: string
     leftBacklogAt: string | null
   }
-  type Person = { user: UserRef; member: boolean; entries: Map<string, Entry> }
+  type Person = {
+    user: UserRef
+    member: boolean
+    entries: Map<string, Entry>
+    checks: Map<string, WeekCheck & { number: number }>
+  }
   const people = new Map<string, Person>()
   for (const m of members) {
     people.set(m.id, {
       user: { id: m.id, name: m.name, avatarUrl: m.avatarUrl },
       member: true,
       entries: new Map(),
+      checks: new Map(),
     })
   }
 
@@ -252,6 +319,7 @@ export async function loadWeekLog(
         user: { id: a.userId, name: a.userName, avatarUrl: a.userAvatarUrl },
         member: false,
         entries: new Map(),
+        checks: new Map(),
       }
       people.set(a.userId, person)
     }
@@ -298,6 +366,42 @@ export async function loadWeekLog(
     })
   }
 
+  // A former member's name comes from their reviewer/tester join; credit goes to each role.
+  for (const c of checked) {
+    const roles = [
+      { id: c.reviewedBy, name: c.reviewerName, avatarUrl: c.reviewerAvatarUrl, role: "reviewed" },
+      { id: c.testedBy, name: c.testerName, avatarUrl: c.testerAvatarUrl, role: "tested" },
+    ] as const
+    for (const { id, name, avatarUrl, role } of roles) {
+      if (id === null || name === null) continue
+      let person = people.get(id)
+      if (!person) {
+        person = {
+          user: { id, name, avatarUrl },
+          member: false,
+          entries: new Map(),
+          checks: new Map(),
+        }
+        people.set(id, person)
+      }
+      const existing = person.checks.get(c.id)
+      if (existing) {
+        existing[role] = true
+        continue
+      }
+      person.checks.set(c.id, {
+        id: c.id,
+        number: c.number,
+        key: `${c.projectKey}-${c.number}`,
+        title: c.title,
+        project: { id: c.projectId, name: c.projectName, key: c.projectKey },
+        completedAt: c.completedAt,
+        reviewed: role === "reviewed",
+        tested: role === "tested",
+      })
+    }
+  }
+
   const byWeekOrder = (x: Entry, y: Entry) =>
     STATUS_RANK[x.task.status] - STATUS_RANK[y.task.status] ||
     compare(x.task.completedAt ?? "", y.task.completedAt ?? "") ||
@@ -316,6 +420,14 @@ export async function loadWeekLog(
       .map((p) => ({
         user: p.user,
         member: p.member,
+        checks: [...p.checks.values()]
+          .sort(
+            (x, y) =>
+              compare(x.completedAt, y.completedAt) ||
+              compare(x.project.key, y.project.key) ||
+              x.number - y.number,
+          )
+          .map(({ number: _number, ...check }) => check),
         tasks: [...p.entries.values()].sort(byWeekOrder).map((entry) => {
           const { task, open, lastEnd, leftBacklogAt } = entry
           const plannedAt =

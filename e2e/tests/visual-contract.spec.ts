@@ -1,7 +1,7 @@
 import { expect, type Page, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
 import { addMember } from "../support/members"
-import { createProject, workspaceIdBySlug } from "../support/projects"
+import { completionAnswers, createProject, workspaceIdBySlug } from "../support/projects"
 import { style, tokenValue } from "../support/styles"
 
 function localDay(offsetDays: number): string {
@@ -39,7 +39,9 @@ async function seededProject(page: Page) {
   const slug = await createWorkspace(page, uniqueName("Contract"))
   const project = await createProject(page, await workspaceIdBySlug(page, slug), "Contract board")
   for (const data of SEED) {
-    const res = await page.request.post(`/api/projects/${project.id}/tasks`, { data })
+    const res = await page.request.post(`/api/projects/${project.id}/tasks`, {
+      data: completionAnswers(data),
+    })
     expect(res.status()).toBe(201)
   }
   return { slug, project }

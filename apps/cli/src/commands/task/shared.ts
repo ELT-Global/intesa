@@ -1,6 +1,7 @@
 import { isRealDate } from "@intesa/api/schemas"
 import { relativeTime, STATUS_LABELS } from "@intesa/task-query"
-import { taskKeys } from "../../client/candidates"
+import { z } from "zod"
+import { signoffPeople, taskKeys } from "../../client/candidates"
 import { type Resolver, resolver } from "../../client/resolve"
 import { readInput, splitPair } from "../../io/input"
 import { CliError, usageError } from "../../output/errors"
@@ -46,6 +47,28 @@ export async function userIds(ctx: Ctx, refs: string[]) {
   const ids: string[] = []
   for (const ref of refs) ids.push((await r.member(ref === "me" ? "@me" : ref)).userId)
   return ids
+}
+
+// Who reviewed or tested a task, as the API's reviewedById / testedById: a person as for
+// --assignee, `none` for nobody (null), and undefined when not given (left as it is).
+export async function signoffId(ctx: Ctx, ref: string | undefined) {
+  if (ref === undefined) return undefined
+  if (ref.trim().toLowerCase() === "none") return null
+  return (await userIds(ctx, [ref.trim()]))[0]
+}
+
+// The flags of task create, edit and move that answer who reviewed and who tested a task.
+export const signoffFlags = {
+  reviewedBy: z.string().optional().meta({
+    placeholder: "person",
+    description: "Who reviewed it: @me, an email or a name; none for nobody",
+    complete: signoffPeople,
+  }),
+  testedBy: z.string().optional().meta({
+    placeholder: "person",
+    description: "Who tested it: @me, an email or a name; none for nobody",
+    complete: signoffPeople,
+  }),
 }
 
 // Tags by name or id. With `create` set, unknown names are created, after every other name

@@ -2,7 +2,33 @@ import * as P from "@radix-ui/react-popover"
 import { Check } from "lucide-react"
 import { type ReactNode, useEffect, useId, useState } from "react"
 import { menuAnimation } from "@/components/ui/animation"
+import { Avatar } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+
+/** The people whose name or email contains what was typed in a picker's filter. */
+export function filterPeople<P extends { name: string; email: string }>(
+  people: P[],
+  filter: string,
+) {
+  const needle = filter.trim().toLowerCase()
+  return people.filter(
+    (p) =>
+      !needle || p.name.toLowerCase().includes(needle) || p.email.toLowerCase().includes(needle),
+  )
+}
+
+/** Avatar, name and email: the content of a person's option in a picker. */
+export function PersonOption({ name, email }: { name: string; email: string }) {
+  return (
+    <>
+      <Avatar name={name} />
+      <span className="min-w-0 flex-1 truncate">
+        {name}
+        <span className="ml-1.5 text-xs font-normal text-muted-foreground">{email}</span>
+      </span>
+    </>
+  )
+}
 
 export type PickerOption = {
   id: string
@@ -14,8 +40,8 @@ export type PickerOption = {
 }
 
 /**
- * Filterable multi-select popover. Focus stays in the filter input; arrow keys move the
- * active option (aria-activedescendant) and Enter toggles it.
+ * Filterable popover, multi-select unless `single`. Focus stays in the filter input; arrow keys
+ * move the active option (aria-activedescendant) and Enter toggles it.
  */
 export function PickerPopover({
   trigger,
@@ -27,6 +53,7 @@ export function PickerPopover({
   onFilterChange,
   empty,
   onOpenChange,
+  single,
 }: {
   trigger: ReactNode
   label: string
@@ -38,9 +65,12 @@ export function PickerPopover({
   onFilterChange: (value: string) => void
   empty: string
   onOpenChange?: (open: boolean) => void
+  /** Choosing an option picks it and closes the popover, instead of toggling it. */
+  single?: boolean
 }) {
   const baseId = useId()
   const [active, setActive] = useState(0)
+  const [open, setOpen] = useState(false)
   const current = Math.min(active, Math.max(options.length - 1, 0))
   const activeDomId = options[current] ? `${baseId}-${options[current].id}` : undefined
 
@@ -48,8 +78,18 @@ export function PickerPopover({
     if (activeDomId) document.getElementById(activeDomId)?.scrollIntoView({ block: "nearest" })
   }, [activeDomId])
 
+  function changeOpen(next: boolean) {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
+
+  function choose(option: PickerOption) {
+    option.onSelect()
+    if (single) changeOpen(false)
+  }
+
   return (
-    <P.Root onOpenChange={onOpenChange}>
+    <P.Root open={open} onOpenChange={changeOpen}>
       <P.Trigger asChild>{trigger}</P.Trigger>
       <P.Portal>
         <P.Content
@@ -90,7 +130,7 @@ export function PickerPopover({
               } else if (e.key === "Enter") {
                 if (e.nativeEvent.isComposing) return
                 e.preventDefault()
-                options[current]?.onSelect()
+                if (options[current]) choose(options[current])
               }
             }}
             className="mb-1 h-8 w-full rounded-md border border-input bg-background px-2 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/24"
@@ -99,7 +139,7 @@ export function PickerPopover({
           <div
             id={`${baseId}-list`}
             role="listbox"
-            aria-multiselectable
+            aria-multiselectable={!single}
             aria-label={`Available ${label.toLowerCase()}`}
             className="max-h-60 overflow-y-auto"
           >
@@ -113,7 +153,7 @@ export function PickerPopover({
                 aria-label={o.label}
                 aria-selected={o.selected ?? false}
                 tabIndex={-1}
-                onClick={o.onSelect}
+                onClick={() => choose(o)}
                 onMouseMove={() => setActive(i)}
                 className={cn(
                   "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground",

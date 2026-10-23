@@ -3,6 +3,7 @@ import { STATUS_LABELS } from "@intesa/task-query"
 import { plural } from "../api"
 import { HELP } from "../keymap"
 import {
+  type CompleteOverlay,
   type ConfirmOverlay,
   type MenuOverlay,
   type PickerOverlay,
@@ -118,6 +119,59 @@ export function createDialogs(kit: Kit) {
     )
   }
 
+  // Moving a task into Complete: one row per question, its answer between arrows.
+  function complete(o: CompleteOverlay, z: number) {
+    const w = Math.min(renderer.width - 2, 64)
+    const cols = w - 4
+    const lines: Line[] = wrap(
+      `${o.task.key} is moving to Complete. Say who reviewed and who tested it.`,
+      cols,
+    ).map((l) => [{ text: l }])
+    lines.push([])
+    const labelW = Math.max(...o.questions.map((q) => width(q.label))) + 2
+    const arrows = ui.unicode ? { l: "◀", r: "▶" } : { l: "<", r: ">" }
+    o.questions.forEach((q, i) => {
+      const selected = i === o.index
+      const fill = focusFill(selected)
+      const chosen = q.options.find((opt) => opt.value === q.answer)
+      lines.push(
+        fit(
+          [
+            marker(selected, fill),
+            { text: q.label.padEnd(labelW), fg: THEME.muted, ...fill },
+            { text: `${arrows.l} `, fg: THEME.accent, ...fill },
+            chosen
+              ? { text: chosen.label, bold: selected, ...fill }
+              : { text: "choose…", fg: THEME.muted, ...fill },
+            { text: ` ${arrows.r}`, fg: THEME.accent, ...fill },
+          ],
+          cols,
+          fill,
+        ),
+      )
+    })
+    const ready = o.questions.every((q) => q.answer !== undefined)
+    lines.push(
+      [],
+      [
+        {
+          text: `${ui.unicode ? "↑↓" : "up/down"} question · ${ui.unicode ? "←→" : "left/right"} answer`,
+          fg: THEME.muted,
+        },
+      ],
+      [
+        { text: "enter ", fg: ready ? THEME.accent : THEME.muted },
+        { text: ready ? "complete" : "answer every question first", fg: THEME.muted },
+        { text: " · esc cancel", fg: THEME.muted },
+      ],
+    )
+    panel(
+      { title: "Complete task?", w, h: Math.min(renderer.height - 2, lines.length + 2) },
+      lines.map((l) => [{ text: " " }, ...l]),
+      z,
+    )
+  }
+
   function help(z: number) {
     const keyW = Math.max(...HELP.map(([k]) => width(k))) + 2
     const w = Math.min(renderer.width - 2, keyW + 70)
@@ -151,5 +205,5 @@ export function createDialogs(kit: Kit) {
     panel({ title: "Delete task?", w, h: lines.length + 2 }, lines, z)
   }
 
-  return { menu, picker, sync, help, confirm }
+  return { menu, picker, sync, complete, help, confirm }
 }

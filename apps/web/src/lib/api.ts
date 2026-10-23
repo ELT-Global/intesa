@@ -52,6 +52,7 @@ export type HomeData = InferResponseType<typeof workspaceApi.home.$get>
 export type WeekLog = InferResponseType<typeof workspaceApi.week.$get>
 export type WeekPerson = WeekLog["people"][number]
 export type WeekTask = WeekPerson["tasks"][number]
+export type WeekCheck = WeekPerson["checks"][number]
 
 export const api = {
   members: (workspaceId: string) => unwrap(workspaceApi.members.$get({ param: { workspaceId } })),

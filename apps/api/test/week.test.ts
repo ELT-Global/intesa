@@ -17,6 +17,9 @@ type Story = {
   statuses: [Status, string][]
   // [userId, assignedAt, unassignedAt?]
   assigned: [string, string, string?][]
+  // Who reviewed / tested it (null for nobody); left out means unanswered.
+  reviewedBy?: string | null
+  testedBy?: string | null
 }
 
 async function setup() {
@@ -41,7 +44,12 @@ async function setup() {
     const last = story.statuses.at(-1)?.[0] ?? "todo"
     await t.db
       .updateTable("tasks")
-      .set({ createdAt: story.created, status: last })
+      .set({
+        createdAt: story.created,
+        status: last,
+        ...(story.reviewedBy !== undefined && { reviewedBy: story.reviewedBy, reviewedBySet: 1 }),
+        ...(story.testedBy !== undefined && { testedBy: story.testedBy, testedBySet: 1 }),
+      })
       .where("id", "=", id)
       .execute()
     await t.db
@@ -92,7 +100,9 @@ async function setup() {
     return tasks[0] as WeekTask
   }
 
-  return { t, ...ctx, ownerId, url, person, task, week, tasksOf, onlyTask }
+  const checksOf = (body: WeekLog, id: string) => body.people.find((p) => p.user.id === id)?.checks
+
+  return { t, ...ctx, ownerId, url, person, task, week, tasksOf, onlyTask, checksOf }
 }
 
 describe("weekly log access and validation", () => {
@@ -156,6 +166,7 @@ describe("weekly log people", () => {
       user: { id: ada, name: "Ada", avatarUrl: null },
       member: true,
       tasks: [],
+      checks: [],
     })
     const otherOwner = await userId(t, "other@example.com")
     expect(res.body.people.some((p: { user: { id: string } }) => p.user.id === otherOwner)).toBe(
@@ -565,6 +576,176 @@ describe("weekly log tasks", () => {
         assigned: [[ada, d(-10)]],
       })
 
+    const countQueries = async () => {
+      let count = 0
+      const counting = t.db.withPlugin({
+        transformQuery: (args) => {
+          count++
+          return args.node
+        },
+        transformResult: async (args) => args.result,
+      })
+      await loadWeekLog(counting, workspaceId, FROM, TO)
+      return count
+    }
+    await add()
+    const few = await countQueries()
+    for (let i = 0; i < 8; i++) await add()
+    expect(await countQueries()).toBe(few)
+  })
+})
+
+describe("weekly log checks", () => {
+  const done = (day: number) => ({
+    created: d(-10),
+    statuses: [
+      ["todo", d(-10)],
+      ["complete", d(day)],
+    ] as [Status, string][],
+    assigned: [] as [string, string, string?][],
+  })
+
+  test("credits the reviewer and the tester for a task completed in the week", async () => {
+    const { project, person, task, week, checksOf, tasksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const bea = await person("bea@example.com", "Bea")
+    const t1 = await task({ ...done(4), reviewedBy: ada, testedBy: bea }, project.id, "Shipped")
+
+    const body = (await week()).body
+    // Ada only reviewed and has no tasks of her own; that still earns her a place in the log.
+    expect(tasksOf(body, ada)).toEqual([])
+    expect(checksOf(body, ada)).toEqual([
+      {
+        id: t1.id,
+        key: t1.key,
+        title: "Shipped",
+        project: { id: project.id, name: "Website", key: project.key },
+        completedAt: d(4),
+        reviewed: true,
+        tested: false,
+      },
+    ])
+    expect(checksOf(body, bea)).toEqual([
+      expect.objectContaining({ id: t1.id, reviewed: false, tested: true }),
+    ])
+  })
+
+  test("a task created already complete credits its reviewer in that week", async () => {
+    const { project, owner, person, week, checksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const res = await owner.call("POST", `/api/projects/${project.id}/tasks`, {
+      title: "Born done",
+      status: "complete",
+      reviewedById: ada,
+      testedById: null,
+    })
+    expect(res.status).toBe(201)
+    // The week around now.
+    const now = Date.now()
+    const body = (
+      await week(new Date(now - DAY_MS).toISOString(), new Date(now + DAY_MS).toISOString())
+    ).body
+    expect(checksOf(body, ada)).toEqual([
+      expect.objectContaining({
+        id: res.body.task.id,
+        title: "Born done",
+        reviewed: true,
+        tested: false,
+      }),
+    ])
+  })
+
+  test("one person who did both gets a single entry flagged as both", async () => {
+    const { person, task, week, checksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    await task({ ...done(4), reviewedBy: ada, testedBy: ada })
+    expect(checksOf((await week()).body, ada)).toEqual([
+      expect.objectContaining({ reviewed: true, tested: true }),
+    ])
+  })
+
+  test("only the week of completion counts, and the last move to complete is the time shown", async () => {
+    const { person, task, week, checksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const at = (statuses: [Status, string][], title: string) =>
+      task(
+        { created: d(-10), statuses, assigned: [], reviewedBy: ada, testedBy: null },
+        undefined,
+        title,
+      )
+    await at([["complete", d(-3)]], "last week")
+    await at([["complete", d(12)]], "next week")
+    await at([["todo", d(-10)]], "not complete")
+    await at(
+      [
+        ["complete", d(3)],
+        ["review", d(4)],
+        ["complete", d(5)],
+        ["review", d(6)],
+      ],
+      "reopened",
+    )
+
+    const checks = checksOf((await week()).body, ada) ?? []
+    // Reopened later in the week, it still moved to complete inside it.
+    expect(checks.map((c) => [c.title, c.completedAt])).toEqual([["reopened", d(5)]])
+  })
+
+  test("are sorted by when they were completed", async () => {
+    const { person, task, week, checksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    await task({ ...done(6), reviewedBy: ada, testedBy: null }, undefined, "late")
+    await task({ ...done(3), reviewedBy: null, testedBy: ada }, undefined, "early")
+    await task({ ...done(5), reviewedBy: ada, testedBy: null }, undefined, "middle")
+    expect((checksOf((await week()).body, ada) ?? []).map((c) => c.title)).toEqual([
+      "early",
+      "middle",
+      "late",
+    ])
+  })
+
+  test("nobody and unanswered credit no one", async () => {
+    const { task, week } = await setup()
+    await task({ ...done(4), reviewedBy: null, testedBy: null })
+    await task({ ...done(4) })
+    const people = (await week()).body.people as WeekLog["people"]
+    expect(people.flatMap((p) => p.checks)).toEqual([])
+  })
+
+  test("a former member is listed as not a member, with their checks", async () => {
+    const { t, task, week, checksOf } = await setup()
+    await signIn(t.app, "gone@example.com", "Gone")
+    const gone = await userId(t, "gone@example.com")
+    await task({ ...done(4), reviewedBy: gone, testedBy: null })
+
+    const body = (await week()).body
+    expect(body.people.find((p: WeekLog["people"][number]) => p.user.id === gone)).toMatchObject({
+      user: { id: gone, name: "Gone" },
+      member: false,
+      tasks: [],
+    })
+    expect(checksOf(body, gone)).toHaveLength(1)
+  })
+
+  test("work in another workspace is left out", async () => {
+    const { t, person, week, checksOf } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const other = await setupProject(t, "other@example.com")
+    await addMember(t, other.workspaceId, "ada@example.com")
+    const res = await other.owner.call("POST", `/api/projects/${other.project.id}/tasks`, {
+      title: "Elsewhere",
+      status: "complete",
+      reviewedById: ada,
+      testedById: null,
+    })
+    expect(res.status).toBe(201)
+    expect(checksOf((await week()).body, ada)).toEqual([])
+  })
+
+  test("the number of queries does not grow with the number of checks", async () => {
+    const { t, workspaceId, person, task } = await setup()
+    const ada = await person("ada@example.com", "Ada")
+    const add = () => task({ ...done(4), reviewedBy: ada, testedBy: ada })
     const countQueries = async () => {
       let count = 0
       const counting = t.db.withPlugin({

@@ -97,17 +97,21 @@ intesa task view WEB-12 --json --fields key,status,subtasks
 intesa task create -T "Fix login redirect" -a @me -t auth --priority high
 intesa task create --parent WEB-12 -T "Write tests"
 intesa task create -p WEB -T Notes -F notes.md --field Estimate=3
+intesa task create -T "Hotfix" -s complete --reviewed-by @me --tested-by none
 intesa task edit WEB-12 -T "Fix the login redirect" --priority urgent
 intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due
 intesa task edit WEB-12 --field Estimate=5 --clear-field Stage
+intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none
 intesa task edit WEB-12
 intesa task move WEB-12 review
 intesa task move WEB-12 todo --top
 intesa task move WEB-12 in_progress --after WEB-9
 intesa task move WEB-12 complete --subtasks match --json
+intesa task move WEB-12 complete --reviewed-by mei@example.com --tested-by @me
 intesa task start WEB-12
 intesa task review WEB-12
 intesa task done WEB-12
+intesa task done WEB-12 --reviewed-by mei@example.com --tested-by none
 intesa task assign WEB-12
 intesa task assign WEB-12 @me "Mei Chen"
 intesa task unassign WEB-12

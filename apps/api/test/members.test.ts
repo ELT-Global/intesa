@@ -328,7 +328,11 @@ describe("home", () => {
     const { t, owner, member, createTask, url } = await setup()
     const memId = await userId(t, "mem@example.com")
     const done = await createTask({ title: "done", assigneeIds: [memId] })
-    await owner.call("PATCH", `/api/tasks/${done.id}`, { status: "complete" })
+    await owner.call("PATCH", `/api/tasks/${done.id}`, {
+      status: "complete",
+      reviewedById: null,
+      testedById: null,
+    })
     for (let i = 0; i < 11; i++) await createTask({ title: `t${i}`, assigneeIds: [memId] })
 
     const res = await member.call("GET", `${url}/home`)
@@ -345,7 +349,11 @@ describe("home", () => {
     await createTask({ title: "later", dueAt: day(30) })
     await createTask({ title: "undated" })
     const finished = await createTask({ title: "finished-overdue", dueAt: day(-1) })
-    await owner.call("PATCH", `/api/tasks/${finished.id}`, { status: "complete" })
+    await owner.call("PATCH", `/api/tasks/${finished.id}`, {
+      status: "complete",
+      reviewedById: null,
+      testedById: null,
+    })
 
     const res = await owner.call("GET", `${url}/home`)
     expect(res.body.dueSoon.map((x: { title: string }) => x.title)).toEqual([

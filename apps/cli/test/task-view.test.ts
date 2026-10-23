@@ -175,4 +175,25 @@ describe("task references", () => {
     const status = await w.box.run(["__complete", "--word=in", "--", "task", "move", "WEB-1"])
     expect(status.stdout).toBe("in_progress\n")
   })
+
+  test("Reviewed by and Tested by: a dash while unanswered, nobody, or the name", async () => {
+    const field = (stdout: string, name: string) =>
+      new RegExp(`^${name}\\t(.*)$`, "m").exec(stdout)?.[1]
+    const task = await w.addTask({ title: "Signed off" })
+    const open = await w.box.run(["task", "view", task.key])
+    expect(field(open.stdout, "Reviewed by")).toBe("—")
+    expect(field(open.stdout, "Tested by")).toBe("—")
+    const json = await w.box.run(["task", "view", task.key, "--json"])
+    expect(json.json()).not.toHaveProperty("reviewedBy")
+    expect(json.json()).not.toHaveProperty("testedBy")
+
+    await w.patchTask(task.id, { reviewedById: w.me, testedById: null })
+    const done = await w.box.run(["task", "view", task.key])
+    expect(field(done.stdout, "Reviewed by")).toBe("Alan Owner")
+    expect(field(done.stdout, "Tested by")).toBe("nobody")
+    const answered = await w.box.run(["task", "view", task.key, "--json"])
+    expect(answered.json()).toMatchObject({ reviewedBy: { id: w.me }, testedBy: null })
+    const narrowed = await w.box.run(["task", "view", task.key, "--json", "--fields", "testedBy"])
+    expect(narrowed.json()).toEqual({ testedBy: null })
+  })
 })

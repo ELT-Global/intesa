@@ -4,6 +4,7 @@ import {
   STATUS_LABELS,
   shiftWeek,
   type WeekLogMarkdownOptions,
+  weekCheckRole,
   weekCounts,
   weekCountsText,
   weekDueState,
@@ -48,7 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Panel, PanelHeader } from "@/components/ui/panel"
-import type { WeekPerson, WeekTask } from "@/lib/api"
+import type { WeekCheck, WeekPerson, WeekTask } from "@/lib/api"
 import { weekLogQuery, workspacesQuery } from "@/lib/queries"
 import { isPlainShortcut, useIsMac, useShortcut } from "@/lib/shortcuts"
 import { cn } from "@/lib/utils"
@@ -237,21 +238,73 @@ function TaskGroup({
   )
 }
 
+function CheckRow({ slug, check, week }: { slug: string; check: WeekCheck; week: string }) {
+  const weekYear = Number(week.slice(0, 4))
+  return (
+    <li>
+      <Link
+        to="/w/$slug/projects/$projectId"
+        params={{ slug, projectId: check.project.id }}
+        search={{ task: check.id }}
+        className="flex flex-col gap-1 px-4 py-2 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @2xl:flex-row @2xl:items-center @2xl:gap-4"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2.5 text-sm">
+          <StatusIcon status="complete" />
+          <TaskKey>{check.key}</TaskKey>
+          <span className="min-w-0 flex-1 truncate">
+            <TaskTitle title={check.title} />
+          </span>
+        </span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 pl-6.5 text-xs text-muted-foreground @2xl:shrink-0 @2xl:justify-end @2xl:pl-0">
+          <span>{weekCheckRole(check)}</span>
+          <span aria-hidden>·</span>
+          <span>Completed {day(check.completedAt, weekYear, true)}</span>
+          <span aria-hidden>·</span>
+          <span>{check.project.name}</span>
+        </span>
+      </Link>
+    </li>
+  )
+}
+
+function CheckGroup({ slug, checks, week }: { slug: string; checks: WeekCheck[]; week: string }) {
+  const id = useId()
+  if (checks.length === 0) return null
+  return (
+    <div>
+      <h3 id={id} className="px-4 pt-3 pb-1 text-xs text-muted-foreground">
+        Reviewed or tested
+      </h3>
+      <ul aria-labelledby={id} className="divide-y divide-border/70">
+        {checks.map((c) => (
+          <CheckRow key={c.id} slug={slug} check={c} week={week} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function PersonPanel({ slug, person, week }: { slug: string; person: WeekPerson; week: string }) {
   const completed = person.tasks.filter((t) => t.status === "complete")
   const pending = person.tasks.filter((t) => t.status !== "complete" && t.status !== "backlog")
   const backlog = person.tasks.filter((t) => t.status === "backlog")
+  // Someone who only reviewed or tested has no task counts to show.
+  const summary =
+    person.tasks.length === 0 && person.checks.length > 0
+      ? `${person.checks.length} reviewed or tested`
+      : counts(person.tasks)
   return (
     <Panel aria-label={person.user.name} className="@container">
       <PanelHeader
         icon={<Avatar name={person.user.name} className="flex" />}
         title={person.user.name}
-        note={person.member ? counts(person.tasks) : `Former member · ${counts(person.tasks)}`}
+        note={person.member ? summary : `Former member · ${summary}`}
       />
       <div className="pb-1">
         <TaskGroup slug={slug} title="Completed" tasks={completed} week={week} />
         <TaskGroup slug={slug} title="Pending" tasks={pending} week={week} />
         <TaskGroup slug={slug} title="Backlog" tasks={backlog} week={week} />
+        <CheckGroup slug={slug} checks={person.checks} week={week} />
       </div>
     </Panel>
   )
@@ -459,14 +512,15 @@ function WeeklyLogPage() {
   )
 
   const people = log?.people ?? []
-  const active = people.filter((p) => p.tasks.length > 0)
-  const idle = people.filter((p) => p.tasks.length === 0)
+  const active = people.filter((p) => p.tasks.length > 0 || p.checks.length > 0)
+  const idle = people.filter((p) => p.tasks.length === 0 && p.checks.length === 0)
 
   const logInput = log ?? { people: [] }
-  const exportOptions: WeekLogMarkdownOptions<WeekTask> = {
+  const exportOptions: WeekLogMarkdownOptions<WeekTask, WeekCheck> = {
     week,
     workspace: workspace?.name,
     taskUrl: (t) => `${location.origin}/w/${slug}/projects/${t.project.id}?task=${t.id}`,
+    checkUrl: (c) => `${location.origin}/w/${slug}/projects/${c.project.id}?task=${c.id}`,
   }
   const write: WeekWriters = {
     markdown: () => weekLogMarkdown(logInput, exportOptions),
