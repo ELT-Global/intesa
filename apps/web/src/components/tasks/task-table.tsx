@@ -4,7 +4,15 @@ import { memo, useCallback, useMemo, useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
 import { type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import { DueDateChip, PriorityChip, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
+import {
+  DueDateChip,
+  inPullRequest,
+  PriorityChip,
+  PriorityPicker,
+  PullRequestChip,
+  StatusIcon,
+  StatusPicker,
+} from "./properties"
 import { TagDot } from "./tag-chip"
 import { TaskContextMenu } from "./task-context-menu"
 import { TaskTitle } from "./task-title"
@@ -139,14 +147,17 @@ const Row = memo(function Row({
       case "status":
         return (
           <td key={column} className={cn(cell, "whitespace-nowrap")}>
-            {editable ? (
-              <StatusPicker value={task.status} onChange={(status) => patch({ status })} />
-            ) : (
-              <span className="inline-flex items-center gap-1.5">
-                <StatusIcon status={task.status} />
-                {STATUS_LABELS[task.status]}
-              </span>
-            )}
+            <span className="inline-flex items-center gap-2">
+              {editable ? (
+                <StatusPicker value={task.status} onChange={(status) => patch({ status })} />
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusIcon status={task.status} />
+                  {STATUS_LABELS[task.status]}
+                </span>
+              )}
+              {inPullRequest(task) && <PullRequestChip pullRequests={task.pullRequests} />}
+            </span>
           </td>
         )
       case "priority":

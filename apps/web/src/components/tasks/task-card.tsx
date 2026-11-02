@@ -4,7 +4,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Chip } from "@/components/ui/badge"
 import type { TaskSummary } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
-import { DueDateChip, PriorityChip } from "./properties"
+import { DueDateChip, inPullRequest, PriorityChip, PullRequestChip } from "./properties"
 import { TagDot } from "./tag-chip"
 import { TaskKey } from "./task-key"
 import { TaskTitle } from "./task-title"
@@ -21,7 +21,8 @@ export const TaskCard = memo(function TaskCard({
   /** Id of an element that explains how to use the card. */
   describedBy?: string
 }) {
-  const hasMeta = task.priority || task.subtaskCount > 0 || task.dueAt
+  const inPr = inPullRequest(task)
+  const hasMeta = inPr || task.priority || task.subtaskCount > 0 || task.dueAt
   return (
     <button
       type="button"
@@ -56,6 +57,7 @@ export const TaskCard = memo(function TaskCard({
       )}
       {hasMeta && (
         <span className="flex flex-wrap items-center gap-1.5">
+          {inPr && <PullRequestChip pullRequests={task.pullRequests} />}
           {task.priority && <PriorityChip priority={task.priority} />}
           {task.subtaskCount > 0 && (
             <Chip>

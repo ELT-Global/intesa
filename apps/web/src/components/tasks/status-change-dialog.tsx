@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { type RefObject, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
+import { Field } from "@/components/ui/field"
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { projectQuery } from "@/lib/queries"
 import { taskQuery, type UserRef } from "@/lib/tasks"
@@ -26,6 +27,8 @@ export type StatusChangeAnswers = {
   /** "Who did it?": the person making the change rather than the assignees. */
   byMe?: boolean
   signoff?: SignoffAnswers
+  /** The pull request to link, as typed; absent when left empty. */
+  pullRequest?: string
 }
 
 /** What the dialog is asked about: an existing task (its sign-off prefills) or one to be created. */
@@ -39,6 +42,8 @@ export type StatusChangeTarget = {
   assignees?: UserRef[]
   /** Asks who reviewed and who tested it, which completes the task. */
   signoff?: boolean
+  /** Offers to link a pull request, which is optional. */
+  pullRequest?: boolean
   /** Gets focus back on close, for a dialog opened from a menu item. */
   returnFocusRef?: RefObject<HTMLElement | null>
 }
@@ -65,7 +70,7 @@ export function StatusChangeDialog({
     <Dialog open={target !== null} onOpenChange={(open) => !open && onCancel()}>
       {current && (
         <StatusChangeContent
-          key={`${current.taskId ?? current.label}-${!!current.assignees}-${!!current.signoff}`}
+          key={`${current.taskId ?? current.label}-${!!current.assignees}-${!!current.signoff}-${!!current.pullRequest}`}
           target={current}
           onConfirm={onConfirm}
           onCancel={onCancel}
@@ -96,6 +101,7 @@ function PrefilledForm({ taskId, ...props }: ContentProps & { taskId: string }) 
 const names = (people: UserRef[]) => joinNames(people.map((p) => p.name))
 
 function describe({ label, assignees, signoff }: StatusChangeTarget) {
+  if (!assignees && !signoff) return `Link ${label} to its pull request, if it has one.`
   if (!assignees) return `Say who reviewed and who tested ${label} before completing it.`
   const also = signoff ? ", who reviewed it and who tested it before completing it" : ""
   return `${label} is assigned to ${names(assignees)}. Say who did it${also}.`
@@ -107,11 +113,12 @@ function Form({
   onConfirm,
   onCancel,
 }: ContentProps & { prefill?: { [K in SignoffKey]?: Signoff } }) {
-  const { assignees, signoff } = target
+  const { assignees, signoff, pullRequest } = target
   const workspaceId = useQuery(projectQuery(target.projectId)).data?.workspaceId
   // Only what has been picked here; the sign-off otherwise shows the task's current answer.
   const [who, setWho] = useState<"assignees" | "me">()
   const [picked, setPicked] = useState<Partial<SignoffAnswers>>({})
+  const [pullRequestRef, setPullRequestRef] = useState("")
   const signoffAnswer = (key: SignoffKey): Signoff => (key in picked ? picked[key] : prefill?.[key])
   const ready =
     (!assignees || who !== undefined) &&
@@ -126,6 +133,7 @@ function Form({
           testedBy: signoffAnswer("testedBy") ?? null,
         },
       }),
+      ...(pullRequest && pullRequestRef.trim() && { pullRequest: pullRequestRef.trim() }),
     })
   }
 
@@ -135,7 +143,22 @@ function Form({
       returnFocusRef={target.returnFocusRef}
       description={describe(target)}
     >
-      <div className="flex flex-col gap-3">
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (ready) confirm()
+        }}
+      >
+        {pullRequest && (
+          <Field
+            label="Pull request (optional)"
+            placeholder="Paste the PR link, or owner/repo#482"
+            value={pullRequestRef}
+            onChange={(e) => setPullRequestRef(e.target.value)}
+            maxLength={300}
+          />
+        )}
         {assignees && (
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
             <span className="text-[13px]">Who did it?</span>
@@ -165,7 +188,7 @@ function Form({
               )}
             </div>
           ))}
-      </div>
+      </form>
       <DialogFooter>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel

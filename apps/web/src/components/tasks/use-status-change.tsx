@@ -1,5 +1,6 @@
 import { asksWhoDidIt, type Placement, type TaskStatus } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import {
   createContext,
   type ReactNode,
@@ -9,13 +10,13 @@ import {
   useRef,
   useState,
 } from "react"
-import { meQuery } from "@/lib/queries"
+import { meQuery, workspacesQuery } from "@/lib/queries"
 import { type TaskSummary, type UserRef, useUpdateTask } from "@/lib/tasks"
 import { type StatusChangeAnswers, StatusChangeDialog } from "./status-change-dialog"
 
 type MovingTask = Pick<
   TaskSummary,
-  "id" | "key" | "title" | "projectId" | "status" | "parentTaskId" | "assignees"
+  "id" | "key" | "title" | "projectId" | "status" | "parentTaskId" | "assignees" | "pullRequests"
 >
 
 export type StatusChange = {
@@ -32,11 +33,15 @@ export type StatusChange = {
 }
 
 /** What a change has to ask about, decided once when it is requested. */
-type Ask = { signoff: boolean; assignees?: UserRef[] }
+type Ask = { signoff: boolean; assignees?: UserRef[]; pullRequest: boolean }
 
 /** A top-level task entering Complete has to be signed off first; subtasks never are. */
 const needsSignoff = (task: MovingTask, status: TaskStatus) =>
   status === "complete" && task.status !== "complete" && !task.parentTaskId
+
+/** Starting a task without a PR offers to link one, where the workspace has GitHub connected. */
+const offersPullRequest = (task: MovingTask, status: TaskStatus, github: boolean) =>
+  github && status === "in_progress" && task.status !== "in_progress" && !task.pullRequests.length
 
 const StatusChangeContext = createContext<((change: StatusChange) => void) | null>(null)
 
@@ -55,6 +60,9 @@ export function useStatusChange() {
 export function StatusChangeProvider({ children }: { children: ReactNode }) {
   const update = useUpdateTask()
   const me = useQuery(meQuery).data
+  // Moves happen inside a workspace's pages, so its slug is in the URL.
+  const { slug } = useParams({ strict: false })
+  const github = useQuery(workspacesQuery).data?.find((w) => w.slug === slug)?.github ?? false
   const [pending, setPending] = useState<{ request: StatusChange; ask: Ask } | null>(null)
   // What had focus when the dialog opened; the dialog has no trigger of its own to return to.
   const opener = useRef<HTMLElement | null>(null)
@@ -63,7 +71,7 @@ export function StatusChangeProvider({ children }: { children: ReactNode }) {
   const apply = useCallback(
     (
       { task, status, placement, onApplied }: StatusChange,
-      { byMe, signoff }: StatusChangeAnswers = {},
+      { byMe, signoff, pullRequest }: StatusChangeAnswers = {},
     ) => {
       const mover =
         byMe && me ? { id: me.id, name: me.name, avatarUrl: me.avatarUrl ?? null } : null
@@ -75,6 +83,7 @@ export function StatusChangeProvider({ children }: { children: ReactNode }) {
           status,
           ...(placement && { placement }),
           ...(mover && { assigneeIds: [mover.id] }),
+          ...(pullRequest && { pullRequest }),
           ...(signoff && {
             reviewedById: signoff.reviewedBy?.id ?? null,
             testedById: signoff.testedBy?.id ?? null,
@@ -94,13 +103,14 @@ export function StatusChangeProvider({ children }: { children: ReactNode }) {
       const ask: Ask = {
         signoff: needsSignoff(task, status),
         assignees: asksWhoDidIt(task, status, me?.id) ? task.assignees : undefined,
+        pullRequest: offersPullRequest(task, status, github),
       }
-      if (!ask.signoff && !ask.assignees) return apply(request)
+      if (!ask.signoff && !ask.assignees && !ask.pullRequest) return apply(request)
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       returnTo.current = request.returnFocusRef ?? opener
       setPending({ request, ask })
     },
-    [apply, me?.id],
+    [apply, me?.id, github],
   )
 
   return (
