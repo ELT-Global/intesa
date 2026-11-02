@@ -71,6 +71,31 @@ export const signoffFlags = {
   }),
 }
 
+// Links a pull request; the API asks GitHub about it and refuses one that does not exist.
+export const prFlag = z.string().optional().meta({
+  placeholder: "PR",
+  description: "Link a pull request: its link, or owner/repo#number",
+})
+
+// The PR of `task` that `ref` names: its link, owner/repo#12, or just the number (#12 or 12)
+// when only one of the task's PRs has it.
+export function linkedPullRequest(task: TaskDetail, ref: string) {
+  const text = ref.trim().toLowerCase().replace(/\/+$/, "")
+  const found = task.pullRequests.filter(
+    (p) =>
+      text === p.url.toLowerCase() ||
+      text === `${p.repo}#${p.number}` ||
+      text.replace(/^#/, "") === String(p.number),
+  )
+  if (found.length === 1) return found[0] as (typeof found)[number]
+  throw new CliError(
+    found.length === 0
+      ? `${task.key} has no pull request ${ref}`
+      : `${task.key} has several pull requests #${ref.replace(/^#/, "")}; use owner/repo#number`,
+    { code: "NOT_FOUND", exitCode: 5 },
+  )
+}
+
 // Tags by name or id. With `create` set, unknown names are created, after every other name
 // has resolved, so a typo elsewhere does not leave new tags behind; with it unset (false)
 // the error says how to create them.

@@ -29,6 +29,8 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "auth token": "excluded",
   "token create": "excluded",
   "me 2fa": "excluded",
+  "github create": "excluded",
+  "github token": "excluded",
   api: "excluded",
   // Defaults that would change the person's own CLI behind their back.
   "config set": "excluded",
@@ -59,6 +61,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "config list": "read",
   "token list": "read",
   "me view": "read",
+  "github view": "read",
 
   "workspace create": "write",
   "project create": "write",
@@ -83,6 +86,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "tag edit": "idempotent",
   "field edit": "idempotent",
   "me edit": "idempotent",
+  "github edit": "idempotent",
 
   "project delete": "destructive",
   "task delete": "destructive",
@@ -91,6 +95,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "tag delete": "destructive",
   "field delete": "destructive",
   "token revoke": "destructive",
+  "github delete": "destructive",
   // Writes to any local path, replacing a file with --force.
   "artifact download": "destructive",
   "artifact replace": "destructive",

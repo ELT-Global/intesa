@@ -18,6 +18,7 @@ const TASK = [
   "tags",
   "subtaskCount",
   "subtaskDoneCount",
+  "pullRequests",
   "createdAt",
   "updatedAt",
   "url",
@@ -70,7 +71,7 @@ export const FIELD_SETS = {
   },
   // `url` is the web app link for the item. Slugs are what other commands take.
   workspace: {
-    fields: ["id", "name", "slug", "role", "url"],
+    fields: ["id", "name", "slug", "role", "github", "url"],
     columns: ["slug", "name", "role"],
     quiet: "slug",
   },
@@ -79,6 +80,13 @@ export const FIELD_SETS = {
   projectView: {
     fields: [...PROJECT, "taskCounts", "customFields"],
     columns: ["key", "name", "description", "taskCounts"],
+  },
+  // `github view`: the workspace's webhook (never its secret or token).
+  github: { fields: ["url", "mergeBranch", "tokenSet", "createdAt"] },
+  // `github create`: the same, plus the secret, which the server shows only then.
+  githubCreated: {
+    fields: ["url", "secret", "mergeBranch", "tokenSet", "createdAt"],
+    quiet: "secret",
   },
   // `use`: what became the default, and the file it was written to.
   workspaceDefault: { fields: ["id", "slug", "file"], quiet: "slug" },

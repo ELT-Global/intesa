@@ -91,6 +91,17 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
   }
   const relations = relationRows(ctx, task)
   if (relations) sections.push(section(mode, "Relationships", relations))
+  if (task.pullRequests.length > 0) {
+    const prs = task.pullRequests.map((p) => ({
+      pr: `${p.repo}#${p.number}`,
+      // Not known until GitHub has been asked or has sent an event.
+      state: p.state ?? "unknown",
+      title: p.title ?? "",
+      url: p.url,
+    }))
+    const columns = tty ? ["pr", "state", "title"] : ["pr", "state", "title", "url"]
+    sections.push(section(mode, `Pull requests (${prs.length})`, rows(mode, prs, columns)))
+  }
   if (fields.length > 0) {
     const values = fields.map((f) => ({ name: f.name, value: fieldText(task.customFields[f.id]) }))
     sections.push(section(mode, "Custom fields", rows(mode, values, ["name", "value"])))

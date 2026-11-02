@@ -15,6 +15,8 @@ import { defineCommand } from "../../registry/define"
 import {
   customFields,
   dueDate,
+  linkedPullRequest,
+  prFlag,
   readBody,
   showTasks,
   signoffFlags,
@@ -161,7 +163,8 @@ export const edit = defineCommand({
     "Change a task with one request. Assignees and tags are added and removed one by one;\n" +
     "the rest of the task is left as it is. Use `task move` to change the status.\n" +
     "--reviewed-by and --tested-by record who reviewed and who tested it (a person, or none\n" +
-    "for nobody), at any status.\n\n" +
+    "for nobody), at any status. --pr links a pull request and --remove-pr unlinks one,\n" +
+    "which never changes the status.\n\n" +
     "Without flags the task opens in your editor as a document: its properties between\n" +
     "--- lines, then the description.\n\n" +
     "  ---\n" +
@@ -211,6 +214,11 @@ export const edit = defineCommand({
       .meta({ placeholder: "tag", description: "Remove a tag", complete: tagNames }),
     createTags,
     ...signoffFlags,
+    pr: prFlag,
+    removePr: z.string().optional().meta({
+      placeholder: "PR",
+      description: "Unlink a pull request: its link, owner/repo#number or number",
+    }),
     field: fieldFlag,
     clearField: z.array(z.string()).default([]).meta({
       placeholder: "NAME",
@@ -225,6 +233,7 @@ export const edit = defineCommand({
     "intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due",
     "intesa task edit WEB-12 --field Estimate=5 --clear-field Stage",
     "intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none",
+    "intesa task edit WEB-12 --pr acme/web#482 --remove-pr 480",
     "intesa task edit WEB-12",
   ],
   async run(ctx, { task: ref }, flags) {
@@ -239,6 +248,8 @@ export const edit = defineCommand({
         flags.due,
         flags.reviewedBy,
         flags.testedBy,
+        flags.pr,
+        flags.removePr,
       ].every((v) => v === undefined) &&
       !people &&
       !labels &&
@@ -273,10 +284,16 @@ export const edit = defineCommand({
         )
       : undefined
 
+    const unlinkPullRequestId =
+      flags.removePr === undefined ? undefined : linkedPullRequest(task, flags.removePr).id
+
     const { client } = await ctx.http()
+    // One request, so a refused change unlinks nothing either.
     const res = await client.api.tasks[":taskId"].$patch({
       param: { taskId: task.id },
       json: {
+        pullRequest: flags.pr,
+        unlinkPullRequestId,
         title: flags.title,
         body,
         priority: flags.priority,
