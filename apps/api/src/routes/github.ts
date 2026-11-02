@@ -3,10 +3,10 @@ import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { newId, now } from "../db"
 import type { Deps } from "../deps"
-import { DEFAULT_MERGE_BRANCH, newSecret, requireOwner, workspaceWebhook } from "../github/settings"
+import { DEFAULT_MERGE_BRANCH, newSecret, workspaceWebhook } from "../github/settings"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
-import { requireMembership } from "../workspaces/membership"
+import { requireMembership, requireOwner } from "../workspaces/membership"
 
 // A branch name as git allows it, roughly: no spaces or the characters git refuses.
 const mergeBranch = z

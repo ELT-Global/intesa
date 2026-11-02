@@ -19,3 +19,12 @@ export async function requireMembership(
   if (!row) throw new ApiError("NOT_FOUND", "Workspace not found")
   return row.role
 }
+
+// For routes only owners may use, given the caller's role in the workspace.
+export function assertOwner(role: Role) {
+  if (role !== "owner") throw new ApiError("FORBIDDEN", "Only workspace owners can do this")
+}
+
+export async function requireOwner(db: Db, userId: string, workspaceId: string) {
+  assertOwner(await requireMembership(db, userId, workspaceId))
+}

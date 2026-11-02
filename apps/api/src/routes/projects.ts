@@ -3,13 +3,12 @@ import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { now } from "../db"
 import type { Deps } from "../deps"
-import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
 import { createProject, requireProject, toProjectJson } from "../projects/service"
 import { PROJECT_KEY_PATTERN } from "../schemas"
 import { createTaskBody } from "../tasks/schemas"
 import { createTask, listProjectTaskSummaries, loadTaskSummaries } from "../tasks/service"
-import { requireMembership } from "../workspaces/membership"
+import { assertOwner, requireMembership } from "../workspaces/membership"
 
 const name = z.string().trim().min(1).max(80)
 const description = z.string().trim().max(2000)
@@ -74,7 +73,7 @@ export function projectRoutes({ db }: Deps) {
     })
     .delete("/:projectId", async (c) => {
       const { project, role } = await requireProject(db, c.var.user.id, c.req.param("projectId"))
-      if (role !== "owner") throw new ApiError("FORBIDDEN", "Only workspace owners can do this")
+      assertOwner(role)
       await db.deleteFrom("projects").where("id", "=", project.id).execute()
       return c.body(null, 204)
     })

@@ -6,7 +6,7 @@ import { type Database, type Db, newId, now } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
-import { type Role, requireMembership } from "../workspaces/membership"
+import { type Role, requireMembership, requireOwner } from "../workspaces/membership"
 
 // `github` says whether the workspace has a GitHub webhook, so clients know to ask for PRs.
 type WorkspaceJson = { id: string; name: string; slug: string; role: Role; github: boolean }
@@ -124,10 +124,7 @@ export function workspaceRoutes({ db }: Deps) {
     })
     .patch("/:workspaceId", validate("json", patchBody), async (c) => {
       const workspaceId = c.req.param("workspaceId")
-      const role = await requireMembership(db, c.var.user.id, workspaceId)
-      if (role !== "owner") {
-        throw new ApiError("FORBIDDEN", "Only workspace owners can do this")
-      }
+      await requireOwner(db, c.var.user.id, workspaceId)
       await db
         .updateTable("workspaces")
         .set({ name: c.req.valid("json").name, updatedAt: now() })
