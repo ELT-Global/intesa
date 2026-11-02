@@ -12,7 +12,7 @@ import {
   removeMember,
   requireMember,
 } from "../workspaces/members"
-import { requireMembership } from "../workspaces/membership"
+import { requireMembership, requireOwner } from "../workspaces/membership"
 
 const role = z.enum(["owner", "member"])
 const addBody = z.object({
@@ -22,12 +22,6 @@ const addBody = z.object({
 const patchBody = z.object({ role })
 
 export function memberRoutes({ db }: Deps) {
-  const requireOwner = async (userId: string, workspaceId: string) => {
-    if ((await requireMembership(db, userId, workspaceId)) !== "owner") {
-      throw new ApiError("FORBIDDEN", "Only workspace owners can do this")
-    }
-  }
-
   return new Hono<AppEnv>()
     .use(requireUser(db))
     .get("/:workspaceId/members", async (c) => {
@@ -37,7 +31,7 @@ export function memberRoutes({ db }: Deps) {
     })
     .post("/:workspaceId/members", validate("json", addBody), async (c) => {
       const workspaceId = c.req.param("workspaceId")
-      await requireOwner(c.var.user.id, workspaceId)
+      await requireOwner(db, c.var.user.id, workspaceId)
       const { email, role } = c.req.valid("json")
       // Unknown emails get a placeholder account that is linked on first Google sign-in.
       const user = await findOrCreateUser(db, { email })
@@ -46,7 +40,7 @@ export function memberRoutes({ db }: Deps) {
     })
     .patch("/:workspaceId/members/:memberId", validate("json", patchBody), async (c) => {
       const workspaceId = c.req.param("workspaceId")
-      await requireOwner(c.var.user.id, workspaceId)
+      await requireOwner(db, c.var.user.id, workspaceId)
       const member = await requireMember(db, workspaceId, c.req.param("memberId"))
       await changeRole(db, workspaceId, member, c.req.valid("json").role)
       return c.json({ member: await requireMember(db, workspaceId, member.id) })
