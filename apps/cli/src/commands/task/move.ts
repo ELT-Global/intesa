@@ -9,6 +9,7 @@ import { CliError, formatError, prefixed, usageError } from "../../output/errors
 import { type Ctx, defineCommand } from "../../registry/define"
 import {
   plural,
+  prFlag,
   showTasks,
   signoffFlags,
   signoffId,
@@ -41,6 +42,7 @@ const moveFlags = z.object({
       "What happens to subtasks in another status (default: ask on a terminal, else keep)",
   }),
   ...signoffFlags,
+  pr: prFlag,
 })
 type MoveFlags = z.output<typeof moveFlags>
 
@@ -116,7 +118,13 @@ async function moveTask(ctx: Ctx, ref: string, status: Status, flags: MoveFlags)
   const { client } = await ctx.http()
   const res = await client.api.tasks[":taskId"].$patch({
     param: { taskId: task.id },
-    json: { status, reviewedById, testedById, ...(placement && { placement }) },
+    json: {
+      status,
+      reviewedById,
+      testedById,
+      pullRequest: flags.pr,
+      ...(placement && { placement }),
+    },
   })
   const moved = (await webLinks(ctx, task.project.workspaceId)).task((await res.json()).task)
   return withSubtaskSync(ctx, task, status, moved, flags.subtasks)
@@ -193,7 +201,9 @@ export const move = defineCommand({
     "failure's.\n\n" +
     "A top-level task cannot move to complete until who reviewed and who tested it is known:\n" +
     "pass --reviewed-by and --tested-by (a person, or none for nobody) unless it already has\n" +
-    "both answers. Subtasks are exempt.",
+    "both answers. Subtasks are exempt.\n\n" +
+    "--pr links a pull request in the same request, typically with `task start`; a PR GitHub\n" +
+    "says does not exist is refused and the task does not move.",
   args: [
     taskArg,
     { name: "status", required: true, enum: STATUSES, description: "The status to move it to" },
@@ -207,6 +217,7 @@ export const move = defineCommand({
     "intesa task move WEB-12 in_progress --after WEB-9",
     "intesa task move WEB-12 complete --subtasks match --json",
     "intesa task move WEB-12 complete --reviewed-by mei@example.com --tested-by @me",
+    "intesa task move WEB-12 in_progress --pr acme/web#482",
   ],
   run: (ctx, { task, status }, flags) => moveTask(ctx, task, status as Status, flags),
   human: showTasks,
@@ -226,7 +237,9 @@ const shorthand = (name: string, status: Status, more: string[] = []) =>
     human: showTasks,
   })
 
-export const start = shorthand("start", "in_progress")
+export const start = shorthand("start", "in_progress", [
+  "intesa task start WEB-12 --pr https://github.com/acme/web/pull/482",
+])
 export const review = shorthand("review", "review")
 export const done = shorthand("done", "complete", [
   "intesa task done WEB-12 --reviewed-by mei@example.com --tested-by none",

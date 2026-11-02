@@ -17,6 +17,11 @@ const PARITY: { web: string; cli: string[] }[] = [
     cli: ["workspace list", "workspace view", "workspace use", "workspace create"],
   },
   { web: "Workspace rename (API only)", cli: ["workspace rename"] },
+  {
+    web: "Workspace settings: GitHub webhook",
+    cli: ["github view", "github create", "github edit", "github token", "github delete"],
+  },
+  { web: "Task panel: pull requests", cli: ["task view", "task edit"] },
   { web: "Home dashboard", cli: ["status"] },
   { web: "Weekly log, copy as Markdown", cli: ["week"] },
   { web: "My tasks, with group and completed toggles", cli: ["task list"] },

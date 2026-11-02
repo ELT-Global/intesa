@@ -42,6 +42,7 @@ const READS = [
   "intesa schema",
   "intesa token list",
   "intesa me view",
+  "intesa github view",
   "intesa completion",
   "intesa mcp",
 ]
@@ -329,6 +330,28 @@ beforeAll(async () => {
       path: "/api/me/2fa/disable",
       body: { code: "123456" },
     },
+    "intesa github create": {
+      args: ["github", "create"],
+      method: "POST",
+      path: `/api/workspaces/${workspace.id}/github`,
+    },
+    "intesa github edit": {
+      args: ["github", "edit", "--merge-branch", "main"],
+      method: "PATCH",
+      path: `/api/workspaces/${workspace.id}/github`,
+      body: { mergeBranch: "main" },
+    },
+    "intesa github token": {
+      args: ["github", "token", "--clear"],
+      method: "PATCH",
+      path: `/api/workspaces/${workspace.id}/github`,
+      body: { token: null },
+    },
+    "intesa github delete": {
+      args: ["github", "delete"],
+      method: "DELETE",
+      path: `/api/workspaces/${workspace.id}/github`,
+    },
   }
 })
 afterAll(() => {
@@ -352,6 +375,8 @@ const TABLES = [
   "artifacts",
   "apiTokens",
   "sessions",
+  "githubWebhooks",
+  "taskPullRequests",
 ] as const
 
 // Everything a mutation could change. Reads touch a token's lastUsedAt and the cached
@@ -434,6 +459,10 @@ describe("--dry-run", () => {
     "intesa token revoke",
     "intesa me edit",
     "intesa me 2fa",
+    "intesa github create",
+    "intesa github edit",
+    "intesa github token",
+    "intesa github delete",
   ]
 
   test("lists every mutation", () => {

@@ -99,6 +99,13 @@ intesa task done WEB-12 --reviewed-by mei@example.com --tested-by @me --json --f
 intesa task edit WEB-12 --reviewed-by none    # change an answer later
 \`\`\`
 
+Link a pull request when work starts, where the workspace has a GitHub webhook (\`intesa github view\`). \`--pr\` takes the PR's link or \`owner/repo#number\`; a PR GitHub says does not exist is refused with exit 8 and the task does not move. A PR whose title or description says \`Fixes WEB-12\` (also \`Closes\`, \`Resolves\`, \`Links\`) is linked by itself and starts the task if it is in Backlog or Todo. When every linked PR is merged into the webhook's merge branch (or closed), the task moves from In progress to Review as "GitHub"; no other status is changed automatically. \`task view\` lists the PRs as \`pullRequests\`:
+
+\`\`\`sh
+intesa task start WEB-12 --pr acme/web#482 --json --fields key,status,pullRequests
+intesa task edit WEB-12 --remove-pr 482    # unlinking never changes the status
+\`\`\`
+
 Attach a file (HTML, PDF, Markdown, Word or OpenDocument, up to 5 MB each; the whole upload is refused with exit 8 if one file is not acceptable) and fetch one back:
 
 \`\`\`sh

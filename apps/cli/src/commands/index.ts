@@ -40,6 +40,11 @@ export const nouns: NounEntry[] = [
     load: () => import("./board").then((m) => m.default),
   },
   {
+    name: "github",
+    summary: "Set up the workspace's GitHub webhook",
+    load: () => import("./github").then((m) => m.default),
+  },
+  {
     name: "member",
     summary: "List, add and manage workspace members",
     load: () => import("./member").then((m) => m.default),

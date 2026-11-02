@@ -12,6 +12,7 @@ COMMANDS
   project:     List, create and manage projects
   task:        List, create, edit and move tasks
   board:       Open a project's board full screen
+  github:      Set up the workspace's GitHub webhook
   member:      List, add and manage workspace members
   tag:         List, create and manage tags
   field:       List, create and manage a project's custom fields

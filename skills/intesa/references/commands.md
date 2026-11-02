@@ -102,13 +102,16 @@ intesa task edit WEB-12 -T "Fix the login redirect" --priority urgent
 intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due
 intesa task edit WEB-12 --field Estimate=5 --clear-field Stage
 intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none
+intesa task edit WEB-12 --pr acme/web#482 --remove-pr 480
 intesa task edit WEB-12
 intesa task move WEB-12 review
 intesa task move WEB-12 todo --top
 intesa task move WEB-12 in_progress --after WEB-9
 intesa task move WEB-12 complete --subtasks match --json
 intesa task move WEB-12 complete --reviewed-by mei@example.com --tested-by @me
+intesa task move WEB-12 in_progress --pr acme/web#482
 intesa task start WEB-12
+intesa task start WEB-12 --pr https://github.com/acme/web/pull/482
 intesa task review WEB-12
 intesa task done WEB-12
 intesa task done WEB-12 --reviewed-by mei@example.com --tested-by none
@@ -131,6 +134,27 @@ intesa task search auth --json --fields key,title
 intesa task open WEB-12
 intesa task url WEB-12
 intesa task url 12 -p WEB
+```
+
+## github
+
+- `intesa github view`: Show the workspace's GitHub webhook
+- `intesa github create`: Create the workspace's GitHub webhook, or give it a new secret (owners only)
+- `intesa github edit`: Change the webhook's merge branch (owners only)
+- `intesa github token`: Set the GitHub token from stdin (owners only)
+- `intesa github delete`: Delete the workspace's GitHub webhook (owners only)
+
+```sh
+intesa github view
+intesa github view --json --fields url
+intesa github create
+intesa github create --json --fields url,secret
+intesa github create --yes
+intesa github edit --merge-branch qa
+intesa github token < token.txt
+intesa github token --clear
+intesa github delete
+intesa github delete --yes
 ```
 
 ## member
