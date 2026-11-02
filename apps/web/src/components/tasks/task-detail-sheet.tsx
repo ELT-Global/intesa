@@ -20,6 +20,7 @@ import {
 import { shortDate } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { DuePicker, PriorityPicker, StatusIcon, StatusPicker } from "./properties"
+import { PullRequestsSection } from "./pull-requests"
 import { TaskArtifacts } from "./task-artifacts"
 import { TaskKey } from "./task-key"
 import { useTaskParam } from "./task-param"
@@ -185,6 +186,7 @@ function SheetBody({
             onCommit={(body, revert) => patch({ body: body || null }, revert)}
           />
           <TaskArtifacts key={task.id} taskId={task.id} />
+          <PullRequestsSection key={`pr-${task.id}`} task={task} />
           {sections?.(task)}
           <HistorySection taskId={task.id} />
         </div>

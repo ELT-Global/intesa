@@ -44,6 +44,12 @@ export const membersQuery = (workspaceId: string) =>
     staleTime: 60_000,
   })
 
+export const githubQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: keys.github(workspaceId),
+    queryFn: async () => (await api.github(workspaceId)).github,
+  })
+
 /** The client's local calendar day, so "due soon" matches what the user sees. */
 function localToday(): string {
   const d = new Date()

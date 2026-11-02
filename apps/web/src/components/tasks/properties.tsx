@@ -16,6 +16,10 @@ import {
   ChevronUp,
   CircleAlert,
   CircleCheck,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
   Minus,
   X,
 } from "lucide-react"
@@ -29,6 +33,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import type { PullRequestRef } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 
 // Only "in progress" is a signal; the other statuses are told apart by shape.
@@ -106,6 +111,79 @@ export function DueDateChip({ dueAt, status }: { dueAt: string; status: TaskStat
       {formatDay(dueAt)}
       {state === "overdue" && <span className="sr-only"> (overdue)</span>}
       {state === "soon" && <span className="sr-only"> (due soon)</span>}
+    </Chip>
+  )
+}
+
+type PullRequestState = NonNullable<PullRequestRef["state"]>
+
+export const PULL_REQUEST_LABELS: Record<PullRequestState, string> = {
+  open: "Open",
+  draft: "Draft",
+  merged: "Merged",
+  closed: "Closed",
+}
+
+const PULL_REQUEST_ICONS: Record<PullRequestState, typeof GitPullRequest> = {
+  open: GitPullRequest,
+  draft: GitPullRequestDraft,
+  merged: GitMerge,
+  closed: GitPullRequestClosed,
+}
+
+const PULL_REQUEST_COLOR: Record<PullRequestState, string> = {
+  open: "text-success-foreground",
+  draft: "text-muted-foreground",
+  merged: "text-info-foreground",
+  closed: "text-muted-foreground",
+}
+
+/** A PR whose state is not known yet (GitHub has not told us) shows as open. */
+export function PullRequestIcon({
+  state,
+  className,
+}: {
+  state: PullRequestRef["state"]
+  className?: string
+}) {
+  const known = state ?? "open"
+  const Icon = PULL_REQUEST_ICONS[known]
+  return (
+    <Icon aria-hidden className={cn("size-3.5 shrink-0", PULL_REQUEST_COLOR[known], className)} />
+  )
+}
+
+/** The state that says most about where a task's PRs are: one still open outweighs the rest. */
+function overallState(pullRequests: PullRequestRef[]): PullRequestState {
+  const states = new Set(pullRequests.map((p) => p.state ?? "open"))
+  if (states.has("open")) return "open"
+  if (states.has("draft")) return "draft"
+  if (states.has("merged")) return "merged"
+  return "closed"
+}
+
+const PULL_REQUEST_CHIP: Record<PullRequestState, string> = {
+  open: "border-transparent bg-success/10 font-medium text-success-foreground",
+  draft: "",
+  merged: "border-transparent bg-info/10 font-medium text-info-foreground",
+  closed: "",
+}
+
+/** Whether a task shows "In PR": it is being worked on and has a pull request. */
+export const inPullRequest = (task: { status: TaskStatus; pullRequests: PullRequestRef[] }) =>
+  task.status === "in_progress" && task.pullRequests.length > 0
+
+/** "In PR" on a task being worked on whose code is in a pull request. */
+export function PullRequestChip({ pullRequests }: { pullRequests: PullRequestRef[] }) {
+  const state = overallState(pullRequests)
+  const title = pullRequests
+    .map((p) => `#${p.number} ${PULL_REQUEST_LABELS[p.state ?? "open"].toLowerCase()}`)
+    .join(", ")
+  return (
+    <Chip className={PULL_REQUEST_CHIP[state]} title={title}>
+      <PullRequestIcon state={state} className="size-3 text-current" />
+      In PR
+      <span className="sr-only"> ({title})</span>
     </Chip>
   )
 }

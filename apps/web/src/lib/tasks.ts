@@ -22,6 +22,7 @@ export type RelationType = InferRequestType<
 >["json"]["type"]
 export type UserRef = TaskSummary["assignees"][number]
 export type TagRef = TaskSummary["tags"][number]
+export type PullRequestRef = TaskSummary["pullRequests"][number]
 
 /** Longest description the API accepts (apps/api/src/tasks/schemas.ts). */
 export const TASK_BODY_MAX_LENGTH = 20000
@@ -54,6 +55,10 @@ const taskApi = {
     unwrap(projectTasks.$post({ param: { projectId }, json })),
   update: (taskId: string, json: TaskPatch) => unwrap(taskById.$patch({ param: { taskId }, json })),
   remove: (taskId: string) => unwrap(taskById.$delete({ param: { taskId } })),
+  unlinkPullRequest: (taskId: string, pullRequestId: string) =>
+    unwrap(
+      taskById["pull-requests"][":pullRequestId"].$delete({ param: { taskId, pullRequestId } }),
+    ),
   search: (workspaceId: string, q: string) =>
     unwrap(
       client.api.workspaces[":workspaceId"].tasks.search.$get({
@@ -400,6 +405,23 @@ export function useChangeRelationship(taskId: string) {
         ? taskApi.addRelation(taskId, type, otherId)
         : taskApi.removeRelation(taskId, type, otherId),
     onSettled: () => settleTaskMutation(qc),
+  })
+}
+
+/**
+ * Links a pull request (its link or owner/repo#number) or unlinks one. Linking goes
+ * through the task's PATCH, which asks GitHub first, so a PR that does not exist is refused.
+ */
+export function usePullRequestLink(task: { id: string; projectId: string }) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: TASK_MUTATION,
+    scope: taskScope(task.id),
+    mutationFn: (change: { link: string } | { unlink: string }) =>
+      "link" in change
+        ? taskApi.update(task.id, { pullRequest: change.link })
+        : taskApi.unlinkPullRequest(task.id, change.unlink),
+    onSettled: () => settleTaskMutation(qc, task.projectId),
   })
 }
 

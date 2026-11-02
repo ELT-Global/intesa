@@ -171,6 +171,7 @@ export function SidebarContent({
     { to: "/w/$slug/my-tasks", label: "My tasks", icon: CircleCheck },
     { to: "/w/$slug/log", label: "Weekly log", icon: CalendarRange },
     { to: "/w/$slug/members", label: "Members", icon: Users },
+    { to: "/w/$slug/settings", label: "Settings", icon: Settings },
   ] as const
   return (
     <div className="flex h-full flex-col gap-3 p-2">

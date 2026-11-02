@@ -54,6 +54,11 @@ export type WeekPerson = WeekLog["people"][number]
 export type WeekTask = WeekPerson["tasks"][number]
 export type WeekCheck = WeekPerson["checks"][number]
 
+/** The workspace's GitHub webhook, or null; the secret is only returned when it is made. */
+export type GithubWebhook = NonNullable<
+  InferResponseType<typeof workspaceApi.github.$get>["github"]
+>
+
 export const api = {
   members: (workspaceId: string) => unwrap(workspaceApi.members.$get({ param: { workspaceId } })),
   addMember: (workspaceId: string, json: { email: string; role: MemberRole }) =>
@@ -106,6 +111,16 @@ export const api = {
   denyDevice: (userCode: string) =>
     unwrap(client.api.auth.device[":userCode"].deny.$post({ param: { userCode } })),
 
+  github: (workspaceId: string) => unwrap(workspaceApi.github.$get({ param: { workspaceId } })),
+  /** Creates the webhook, or gives it a new secret; the reply holds the secret, once. */
+  createGithub: (workspaceId: string) =>
+    unwrap(workspaceApi.github.$post({ param: { workspaceId } })),
+  /** Leaving a value out keeps it; a null token removes it. */
+  updateGithub: (workspaceId: string, json: { mergeBranch?: string; token?: string | null }) =>
+    unwrap(workspaceApi.github.$patch({ param: { workspaceId }, json })),
+  deleteGithub: (workspaceId: string) =>
+    unwrap(workspaceApi.github.$delete({ param: { workspaceId } })),
+
   workspaces: () => unwrap(client.api.workspaces.$get()),
   createWorkspace: (json: { name: string; slug?: string }) =>
     unwrap(client.api.workspaces.$post({ json })),
@@ -122,4 +137,5 @@ export const keys = {
   members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
   home: (workspaceId: string) => ["workspaces", workspaceId, "home"] as const,
   week: (workspaceId: string, week: string) => ["workspaces", workspaceId, "week", week] as const,
+  github: (workspaceId: string) => ["workspaces", workspaceId, "github"] as const,
 }
