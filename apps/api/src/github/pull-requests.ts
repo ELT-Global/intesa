@@ -3,7 +3,13 @@ import { type Db, inTransaction } from "../db"
 import { ApiError } from "../lib/errors"
 import type { Status } from "../schemas"
 import { findTaskIdByKey, updateTask } from "../tasks/service"
-import { fetchPullRequest, githubPullRequest, type PrRef, prDetails } from "./client"
+import {
+  fetchGithubPullRequest,
+  fetchPullRequest,
+  githubPullRequest,
+  type PrRef,
+  prDetails,
+} from "./client"
 import { applyDetails, linkPullRequest, parseLinkedKeys } from "./links"
 import { GITHUB_USER_ID } from "./settings"
 
@@ -27,6 +33,22 @@ export type PullRequestResult = {
 // The webhook the event came in on: whose tasks it may touch, which branch counts, and the
 // token to ask GitHub with.
 export type Hook = { workspaceId: string; mergeBranch: string; token: string | null }
+
+// Anyone who can open a PR on a repository that sends to the webhook can name keys in it, so
+// only this many are looked up; the rest are reported as ignored.
+const MAX_LINKED_KEYS = 10
+
+// The newest event applied for a PR. Unlike the links' details, it outlives the links.
+const lastApplied = async (db: Db, workspaceId: string, ref: PrRef) =>
+  (
+    await db
+      .selectFrom("githubPullRequests")
+      .select("githubUpdatedAt")
+      .where("workspaceId", "=", workspaceId)
+      .where("repo", "=", ref.repo)
+      .where("number", "=", ref.number)
+      .executeTakeFirst()
+  )?.githubUpdatedAt
 
 // A task is ready for review once none of its PRs is still open and at least one has been
 // merged into the merge branch. PRs closed without merging, merged elsewhere (say into a
@@ -76,8 +98,9 @@ async function refreshUnknown(db: Db, hook: Hook, ref: PrRef, named: string[]) {
   )
 }
 
-// Links and unlinks the workspace's tasks named by keywords in the PR, stores the PR's state,
-// and makes the only two automatic status changes there are:
+// Links and unlinks the workspace's tasks named by keywords in the PR (except those someone
+// unlinked it from), stores the PR's state, and makes the only two automatic status changes
+// there are:
 // - a PR that is open (or draft) and newly links a task in Backlog or Todo starts it;
 // - when a PR closes, a task In progress whose PRs are all done goes to Review.
 // A task anywhere else is left where someone put it.
@@ -88,13 +111,21 @@ export async function onPullRequest(
 ): Promise<PullRequestResult> {
   const parsed = pullRequestEvent.safeParse(payload)
   if (!parsed.success) throw new ApiError("VALIDATION_ERROR", "Not a pull_request event payload")
-  const { action, repository, pull_request: pr } = parsed.data
+  const { action, repository } = parsed.data
+  let pr = parsed.data.pull_request
   const ref = { repo: repository.full_name.toLowerCase(), number: pr.number }
+  // GitHub's updated_at is to the second, so it cannot order two events from the same second;
+  // GitHub is asked what the PR is now instead. If it cannot be asked, the event is taken as is.
+  if ((await lastApplied(db, hook.workspaceId, ref)) === pr.updated_at) {
+    const current = await fetchGithubPullRequest(ref, hook.token)
+    if (current && current !== "missing" && current.number === pr.number) pr = current
+  }
   const details = prDetails(pr)
 
   const named = new Map<string, string>()
-  const ignoredKeys: string[] = []
-  for (const key of parseLinkedKeys(`${pr.title}\n${pr.body ?? ""}`)) {
+  const keys = parseLinkedKeys(`${pr.title}\n${pr.body ?? ""}`)
+  const ignoredKeys = keys.slice(MAX_LINKED_KEYS)
+  for (const key of keys.slice(0, MAX_LINKED_KEYS)) {
     const taskId = await findTaskIdByKey(db, hook.workspaceId, key)
     if (taskId) named.set(taskId, key)
     else ignoredKeys.push(key)
@@ -122,11 +153,22 @@ export async function onPullRequest(
 
     // A late or redelivered event must not undo the links a newer one made, nor move tasks on
     // what the PR used to be.
+    const applied = await lastApplied(trx, hook.workspaceId, ref)
     if (
+      (applied !== undefined && applied > details.githubUpdatedAt) ||
       links.some((l) => l.githubUpdatedAt !== null && l.githubUpdatedAt > details.githubUpdatedAt)
     ) {
       return { linked: [], unlinked: [], moved: [], ignoredKeys, stale: true as const }
     }
+    await trx
+      .insertInto("githubPullRequests")
+      .values({ workspaceId: hook.workspaceId, ...ref, githubUpdatedAt: details.githubUpdatedAt })
+      .onConflict((oc) =>
+        oc
+          .columns(["workspaceId", "repo", "number"])
+          .doUpdateSet({ githubUpdatedAt: details.githubUpdatedAt }),
+      )
+      .execute()
 
     // Automatic links follow the PR's text; links made by hand are never removed here.
     const unlinked = links.filter((l) => l.source === "auto" && !named.has(l.taskId))
@@ -140,8 +182,22 @@ export async function onPullRequest(
         )
         .execute()
     }
+    const unlinkedByHand = new Set(
+      named.size === 0
+        ? []
+        : (
+            await trx
+              .selectFrom("taskPullRequestUnlinks")
+              .select("taskId")
+              .where("repo", "=", ref.repo)
+              .where("number", "=", ref.number)
+              .where("taskId", "in", [...named.keys()])
+              .execute()
+          ).map((u) => u.taskId),
+    )
     const linked: string[] = []
     for (const taskId of named.keys()) {
+      if (unlinkedByHand.has(taskId)) continue
       const task = { id: taskId, workspaceId: hook.workspaceId }
       const isNew = await linkPullRequest(trx, task, { ...ref, details: undefined }, "auto", null)
       if (isNew) linked.push(taskId)

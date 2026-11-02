@@ -139,6 +139,22 @@ describe("webhook signature", () => {
     expect((await deliver(hook, "hasOwnProperty", {})).status).toBe(204)
   })
 
+  test("a form-encoded delivery gets through to be told to send JSON", async () => {
+    const { hook } = await setup()
+    const body = `payload=${encodeURIComponent(JSON.stringify({ zen: "hi" }))}`
+    const res = await hook.t.app.request(hook.path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(body, hook.secret),
+      },
+      body,
+    })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { message: string }).message).toContain("application/json")
+  })
+
   test("payloads bigger than GitHub ever sends are refused", async () => {
     const { hook } = await setup()
     const res = await hook.t.app.request(hook.path, {
@@ -252,6 +268,8 @@ describe("moving to review on merge", () => {
     await prEvent(hook, "closed", merged)
     await prEvent(hook, "converted_to_draft", stale)
     expect((await view(task.id)).pullRequests[0].state).toBe("merged")
+    // Redelivery is from the same second as what is stored, so GitHub is asked about the PR.
+    stubGithub(() => new Response(JSON.stringify(merged)))
     const again = await prEvent(hook, "closed", merged)
     expect(again.status).toBe(200)
     expect(again.body.moved).toEqual([])
@@ -397,6 +415,57 @@ describe("linking from the PR's text", () => {
     expect((await view(second.id)).pullRequests).toMatchObject([{ number: 9 }])
   })
 
+  test("a late event does not bring back links a newer one removed", async () => {
+    const { hook, create, view } = await setup()
+    const task = await create("todo")
+    const opened = pullRequest(9, { body: `Fixes ${task.key}` })
+    await prEvent(hook, "opened", opened)
+    await prEvent(hook, "edited", pullRequest(9, { body: "nothing" }))
+    const late = await prEvent(hook, "opened", opened)
+    expect(late.body).toMatchObject({ linked: [], stale: true })
+    expect((await view(task.id)).pullRequests).toEqual([])
+  })
+
+  test("of two events from the same second, GitHub says which is current", async () => {
+    const { hook, create, view } = await setup()
+    const first = await create("todo")
+    const second = await create("todo")
+    const edited = pullRequest(9, { body: `Fixes ${second.key}` })
+    const opened = { ...edited, body: `Fixes ${first.key}` }
+    const fetched = stubGithub(() => new Response(JSON.stringify(edited)))
+    await prEvent(hook, "edited", edited)
+    const late = await prEvent(hook, "opened", opened)
+    expect(fetched).toHaveBeenCalledTimes(1)
+    expect(late.body).toMatchObject({ linked: [], unlinked: [] })
+    expect((await view(first.id)).pullRequests).toEqual([])
+    expect((await view(second.id)).pullRequests).toMatchObject([{ number: 9 }])
+  })
+
+  test("only the first 10 keys in a PR are looked up", async () => {
+    const { hook, create } = await setup()
+    const keys: string[] = []
+    for (let i = 0; i < 11; i++) keys.push((await create("todo")).key)
+    const res = await prEvent(hook, "opened", pullRequest(9, { body: `Fixes ${keys.join(", ")}` }))
+    expect(res.body.linked).toEqual(keys.slice(0, 10))
+    expect(res.body.ignoredKeys).toEqual(keys.slice(10))
+  })
+
+  test("a PR someone unlinked is not linked again by its keywords, until linked by hand", async () => {
+    const { owner, hook, create, link, view } = await setup()
+    stubGithub(byNumber)
+    const task = await create("todo")
+    await prEvent(hook, "opened", pullRequest(9, { body: `Fixes ${task.key}` }))
+    const unlinkPullRequestId = (await view(task.id)).pullRequests[0].id
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { unlinkPullRequestId, status: "todo" })
+
+    const res = await prEvent(hook, "synchronize", pullRequest(9, { body: `Fixes ${task.key}` }))
+    expect(res.body).toMatchObject({ linked: [], moved: [] })
+    expect(await view(task.id)).toMatchObject({ status: "todo", pullRequests: [] })
+
+    await link(task.id, 9)
+    expect((await view(task.id)).pullRequests).toMatchObject([{ number: 9, source: "manual" }])
+  })
+
   test("the same PR linked several times at once is linked once", async () => {
     const { hook, create, link, view } = await setup()
     stubGithub(byNumber)
@@ -526,6 +595,17 @@ describe("linking by hand", () => {
     expect(res.body.task).toMatchObject({ title: "Renamed", pullRequests: [] })
   })
 
+  test("'.' and '..' are refused as an owner or repository", async () => {
+    const { owner, create } = await setup()
+    const fetched = stubGithub(byNumber)
+    const task = await create()
+    for (const pullRequest of ["../..#1", "https://github.com/../x/pull/1", "acme/.#1"]) {
+      const res = await owner.call("PATCH", `/api/tasks/${task.id}`, { pullRequest })
+      expect(res.status).toBe(400)
+    }
+    expect(fetched).not.toHaveBeenCalled()
+  })
+
   test("a bare number is refused, since it does not say which repository", async () => {
     const { owner, create } = await setup()
     const task = await create()
@@ -543,6 +623,8 @@ describe("linking by hand", () => {
     const res = await owner.call("DELETE", `/api/tasks/${task.id}/pull-requests/${prId}`)
     expect(res.status).toBe(200)
     expect(res.body.task).toMatchObject({ status: "in_progress", pullRequests: [] })
+    const again = await owner.call("DELETE", `/api/tasks/${task.id}/pull-requests/${prId}`)
+    expect(again.status).toBe(404)
   })
 })
 

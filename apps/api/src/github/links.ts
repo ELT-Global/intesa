@@ -1,9 +1,11 @@
 import { type Db, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
+import { TASK_KEY_PATTERN } from "../schemas"
 import { fetchPullRequest, type PrDetails, type PrRef, parsePrRef, prUrl } from "./client"
 import { workspaceWebhook } from "./settings"
 
-const KEY = String.raw`[A-Z][A-Z0-9]{1,4}-[1-9]\d{0,8}\b`
+// TASK_KEY_PATTERN without its anchors, so a key is found anywhere in the text.
+const KEY = String.raw`${TASK_KEY_PATTERN.source.replace(/^\^|\$$/g, "")}\b`
 // A keyword, like GitHub's "fixes #12", followed by one or more task keys: "Fixes ELT-151",
 // "links: ELT-3, ELT-4 and ELT-5". A key mentioned without a keyword links nothing.
 const LINKING = new RegExp(
@@ -43,9 +45,10 @@ export async function resolvePullRequest(
 }
 
 // Links a PR to a task, or refreshes the link. A manual link stays manual, and linking by hand
-// turns an automatic link into a manual one, so later edits to the PR never remove it.
-// Returns whether the link is new. Two links of the same PR at once (a webhook racing the Link
-// button, or GitHub's "opened" and "edited") both succeed, and only one of them is new.
+// turns an automatic link into a manual one, so later edits to the PR never remove it, and
+// undoes an earlier unlink. Returns whether the link is new. Two links of the same PR at once
+// (a webhook racing the Link button, or GitHub's "opened" and "edited") both succeed, and only
+// one of them is new.
 export async function linkPullRequest(
   trx: Db,
   task: { id: string; workspaceId: string },
@@ -75,6 +78,14 @@ export async function linkPullRequest(
     .onConflict((oc) => oc.columns(["taskId", "repo", "number"]).doNothing())
     .returning("id")
     .executeTakeFirst()
+  if (source === "manual") {
+    await trx
+      .deleteFrom("taskPullRequestUnlinks")
+      .where("taskId", "=", task.id)
+      .where("repo", "=", pr.repo)
+      .where("number", "=", pr.number)
+      .execute()
+  }
   if (!inserted && source === "manual") {
     await trx
       .updateTable("taskPullRequests")
@@ -87,6 +98,23 @@ export async function linkPullRequest(
   }
   if (pr.details) await applyDetails(trx, task.workspaceId, pr, pr.details)
   return inserted !== undefined
+}
+
+// Unlinks one of a task's PRs, and remembers it, so keywords in the PR do not link it again
+// (linking it by hand does). Unlinking never changes the task's status.
+export async function unlinkPullRequest(trx: Db, taskId: string, pullRequestId: string) {
+  const removed = await trx
+    .deleteFrom("taskPullRequests")
+    .where("taskId", "=", taskId)
+    .where("id", "=", pullRequestId)
+    .returning(["repo", "number"])
+    .executeTakeFirst()
+  if (!removed) throw new ApiError("NOT_FOUND", "Pull request not found on this task")
+  await trx
+    .insertInto("taskPullRequestUnlinks")
+    .values({ taskId, repo: removed.repo, number: removed.number, createdAt: now() })
+    .onConflict((oc) => oc.columns(["taskId", "repo", "number"]).doNothing())
+    .execute()
 }
 
 // Copies GitHub's view of a PR onto every task in the workspace it is linked to, unless what is

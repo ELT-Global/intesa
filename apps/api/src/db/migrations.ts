@@ -509,6 +509,35 @@ const github: Migration = {
   },
 }
 
+// What the GitHub webhook has to remember once a link is gone: the newest event it has applied
+// for each PR (so a late event cannot bring back links a newer one removed), and the PRs
+// someone unlinked from a task (so keywords in the PR do not link them again).
+const githubMemory: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .createTable("github_pull_requests")
+        .addColumn("workspace_id", text, (c) =>
+          c.notNull().references("workspaces.id").onDelete("cascade"),
+        )
+        .addColumn("repo", text, notNull)
+        .addColumn("number", "integer", notNull)
+        .addColumn("github_updated_at", text, notNull)
+        .addPrimaryKeyConstraint("github_pull_requests_pk", ["workspace_id", "repo", "number"])
+        .execute()
+
+      await trx.schema
+        .createTable("task_pull_request_unlinks")
+        .addColumn("task_id", text, (c) => c.notNull().references("tasks.id").onDelete("cascade"))
+        .addColumn("repo", text, notNull)
+        .addColumn("number", "integer", notNull)
+        .addColumn("created_at", text, notNull)
+        .addPrimaryKeyConstraint("task_pull_request_unlinks_pk", ["task_id", "repo", "number"])
+        .execute()
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -519,4 +548,5 @@ export const migrations: Record<string, Migration> = {
   "0007_task_assignments": taskAssignments,
   "0008_review_and_test": reviewAndTest,
   "0009_github": github,
+  "0010_github_memory": githubMemory,
 }

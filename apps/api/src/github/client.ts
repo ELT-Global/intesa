@@ -59,7 +59,9 @@ const REPO_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/
 export function parsePrRef(input: string): PrRef {
   const match = URL_REF.exec(input.trim()) ?? REPO_REF.exec(input.trim())
   const number = Number(match?.[2])
-  if (!match || !Number.isSafeInteger(number) || number < 1) {
+  // "." and ".." are no owner or repository, and would change the API path asked for.
+  const dots = /(^|\/)\.\.?(\/|$)/.test(match?.[1] ?? "")
+  if (!match || dots || !Number.isSafeInteger(number) || number < 1) {
     throw new ApiError(
       "VALIDATION_ERROR",
       "pullRequest: paste the pull request's link, or write it as owner/repo#482",
@@ -76,6 +78,15 @@ export async function fetchPullRequest(
   ref: PrRef,
   token: string | null | undefined,
 ): Promise<PrDetails | "missing" | undefined> {
+  const pr = await fetchGithubPullRequest(ref, token)
+  return pr && pr !== "missing" ? prDetails(pr) : pr
+}
+
+// The same, with GitHub's whole view of the PR, its title and description included.
+export async function fetchGithubPullRequest(
+  ref: PrRef,
+  token: string | null | undefined,
+): Promise<GithubPullRequest | "missing" | undefined> {
   try {
     const res = await fetch(`https://api.github.com/repos/${ref.repo}/pulls/${ref.number}`, {
       headers: {
@@ -89,7 +100,7 @@ export async function fetchPullRequest(
     if (res.status === 404 && token) return "missing"
     if (!res.ok) return undefined
     const parsed = githubPullRequest.safeParse(await res.json())
-    return parsed.success ? prDetails(parsed.data) : undefined
+    return parsed.success ? parsed.data : undefined
   } catch {
     return undefined
   }
