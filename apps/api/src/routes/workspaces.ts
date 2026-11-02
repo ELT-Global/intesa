@@ -1,13 +1,25 @@
 import { Hono } from "hono"
+import type { ExpressionBuilder } from "kysely"
 import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
-import { type Db, newId, now } from "../db"
+import { type Database, type Db, newId, now } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
 import { type Role, requireMembership } from "../workspaces/membership"
 
-type WorkspaceJson = { id: string; name: string; slug: string; role: Role }
+// `github` says whether the workspace has a GitHub webhook, so clients know to ask for PRs.
+type WorkspaceJson = { id: string; name: string; slug: string; role: Role; github: boolean }
+
+const hasGithubRepo = (eb: ExpressionBuilder<Database, "workspaces">) =>
+  eb
+    .exists(
+      eb
+        .selectFrom("githubWebhooks")
+        .select("hookId")
+        .whereRef("workspaceId", "=", "workspaces.id"),
+    )
+    .as("github")
 
 const name = z.string().trim().min(1).max(80)
 const slug = z
@@ -31,10 +43,10 @@ async function loadWorkspace(db: Db, userId: string, workspaceId: string): Promi
   const role = await requireMembership(db, userId, workspaceId)
   const ws = await db
     .selectFrom("workspaces")
-    .select(["id", "name", "slug"])
+    .select(["id", "name", "slug", hasGithubRepo])
     .where("id", "=", workspaceId)
     .executeTakeFirstOrThrow()
-  return { ...ws, role }
+  return { ...ws, role, github: Boolean(ws.github) }
 }
 
 async function slugTaken(db: Db, value: string) {
@@ -53,11 +65,18 @@ export function workspaceRoutes({ db }: Deps) {
       const rows = await db
         .selectFrom("workspaceMembers")
         .innerJoin("workspaces", "workspaces.id", "workspaceMembers.workspaceId")
-        .select(["workspaces.id", "workspaces.name", "workspaces.slug", "workspaceMembers.role"])
+        .select([
+          "workspaces.id",
+          "workspaces.name",
+          "workspaces.slug",
+          "workspaceMembers.role",
+          hasGithubRepo,
+        ])
         .where("workspaceMembers.userId", "=", c.var.user.id)
         .orderBy("workspaces.name")
         .execute()
-      return c.json({ workspaces: rows satisfies WorkspaceJson[] })
+      const workspaces = rows.map((w) => ({ ...w, github: Boolean(w.github) }))
+      return c.json({ workspaces: workspaces satisfies WorkspaceJson[] })
     })
     .post("/", validate("json", createBody), async (c) => {
       const body = c.req.valid("json")
@@ -93,7 +112,9 @@ export function workspaceRoutes({ db }: Deps) {
         throw err
       }
       return c.json(
-        { workspace: { id, name: body.name, slug: wsSlug, role: "owner" as Role } },
+        {
+          workspace: { id, name: body.name, slug: wsSlug, role: "owner" as Role, github: false },
+        },
         201,
       )
     })

@@ -446,6 +446,69 @@ const reviewAndTest: Migration = {
   },
 }
 
+// GitHub pull requests on tasks (see github/). A workspace can have one GitHub webhook, with
+// its own URL id, secret, merge branch (whose merges move tasks to review) and an optional
+// token for looking PRs up. Moves made by the webhook are recorded as the "GitHub" system
+// user, which nobody can sign in as (auth/users.ts refuses its email domain).
+const github: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .createTable("github_webhooks")
+        .addColumn("workspace_id", text, (c) =>
+          c.primaryKey().references("workspaces.id").onDelete("cascade"),
+        )
+        .addColumn("hook_id", text, (c) => c.notNull().unique())
+        .addColumn("secret", text, notNull)
+        .addColumn("merge_branch", text, notNull)
+        .addColumn("token", text)
+        .addColumn("created_at", text, notNull)
+        .addColumn("updated_at", text, notNull)
+        .execute()
+
+      await trx.schema
+        .createTable("task_pull_requests")
+        .addColumn("id", text, (c) => c.primaryKey())
+        .addColumn("task_id", text, (c) => c.notNull().references("tasks.id").onDelete("cascade"))
+        .addColumn("repo", text, notNull)
+        .addColumn("number", "integer", notNull)
+        .addColumn("url", text, notNull)
+        // The rest is null until GitHub has been asked or has sent an event about the PR.
+        .addColumn("title", text)
+        .addColumn("author", text)
+        .addColumn("state", text, (c) =>
+          c.check(sql`state in ('open', 'draft', 'merged', 'closed')`),
+        )
+        .addColumn("base_branch", text)
+        .addColumn("github_updated_at", text)
+        .addColumn("source", text, (c) => c.notNull().check(sql`source in ('manual', 'auto')`))
+        .addColumn("linked_by", text, (c) => c.references("users.id").onDelete("set null"))
+        .addColumn("created_at", text, notNull)
+        .addColumn("updated_at", text, notNull)
+        .addUniqueConstraint("task_pull_requests_unique", ["task_id", "repo", "number"])
+        .execute()
+      await trx.schema
+        .createIndex("task_pull_requests_repo_number")
+        .on("task_pull_requests")
+        .columns(["repo", "number"])
+        .execute()
+
+      const ts = new Date().toISOString()
+      await trx
+        .insertInto("users")
+        .values({
+          id: "github",
+          name: "GitHub",
+          email: "github@intesa.invalid",
+          totpEnabled: 0,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -455,4 +518,5 @@ export const migrations: Record<string, Migration> = {
   "0006_api_tokens_device_auth": apiTokensAndDeviceAuth,
   "0007_task_assignments": taskAssignments,
   "0008_review_and_test": reviewAndTest,
+  "0009_github": github,
 }
