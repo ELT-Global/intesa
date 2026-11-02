@@ -193,6 +193,22 @@ export type TaskPullRequestTable = {
   updatedAt: string
 }
 
+// The newest pull_request event the workspace's webhook has applied for a PR.
+export type GithubPullRequestTable = {
+  workspaceId: string
+  repo: string
+  number: number
+  githubUpdatedAt: string
+}
+
+// A PR someone unlinked from a task; keywords in it no longer link it there.
+export type TaskPullRequestUnlinkTable = {
+  taskId: string
+  repo: string
+  number: number
+  createdAt: string
+}
+
 export type Database = {
   artifacts: {
     id: string
@@ -222,4 +238,6 @@ export type Database = {
   taskCustomFieldValues: TaskCustomFieldValueTable
   githubWebhooks: GithubWebhookTable
   taskPullRequests: TaskPullRequestTable
+  githubPullRequests: GithubPullRequestTable
+  taskPullRequestUnlinks: TaskPullRequestUnlinkTable
 }

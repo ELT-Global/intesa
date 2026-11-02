@@ -3,7 +3,7 @@ import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { inTransaction } from "../db"
 import type { Deps } from "../deps"
-import { linkPullRequest, resolvePullRequest } from "../github/links"
+import { linkPullRequest, resolvePullRequest, unlinkPullRequest } from "../github/links"
 import { validate } from "../lib/validate"
 import { addRelationship, removeRelationship } from "../tasks/relationships"
 import { patchTaskBody, RELATION_TYPES } from "../tasks/schemas"
@@ -36,11 +36,7 @@ export function taskRoutes({ db }: Deps) {
         await updateTask(trx, c.var.user.id, task, patch)
         // Before linking, so unlinking a PR and linking it again leaves it linked.
         if (patch.unlinkPullRequestId) {
-          await trx
-            .deleteFrom("taskPullRequests")
-            .where("taskId", "=", task.id)
-            .where("id", "=", patch.unlinkPullRequestId)
-            .execute()
+          await unlinkPullRequest(trx, task.id, patch.unlinkPullRequestId)
         }
         if (pr) await linkPullRequest(trx, task, pr, "manual", c.var.user.id)
       })
@@ -69,12 +65,9 @@ export function taskRoutes({ db }: Deps) {
     )
     .delete("/:taskId/pull-requests/:pullRequestId", async (c) => {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
-      // Unlinking never changes the task's status.
-      await db
-        .deleteFrom("taskPullRequests")
-        .where("taskId", "=", task.id)
-        .where("id", "=", c.req.param("pullRequestId"))
-        .execute()
+      await inTransaction(db, (trx) =>
+        unlinkPullRequest(trx, task.id, c.req.param("pullRequestId")),
+      )
       return c.json({ task: await loadTaskDetail(db, task.id) })
     })
     .get("/:taskId/history", async (c) => {

@@ -95,7 +95,7 @@ Link a pull request when work starts, where the workspace has a GitHub webhook (
 
 ```sh
 intesa task start WEB-12 --pr acme/web#482 --json --fields key,status,pullRequests
-intesa task edit WEB-12 --remove-pr 482    # unlinking never changes the status
+intesa task edit WEB-12 --remove-pr 482    # never changes the status; keywords do not link it again
 ```
 
 Attach a file (HTML, PDF, Markdown, Word or OpenDocument, up to 5 MB each; the whole upload is refused with exit 8 if one file is not acceptable) and fetch one back:

@@ -69,10 +69,13 @@ export function createApp({ db, config, webDist }: AppDeps) {
 
   // Refuses writes that a cross-site page can send with the session cookie (forms, and
   // body-less or multipart requests), unless the browser says they came from the app itself.
-  // Bearer requests carry no ambient credentials, and the CLI sends neither header.
+  // Bearer requests carry no ambient credentials, and the CLI sends neither header. Webhooks
+  // are signed instead, and GitHub posts a form unless told to send JSON.
   const crossSite = csrf({ origin: config.publicUrl })
   const noCrossSiteWrites = createMiddleware((c, next) =>
-    bearerToken(c) === undefined ? crossSite(c, next) : next(),
+    bearerToken(c) === undefined && !c.req.path.startsWith("/api/webhooks/")
+      ? crossSite(c, next)
+      : next(),
   )
 
   const app = new Hono()

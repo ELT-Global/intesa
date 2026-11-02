@@ -62,7 +62,7 @@ Tasks can be linked to GitHub pull requests. A linked PR shows on the task, and 
 - A PR whose title or description says `Fixes ELT-151` (also `Closes`, `Resolves`, `Links` and their other forms, followed by one or more task keys) is linked to those tasks of the workspace, and starts any of them in Backlog or Todo.
 - When a linked PR closes, a task In progress moves to Review once none of its PRs is still open and at least one has been merged into the workspace's merge branch. PRs closed without merging, or merged into another branch, count neither way.
 
-Nothing else changes a status: draft PRs and PRs closed without merging only change the PR's state, and a task someone has moved elsewhere is left there. A PR can also be linked by hand with its link or `owner/repo#482`: in the dialog when a task moves to In progress, from the task's Pull requests section, or with `intesa task start ELT-151 --pr acme/web#482`.
+Nothing else changes a status: draft PRs and PRs closed without merging only change the PR's state, and a task someone has moved elsewhere is left there. A PR can also be linked by hand with its link or `owner/repo#482`: in the dialog when a task moves to In progress, from the task's Pull requests section, or with `intesa task start ELT-151 --pr acme/web#482`. Unlinking a PR from a task never changes its status, and the PR stays unlinked even if it still names the task; linking it by hand brings it back. Only the first 10 task keys in a PR are looked at.
 
 To set it up, a workspace owner:
 
