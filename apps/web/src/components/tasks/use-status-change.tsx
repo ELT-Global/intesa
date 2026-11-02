@@ -71,7 +71,7 @@ export function StatusChangeProvider({ children }: { children: ReactNode }) {
   const apply = useCallback(
     (
       { task, status, placement, onApplied }: StatusChange,
-      { byMe, signoff, pullRequest }: StatusChangeAnswers = {},
+      { byMe, signoff }: StatusChangeAnswers = {},
     ) => {
       const mover =
         byMe && me ? { id: me.id, name: me.name, avatarUrl: me.avatarUrl ?? null } : null
@@ -83,7 +83,6 @@ export function StatusChangeProvider({ children }: { children: ReactNode }) {
           status,
           ...(placement && { placement }),
           ...(mover && { assigneeIds: [mover.id] }),
-          ...(pullRequest && { pullRequest }),
           ...(signoff && {
             reviewedById: signoff.reviewedBy?.id ?? null,
             testedById: signoff.testedBy?.id ?? null,
