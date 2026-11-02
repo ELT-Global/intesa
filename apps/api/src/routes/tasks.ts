@@ -1,7 +1,9 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
+import { inTransaction } from "../db"
 import type { Deps } from "../deps"
+import { linkPullRequest, resolvePullRequest } from "../github/links"
 import { validate } from "../lib/validate"
 import { addRelationship, removeRelationship } from "../tasks/relationships"
 import { patchTaskBody, RELATION_TYPES } from "../tasks/schemas"
@@ -25,7 +27,23 @@ export function taskRoutes({ db }: Deps) {
     })
     .patch("/:taskId", validate("json", patchTaskBody), async (c) => {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
-      await updateTask(db, c.var.user.id, task, c.req.valid("json"))
+      const patch = c.req.valid("json")
+      // GitHub is asked before the transaction, so a slow answer never holds the database.
+      const pr = patch.pullRequest
+        ? await resolvePullRequest(db, task.workspaceId, patch.pullRequest)
+        : undefined
+      await inTransaction(db, async (trx) => {
+        await updateTask(trx, c.var.user.id, task, patch)
+        // Before linking, so unlinking a PR and linking it again leaves it linked.
+        if (patch.unlinkPullRequestId) {
+          await trx
+            .deleteFrom("taskPullRequests")
+            .where("taskId", "=", task.id)
+            .where("id", "=", patch.unlinkPullRequestId)
+            .execute()
+        }
+        if (pr) await linkPullRequest(trx, task, pr, "manual", c.var.user.id)
+      })
       const [summary] = await loadTaskSummaries(db, [task.id])
       return c.json({ task: summary as NonNullable<typeof summary> })
     })
@@ -49,6 +67,16 @@ export function taskRoutes({ db }: Deps) {
         return c.json({ task: await loadTaskDetail(db, task.id) })
       },
     )
+    .delete("/:taskId/pull-requests/:pullRequestId", async (c) => {
+      const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
+      // Unlinking never changes the task's status.
+      await db
+        .deleteFrom("taskPullRequests")
+        .where("taskId", "=", task.id)
+        .where("id", "=", c.req.param("pullRequestId"))
+        .execute()
+      return c.json({ task: await loadTaskDetail(db, task.id) })
+    })
     .get("/:taskId/history", async (c) => {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
       return c.json({ history: await listHistory(db, task.id) })

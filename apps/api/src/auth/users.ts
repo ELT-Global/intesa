@@ -1,4 +1,5 @@
 import { type Db, newId, now } from "../db"
+import { ApiError } from "../lib/errors"
 import type { User } from "./session"
 
 export type UserJson = {
@@ -22,6 +23,10 @@ export async function findOrCreateUser(
   input: { email: string; name?: string; avatarUrl?: string | null; googleSub?: string },
 ): Promise<User> {
   const email = input.email.trim().toLowerCase()
+  // Kept for system users such as "GitHub" (see the 0009 migration), so nobody signs in as one.
+  if (email.endsWith("@intesa.invalid")) {
+    throw new ApiError("VALIDATION_ERROR", "This email address is reserved")
+  }
 
   // Google identity wins; otherwise fall back to email so users invited by email
   // before their first sign-in are linked to the same account.

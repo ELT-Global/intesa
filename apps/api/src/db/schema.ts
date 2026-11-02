@@ -1,5 +1,5 @@
 import type { Generated } from "kysely"
-import type { TokenKind, TokenScope } from "../schemas"
+import type { PullRequestState, TokenKind, TokenScope } from "../schemas"
 
 // Column names are camelCase here; CamelCasePlugin maps them to snake_case in SQL.
 export type UserTable = {
@@ -160,6 +160,39 @@ export type TaskCustomFieldValueTable = {
   value: string
 }
 
+// A workspace's GitHub webhook. GitHub posts to /api/webhooks/github/<hookId>, signing each
+// delivery with `secret`; `token` (optional) is for looking PRs up when they are linked by hand.
+export type GithubWebhookTable = {
+  workspaceId: string
+  hookId: string
+  secret: string
+  // Merging a linked PR into this branch is what moves its task to review.
+  mergeBranch: string
+  token: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// A pull request linked to a task, by hand ("manual") or from a keyword in the PR ("auto").
+// The details mirror GitHub and stay null until GitHub has been asked or has sent an event.
+export type TaskPullRequestTable = {
+  id: string
+  taskId: string
+  repo: string
+  number: number
+  url: string
+  title: string | null
+  author: string | null
+  state: PullRequestState | null
+  baseBranch: string | null
+  // GitHub's updated_at for the details above, so an older event never overwrites a newer one.
+  githubUpdatedAt: string | null
+  source: "manual" | "auto"
+  linkedBy: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type Database = {
   artifacts: {
     id: string
@@ -187,4 +220,6 @@ export type Database = {
   taskStatusHistory: TaskStatusHistoryTable
   customFieldDefinitions: CustomFieldDefinitionTable
   taskCustomFieldValues: TaskCustomFieldValueTable
+  githubWebhooks: GithubWebhookTable
+  taskPullRequests: TaskPullRequestTable
 }

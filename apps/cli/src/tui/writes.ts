@@ -291,6 +291,7 @@ export function createWrites(core: Core, settled: () => void) {
       tags: [],
       subtaskCount: 0,
       subtaskDoneCount: 0,
+      pullRequests: [],
       createdAt: now,
       updatedAt: now,
     }

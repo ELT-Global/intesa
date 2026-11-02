@@ -80,6 +80,10 @@ export const patchTaskBody = z.object({
   reviewedById: signoff,
   testedById: signoff,
   customFields: customFields.optional(),
+  // Links a pull request: its link or owner/repo#number (see github/client.ts).
+  pullRequest: z.string().trim().min(1).max(300).optional(),
+  // Unlinks one of the task's pull requests by its id, in the same write as everything else.
+  unlinkPullRequestId: z.string().min(1).optional(),
 })
 
 export type CreateTaskInput = z.infer<typeof createTaskBody>

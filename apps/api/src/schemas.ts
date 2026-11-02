@@ -15,3 +15,6 @@ export const TOKEN_KINDS = ["cli", "pat"] as const
 export const TOKEN_SCOPES = ["read", "write"] as const
 export type TokenKind = (typeof TOKEN_KINDS)[number]
 export type TokenScope = (typeof TOKEN_SCOPES)[number]
+
+export const PULL_REQUEST_STATES = ["open", "draft", "merged", "closed"] as const
+export type PullRequestState = (typeof PULL_REQUEST_STATES)[number]

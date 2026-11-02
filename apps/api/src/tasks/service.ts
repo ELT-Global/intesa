@@ -3,7 +3,7 @@ import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import type { ProjectRow } from "../projects/service"
-import { SIGNOFF_REQUIRED, TASK_KEY_PATTERN } from "../schemas"
+import { type PullRequestState, SIGNOFF_REQUIRED, TASK_KEY_PATTERN } from "../schemas"
 import type { Role } from "../workspaces/membership"
 import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
 import { byBoardOrder, positionFor } from "./order"
@@ -15,6 +15,21 @@ export type TaskRow = Selectable<TaskTable>
 export type UserRef = { id: string; name: string; avatarUrl: string | null }
 export type TagRef = { id: string; name: string; color: string }
 export type TaskRef = { id: string; key: string; title: string; status: Status }
+
+/** A pull request linked to a task. The details are null until GitHub has told us about it. */
+export type PullRequestRef = {
+  id: string
+  repo: string
+  number: number
+  url: string
+  title: string | null
+  author: string | null
+  state: PullRequestState | null
+  baseBranch: string | null
+  /** "auto" when a keyword in the PR ("Fixes ELT-151") linked it. */
+  source: "manual" | "auto"
+  linkedBy: UserRef | null
+}
 
 export type TaskSummary = {
   id: string
@@ -32,6 +47,7 @@ export type TaskSummary = {
   tags: TagRef[]
   subtaskCount: number
   subtaskDoneCount: number
+  pullRequests: PullRequestRef[]
   createdAt: string
   updatedAt: string
 }
@@ -105,7 +121,8 @@ const scopedIds = (db: Db, scope: TaskScope) => {
     .limit(scope.limit)
 }
 
-// Builds summaries with a fixed number of queries (tasks, assignees, tags, subtask counts).
+// Builds summaries with a fixed number of queries (tasks, assignees, tags, subtask counts,
+// pull requests).
 // By ids the result keeps the order of the ids; by project it is in board order (each status
 // column reads top to bottom); assigned work is most recently updated first and due work is
 // soonest due first.
@@ -113,7 +130,7 @@ const scopedIds = (db: Db, scope: TaskScope) => {
 async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
 
-  const [tasks, assignees, tags, subtasks] = await Promise.all([
+  const [tasks, assignees, tags, subtasks, pullRequests] = await Promise.all([
     db
       .selectFrom("tasks")
       .innerJoin("projects", "projects.id", "tasks.projectId")
@@ -165,6 +182,27 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       .where("parentTaskId", "in", scopedIds(db, scope))
       .groupBy("parentTaskId")
       .execute(),
+    db
+      .selectFrom("taskPullRequests")
+      .leftJoin("users", "users.id", "taskPullRequests.linkedBy")
+      .select([
+        "taskPullRequests.id",
+        "taskPullRequests.taskId",
+        "taskPullRequests.repo",
+        "taskPullRequests.number",
+        "taskPullRequests.url",
+        "taskPullRequests.title",
+        "taskPullRequests.author",
+        "taskPullRequests.state",
+        "taskPullRequests.baseBranch",
+        "taskPullRequests.source",
+        "users.id as linkedById",
+        "users.name as linkedByName",
+        "users.avatarUrl as linkedByAvatarUrl",
+      ])
+      .where("taskPullRequests.taskId", "in", scopedIds(db, scope))
+      .orderBy("taskPullRequests.createdAt")
+      .execute(),
   ])
 
   // Not in SQL: see tasks/order.ts.
@@ -173,6 +211,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
   const assigneesByTask = groupBy(assignees, (a) => a.taskId)
   const tagsByTask = groupBy(tags, (t) => t.taskId)
   const countsByTask = new Map(subtasks.map((s) => [s.parentTaskId, s]))
+  const pullRequestsByTask = groupBy(pullRequests, (p) => p.taskId)
 
   const summaries = tasks.map((t): TaskSummary => {
     const counts = countsByTask.get(t.id)
@@ -195,6 +234,14 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       tags: (tagsByTask.get(t.id) ?? []).map((g) => ({ id: g.id, name: g.name, color: g.color })),
       subtaskCount: Number(counts?.total ?? 0),
       subtaskDoneCount: Number(counts?.done ?? 0),
+      pullRequests: (pullRequestsByTask.get(t.id) ?? []).map(
+        ({ taskId, linkedById, linkedByName, linkedByAvatarUrl, ...pr }) => ({
+          ...pr,
+          linkedBy: linkedById
+            ? { id: linkedById, name: linkedByName ?? "", avatarUrl: linkedByAvatarUrl ?? null }
+            : null,
+        }),
+      ),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
     }

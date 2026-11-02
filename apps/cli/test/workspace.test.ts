@@ -40,6 +40,7 @@ describe("workspace list", () => {
         name: w.name,
         slug: w.slug,
         role: "owner",
+        github: false,
         url: `${server.url}/w/${w.slug}/home`,
       })),
     )

@@ -7,12 +7,14 @@ import { createAttemptLimiter, LOCKOUT_MS, MAX_CODE_ATTEMPTS } from "./auth/atte
 import { bearerToken } from "./auth/tokens"
 import type { Config } from "./config"
 import type { Db } from "./db"
+import { webhookRoutes } from "./github/webhook"
 import { compressJson } from "./lib/compress-json"
 import { ApiError, onError } from "./lib/errors"
 import { requestLog } from "./lib/request-log"
 import { authRoutes } from "./routes/auth"
 import { fieldRoutes, projectFieldRoutes } from "./routes/custom-fields"
 import { deviceRoutes } from "./routes/device"
+import { workspaceGithubRoutes } from "./routes/github"
 import { homeRoutes } from "./routes/home"
 import { meRoutes } from "./routes/me"
 import { memberRoutes } from "./routes/members"
@@ -51,11 +53,14 @@ export function createApp({ db, config, webDist }: AppDeps) {
     .route("/workspaces", homeRoutes(deps))
     .route("/workspaces", workspaceTagRoutes(deps))
     .route("/workspaces", searchRoutes(deps))
+    .route("/workspaces", workspaceGithubRoutes(deps))
     .route("/projects", projectRoutes(deps))
     .route("/projects", projectFieldRoutes(deps))
     .route("/custom-fields", fieldRoutes(deps))
     .route("/tags", tagRoutes(deps))
     .route("/tasks", taskRoutes(deps))
+    // Signed by GitHub instead of a session; see github/webhook.ts.
+    .route("/webhooks", webhookRoutes(deps))
 
   // Unknown API paths must not fall through to the SPA shell.
   api.all("*", () => {
