@@ -69,7 +69,13 @@ test("an owner creates the webhook; a PR saying 'Fixes KEY' starts the task with
   // Starting a task by hand offers to link its PR; leaving the field empty still moves it.
   await card(page, "Todo", "Started by hand").dragTo(column(page, "In progress"))
   const dialog = moveDialog(page)
-  await expect(dialog.getByLabel("Pull request (optional)")).toBeVisible()
+  const field = dialog.getByLabel("Pull request (optional)")
+  // A PR that cannot be linked is reported in the dialog, which keeps what was typed.
+  await field.fill("not a pr")
+  await dialog.getByRole("button", { name: "Move", exact: true }).click()
+  await expect(dialog.getByRole("alert")).toContainText("owner/repo#482")
+  await expect(field).toHaveValue("not a pr")
+  await field.fill("")
   await dialog.getByRole("button", { name: "Move", exact: true }).click()
   const moved = card(page, "In progress", "Started by hand")
   await expect(moved).toBeVisible()

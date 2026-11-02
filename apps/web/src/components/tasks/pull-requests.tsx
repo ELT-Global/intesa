@@ -73,11 +73,6 @@ export function PullRequestsSection({ task }: { task: TaskDetail }) {
               size="xs"
               icon
               aria-label={`Unlink #${pr.number}`}
-              title={
-                pr.source === "auto"
-                  ? `Also remove “${task.key}” from the PR, or its next edit links it again`
-                  : undefined
-              }
               onClick={() => change.mutate({ unlink: pr.id })}
             >
               <X />

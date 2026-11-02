@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Field } from "@/components/ui/field"
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { projectQuery } from "@/lib/queries"
-import { taskQuery, type UserRef } from "@/lib/tasks"
+import { taskQuery, type UserRef, usePullRequestLink } from "@/lib/tasks"
 import { type Signoff, SignoffPicker } from "./signoff-picker"
 
 /** Who reviewed and who tested a task (null for nobody), asked to complete it. */
@@ -27,8 +27,6 @@ export type StatusChangeAnswers = {
   /** "Who did it?": the person making the change rather than the assignees. */
   byMe?: boolean
   signoff?: SignoffAnswers
-  /** The pull request to link, as typed; absent when left empty. */
-  pullRequest?: string
 }
 
 /** What the dialog is asked about: an existing task (its sign-off prefills) or one to be created. */
@@ -42,7 +40,10 @@ export type StatusChangeTarget = {
   assignees?: UserRef[]
   /** Asks who reviewed and who tested it, which completes the task. */
   signoff?: boolean
-  /** Offers to link a pull request, which is optional. */
+  /**
+   * Offers to link a pull request, which is optional. It is linked before `onConfirm`, so a PR
+   * that cannot be linked is reported here, keeping what was typed, and nothing moves yet.
+   */
   pullRequest?: boolean
   /** Gets focus back on close, for a dialog opened from a menu item. */
   returnFocusRef?: RefObject<HTMLElement | null>
@@ -113,7 +114,13 @@ function Form({
   onConfirm,
   onCancel,
 }: ContentProps & { prefill?: { [K in SignoffKey]?: Signoff } }) {
-  const { assignees, signoff, pullRequest } = target
+  const { assignees, signoff } = target
+  // Only an existing task can have a PR linked.
+  const pullRequest = target.pullRequest && target.taskId
+  const linkPullRequest = usePullRequestLink({
+    id: target.taskId ?? "",
+    projectId: target.projectId,
+  })
   const workspaceId = useQuery(projectQuery(target.projectId)).data?.workspaceId
   // Only what has been picked here; the sign-off otherwise shows the task's current answer.
   const [who, setWho] = useState<"assignees" | "me">()
@@ -125,6 +132,13 @@ function Form({
     (!signoff || SIGNOFF.every((q) => signoffAnswer(q.key) !== undefined))
 
   function confirm() {
+    const ref = pullRequestRef.trim()
+    if (pullRequest && ref) {
+      linkPullRequest.mutate({ link: ref }, { onSuccess: () => answer() })
+    } else answer()
+  }
+
+  function answer() {
     onConfirm({
       ...(assignees && { byMe: who === "me" }),
       ...(signoff && {
@@ -133,7 +147,6 @@ function Form({
           testedBy: signoffAnswer("testedBy") ?? null,
         },
       }),
-      ...(pullRequest && pullRequestRef.trim() && { pullRequest: pullRequestRef.trim() }),
     })
   }
 
@@ -147,7 +160,7 @@ function Form({
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault()
-          if (ready) confirm()
+          if (ready && !linkPullRequest.isPending) confirm()
         }}
       >
         {pullRequest && (
@@ -155,8 +168,12 @@ function Form({
             label="Pull request (optional)"
             placeholder="Paste the PR link, or owner/repo#482"
             value={pullRequestRef}
-            onChange={(e) => setPullRequestRef(e.target.value)}
+            onChange={(e) => {
+              setPullRequestRef(e.target.value)
+              linkPullRequest.reset()
+            }}
             maxLength={300}
+            error={linkPullRequest.error?.message}
           />
         )}
         {assignees && (
@@ -193,7 +210,13 @@ function Form({
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" size="sm" disabled={!ready} onClick={confirm}>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={!ready}
+          pending={linkPullRequest.isPending}
+          onClick={confirm}
+        >
           {signoff ? "Complete" : "Move"}
         </Button>
       </DialogFooter>
