@@ -55,6 +55,23 @@ Two-factor authentication (TOTP) is switched on per user in account settings. If
 UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE email = 'person@example.com';
 ```
 
+## GitHub pull requests
+
+Tasks can be linked to GitHub pull requests. A linked PR shows on the task, and an In progress card with one gets an "In PR" capsule. Each workspace can have one GitHub webhook, with its own URL and secret, and two things happen automatically, both recorded in the task's history as made by "GitHub":
+
+- A PR whose title or description says `Fixes ELT-151` (also `Closes`, `Resolves`, `Links` and their other forms, followed by one or more task keys) is linked to those tasks of the workspace, and starts any of them in Backlog or Todo.
+- When a linked PR closes, a task In progress moves to Review once none of its PRs is still open and at least one has been merged into the workspace's merge branch. PRs closed without merging, or merged into another branch, count neither way.
+
+Nothing else changes a status: draft PRs and PRs closed without merging only change the PR's state, and a task someone has moved elsewhere is left there. A PR can also be linked by hand with its link or `owner/repo#482`: in the dialog when a task moves to In progress, from the task's Pull requests section, or with `intesa task start ELT-151 --pr acme/web#482`.
+
+To set it up, a workspace owner:
+
+1. Opens the workspace's Settings page and creates the webhook (or runs `intesa github create`). Intesa shows its payload URL (`<PUBLIC_URL>/api/webhooks/github/<id>`) and a secret, once. Creating it again gives it a new secret and keeps the URL.
+2. In GitHub, adds a webhook to the organisation or repository with that URL, content type `application/json`, the secret, and the "Pull requests" event. Deliveries with a missing or wrong signature are refused.
+3. Sets the merge branch (default `qa`) and, optionally, a GitHub token: a fine-grained token with read-only access to Pull requests, which Intesa uses to look a PR up when someone links one by hand. The token is never shown again.
+
+GitHub's "Recent Deliveries" list for the webhook shows Intesa's reply to each event: the tasks it linked, unlinked and moved, and keys it did not recognise.
+
 ## PostgreSQL
 
 Set `DATABASE_URL=postgres://user:password@host:5432/dbname`. Migrations run at startup. The `pg` driver is loaded only when a Postgres URL is used. Run Intesa with a role that may create tables in its schema; there is no separate migration command.
