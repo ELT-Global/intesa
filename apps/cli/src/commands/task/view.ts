@@ -96,10 +96,12 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
       pr: `${p.repo}#${p.number}`,
       // Not known until GitHub has been asked or has sent an event.
       state: p.state ?? "unknown",
+      // Where a merged PR's code is: the production branch once found there, else its base.
+      in: p.state === "merged" ? (p.releasedTo ?? p.baseBranch ?? "") : "",
       title: p.title ?? "",
       url: p.url,
     }))
-    const columns = tty ? ["pr", "state", "title"] : ["pr", "state", "title", "url"]
+    const columns = tty ? ["pr", "state", "in", "title"] : ["pr", "state", "in", "title", "url"]
     sections.push(section(mode, `Pull requests (${prs.length})`, rows(mode, prs, columns)))
   }
   if (fields.length > 0) {

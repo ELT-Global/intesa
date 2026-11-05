@@ -5,7 +5,13 @@ import { usageError } from "../output/errors"
 import { rows, section } from "../output/render"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 
-type Webhook = { url: string; mergeBranch: string; tokenSet: boolean; createdAt: string }
+type Webhook = {
+  url: string
+  mergeBranch: string
+  productionBranch: string
+  tokenSet: boolean
+  createdAt: string
+}
 
 const showWebhook = (ctx: Ctx, hook: Webhook, secret?: string) =>
   section(
@@ -17,6 +23,7 @@ const showWebhook = (ctx: Ctx, hook: Webhook, secret?: string) =>
         { name: "Payload URL", value: hook.url },
         ...(secret ? [{ name: "Secret", value: secret }] : []),
         { name: "Merge branch", value: hook.mergeBranch },
+        { name: "Production branch", value: hook.productionBranch },
         { name: "GitHub token", value: hook.tokenSet ? "set" : "not set" },
       ],
       ["name", "value"],
@@ -86,17 +93,33 @@ const create = defineCommand({
 
 const edit = defineCommand({
   name: "edit",
-  summary: "Change the webhook's merge branch (owners only)",
-  description: "Merging a task's pull requests into the merge branch moves the task to review.",
+  summary: "Change the webhook's branches (owners only)",
+  description:
+    "Merging a task's pull requests into the merge branch moves the task to review. When code\n" +
+    "merges into the production branch, Intesa checks which tasks' code reached it, and shows\n" +
+    "them as in that branch instead of the merge branch.",
   flags: z.object({
-    mergeBranch: z.string().meta({ placeholder: "branch", description: "The merge branch" }),
+    mergeBranch: z
+      .string()
+      .optional()
+      .meta({ placeholder: "branch", description: "The merge branch" }),
+    productionBranch: z
+      .string()
+      .optional()
+      .meta({ placeholder: "branch", description: "The production branch" }),
   }),
   context: ["workspace"],
   output: "github",
-  examples: ["intesa github edit --merge-branch qa"],
+  examples: ["intesa github edit --merge-branch qa", "intesa github edit --production-branch main"],
   async run(ctx, _args, flags) {
+    if (flags.mergeBranch === undefined && flags.productionBranch === undefined) {
+      throw usageError("nothing to change: pass --merge-branch or --production-branch")
+    }
     const { api, param } = await githubApi(ctx)
-    const res = await api.$patch({ param, json: { mergeBranch: flags.mergeBranch } })
+    const res = await api.$patch({
+      param,
+      json: { mergeBranch: flags.mergeBranch, productionBranch: flags.productionBranch },
+    })
     return (await res.json()).github
   },
   human: (ctx, data) => showWebhook(ctx, data),
