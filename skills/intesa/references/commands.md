@@ -140,7 +140,7 @@ intesa task url 12 -p WEB
 
 - `intesa github view`: Show the workspace's GitHub webhook
 - `intesa github create`: Create the workspace's GitHub webhook, or give it a new secret (owners only)
-- `intesa github edit`: Change the webhook's merge branch (owners only)
+- `intesa github edit`: Change the webhook's branches (owners only)
 - `intesa github token`: Set the GitHub token from stdin (owners only)
 - `intesa github delete`: Delete the workspace's GitHub webhook (owners only)
 
@@ -151,6 +151,7 @@ intesa github create
 intesa github create --json --fields url,secret
 intesa github create --yes
 intesa github edit --merge-branch qa
+intesa github edit --production-branch main
 intesa github token < token.txt
 intesa github token --clear
 intesa github delete

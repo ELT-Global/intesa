@@ -82,10 +82,10 @@ export const FIELD_SETS = {
     columns: ["key", "name", "description", "taskCounts"],
   },
   // `github view`: the workspace's webhook (never its secret or token).
-  github: { fields: ["url", "mergeBranch", "tokenSet", "createdAt"] },
+  github: { fields: ["url", "mergeBranch", "productionBranch", "tokenSet", "createdAt"] },
   // `github create`: the same, plus the secret, which the server shows only then.
   githubCreated: {
-    fields: ["url", "secret", "mergeBranch", "tokenSet", "createdAt"],
+    fields: ["url", "secret", "mergeBranch", "productionBranch", "tokenSet", "createdAt"],
     quiet: "secret",
   },
   // `use`: what became the default, and the file it was written to.

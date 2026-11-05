@@ -14,7 +14,12 @@ afterAll(() => {
 })
 
 // A PR linked as the webhook would, without asking GitHub.
-async function linkPr(taskId: string, number: number, state: "open" | "merged" = "open") {
+async function linkPr(
+  taskId: string,
+  number: number,
+  state: "open" | "merged" = "open",
+  releasedTo: string | null = null,
+) {
   const ts = new Date().toISOString()
   await server.db
     .insertInto("taskPullRequests")
@@ -29,6 +34,7 @@ async function linkPr(taskId: string, number: number, state: "open" | "merged" =
       state,
       baseBranch: "qa",
       githubUpdatedAt: ts,
+      releasedTo,
       source: "auto",
       linkedBy: null,
       createdAt: ts,
@@ -59,7 +65,16 @@ describe("github", () => {
 
   test("edit sets the merge branch, and token reads the token from stdin", async () => {
     const edited = await w.box.run(["github", "edit", "--merge-branch", "main", "--json"])
-    expect(edited.json()).toMatchObject({ mergeBranch: "main" })
+    expect(edited.json()).toMatchObject({ mergeBranch: "main", productionBranch: "main" })
+    const production = await w.box.run([
+      "github",
+      "edit",
+      "--production-branch",
+      "release",
+      "--json",
+    ])
+    expect(production.json()).toMatchObject({ mergeBranch: "main", productionBranch: "release" })
+    expect((await w.box.run(["github", "edit"])).exitCode).toBe(2)
 
     expect((await w.box.run(["github", "token"], { stdin: "" })).exitCode).toBe(2)
     const set = await w.box.run(["github", "token", "--json"], { stdin: "ghp_secret\n" })
@@ -84,7 +99,10 @@ describe("pull requests on tasks", () => {
 
     const view = await w.box.run(["task", "view", task.key])
     expect(view.stdout).toContain("Pull requests (2)")
-    expect(view.stdout).toContain("acme/web#8\tmerged\tPR 8\thttps://github.com/acme/web/pull/8")
+    expect(view.stdout).toContain("acme/web#7\topen\t\tPR 7")
+    expect(view.stdout).toContain(
+      "acme/web#8\tmerged\tqa\tPR 8\thttps://github.com/acme/web/pull/8",
+    )
     const json = await w.box.run(["task", "view", task.key, "--json", "--fields", "pullRequests"])
     expect(json.json().pullRequests).toMatchObject([
       { number: 7, state: "open" },
@@ -129,5 +147,14 @@ describe("pull requests on tasks", () => {
     expect(r.exitCode).toBe(8)
     expect(r.stderr).toContain("owner/repo#482")
     expect((await w.getTask(task.id)).status).toBe("todo")
+  })
+
+  test("task view says where a merged PR's code is", async () => {
+    const task = await w.addTask({ title: "Released", status: "review" })
+    await linkPr(task.id, 9, "merged", "main")
+    const view = await w.box.run(["task", "view", task.key])
+    expect(view.stdout).toContain("acme/web#9\tmerged\tmain\tPR 9")
+    const json = await w.box.run(["task", "view", task.key, "--json", "--fields", "pullRequests"])
+    expect(json.json().pullRequests).toMatchObject([{ number: 9, releasedTo: "main" }])
   })
 })
