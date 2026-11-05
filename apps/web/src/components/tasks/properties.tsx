@@ -188,6 +188,47 @@ export function PullRequestChip({ pullRequests }: { pullRequests: PullRequestRef
   )
 }
 
+/** Where a merged PR's code is: the production branch once found there, else its base. */
+const prLocation = (pr: PullRequestRef) => pr.releasedTo ?? pr.baseBranch ?? "?"
+
+type CodeLocation = { branch: string; released: boolean; merged: PullRequestRef[] }
+
+/**
+ * Where a reviewed or completed task's code is, from its merged PRs: the production branch
+ * (main) once all of them are found there, else the branch the first of the rest merged into.
+ */
+export function codeLocation(task: {
+  status: TaskStatus
+  pullRequests: PullRequestRef[]
+}): CodeLocation | null {
+  if (task.status !== "review" && task.status !== "complete") return null
+  const merged = task.pullRequests.filter((p) => p.state === "merged")
+  const pending = merged.find((p) => !p.releasedTo)
+  const first = pending ?? merged[0]
+  if (!first) return null
+  return { branch: prLocation(first), released: !pending, merged }
+}
+
+/** "In qa" or "In main" on a task whose PRs have merged. */
+export function CodeLocationChip({ location }: { location: CodeLocation }) {
+  const title = location.merged.map((p) => `#${p.number} in ${prLocation(p)}`).join(", ")
+  return (
+    <Chip
+      className={cn(
+        "border-transparent font-medium",
+        location.released
+          ? "bg-success/10 text-success-foreground"
+          : "bg-info/10 text-info-foreground",
+      )}
+      title={title}
+    >
+      <GitMerge aria-hidden className="size-3" />
+      In {location.branch}
+      <span className="sr-only"> ({title})</span>
+    </Chip>
+  )
+}
+
 function PickerButton({
   label,
   icon,
