@@ -64,13 +64,15 @@ Tasks can be linked to GitHub pull requests. A linked PR shows on the task, and 
 
 Nothing else changes a status: draft PRs and PRs closed without merging only change the PR's state, and a task someone has moved elsewhere is left there. A PR can also be linked by hand with its link or `owner/repo#482`: in the dialog when a task moves to In progress, from the task's Pull requests section, or with `intesa task start ELT-151 --pr acme/web#482`. Unlinking a PR from a task never changes its status, and the PR stays unlinked even if it still names the task; linking it by hand brings it back. Only the first 10 task keys in a PR are looked at.
 
+Review and Complete cards with a merged PR also show where the task's code is: **In qa** (the merge branch) or **In main** (the production branch). When any PR merges into the production branch, Intesa asks GitHub, for every merged PR of the workspace not yet found there, whether its merge commit is in the production branch's history, and marks those that are. A task shows "In main" once all its merged PRs are there; a PR merged straight into the production branch counts at once. Commit ids make this exact, and what it cannot see stays "In qa", never the other way round: a fix cherry-picked onto `main`, or a `qa → main` PR merged with squash (merge those with a merge commit). PRs not found are looked for again at the next merge into the production branch. This needs the GitHub token.
+
 To set it up, a workspace owner:
 
 1. Opens the workspace's Settings page and creates the webhook (or runs `intesa github create`). Intesa shows its payload URL (`<PUBLIC_URL>/api/webhooks/github/<id>`) and a secret, once. Creating it again gives it a new secret and keeps the URL.
 2. In GitHub, adds a webhook to the organisation or repository with that URL, content type `application/json`, the secret, and the "Pull requests" event. Deliveries with a missing or wrong signature are refused.
-3. Sets the merge branch (default `qa`) and, optionally, a GitHub token: a fine-grained token with read-only access to Pull requests, which Intesa uses to look a PR up when someone links one by hand. The token is never shown again.
+3. Sets the merge branch (default `qa`), the production branch (default `main`) and a GitHub token: a fine-grained token with read-only access to Pull requests and Contents, which Intesa uses to look a PR up when someone links one by hand and to check which code reached the production branch. Without it, tasks stay "In qa". The token is never shown again.
 
-GitHub's "Recent Deliveries" list for the webhook shows Intesa's reply to each event: the tasks it linked, unlinked and moved, and keys it did not recognise.
+GitHub's "Recent Deliveries" list for the webhook shows Intesa's reply to each event: the tasks it linked, unlinked and moved, keys it did not recognise, and after a merge into the production branch, the tasks whose code reached it.
 
 ## PostgreSQL
 
