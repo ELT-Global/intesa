@@ -5,6 +5,8 @@ import { Avatar } from "@/components/ui/avatar"
 import { type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import {
+  CodeLocationChip,
+  codeLocation,
   DueDateChip,
   inPullRequest,
   PriorityChip,
@@ -144,7 +146,8 @@ const Row = memo(function Row({
             {task.project?.name ?? "—"}
           </td>
         )
-      case "status":
+      case "status": {
+        const location = codeLocation(task)
         return (
           <td key={column} className={cn(cell, "whitespace-nowrap")}>
             <span className="inline-flex items-center gap-2">
@@ -157,9 +160,11 @@ const Row = memo(function Row({
                 </span>
               )}
               {inPullRequest(task) && <PullRequestChip pullRequests={task.pullRequests} />}
+              {location && <CodeLocationChip location={location} />}
             </span>
           </td>
         )
+      }
       case "priority":
         return (
           <td key={column} className={cn(cell, "whitespace-nowrap")}>
