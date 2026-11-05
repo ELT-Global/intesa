@@ -5,6 +5,7 @@ import type { Db } from "../db"
 export const GITHUB_USER_ID = "github"
 
 export const DEFAULT_MERGE_BRANCH = "qa"
+export const DEFAULT_PRODUCTION_BRANCH = "main"
 
 // Shared with GitHub to sign deliveries, so it is kept as it is (it cannot be hashed) and shown
 // only when it is made.

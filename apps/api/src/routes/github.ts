@@ -3,20 +3,26 @@ import { z } from "zod"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { newId, now } from "../db"
 import type { Deps } from "../deps"
-import { DEFAULT_MERGE_BRANCH, newSecret, workspaceWebhook } from "../github/settings"
+import {
+  DEFAULT_MERGE_BRANCH,
+  DEFAULT_PRODUCTION_BRANCH,
+  newSecret,
+  workspaceWebhook,
+} from "../github/settings"
 import { ApiError } from "../lib/errors"
 import { validate } from "../lib/validate"
 import { requireMembership, requireOwner } from "../workspaces/membership"
 
 // A branch name as git allows it, roughly: no spaces or the characters git refuses.
-const mergeBranch = z
+const branch = z
   .string()
   .trim()
   .min(1)
   .max(255)
   .regex(/^[^\s~^:?*[\\]+$/, "Not a valid branch name")
 const patchBody = z.object({
-  mergeBranch: mergeBranch.optional(),
+  mergeBranch: branch.optional(),
+  productionBranch: branch.optional(),
   // null removes the token; leaving it out keeps it.
   token: z.string().trim().min(1).max(500).nullable().optional(),
 })
@@ -27,6 +33,7 @@ export function workspaceGithubRoutes({ db, config }: Deps) {
   const toJson = (hook: NonNullable<Awaited<ReturnType<typeof workspaceWebhook>>>) => ({
     url: `${config.publicUrl}/api/webhooks/github/${hook.hookId}`,
     mergeBranch: hook.mergeBranch,
+    productionBranch: hook.productionBranch,
     tokenSet: hook.token !== null,
     createdAt: hook.createdAt,
   })
@@ -73,6 +80,7 @@ export function workspaceGithubRoutes({ db, config }: Deps) {
               hookId: newId(),
               secret,
               mergeBranch: DEFAULT_MERGE_BRANCH,
+              productionBranch: DEFAULT_PRODUCTION_BRANCH,
               token: null,
               createdAt: ts,
               updatedAt: ts,
@@ -87,11 +95,12 @@ export function workspaceGithubRoutes({ db, config }: Deps) {
         if (!(await workspaceWebhook(db, workspaceId))) {
           throw new ApiError("NOT_FOUND", "This workspace has no GitHub webhook")
         }
-        const { mergeBranch, token } = c.req.valid("json")
+        const { mergeBranch, productionBranch, token } = c.req.valid("json")
         await db
           .updateTable("githubWebhooks")
           .set({
             ...(mergeBranch !== undefined && { mergeBranch }),
+            ...(productionBranch !== undefined && { productionBranch }),
             ...(token !== undefined && { token }),
             updatedAt: now(),
           })

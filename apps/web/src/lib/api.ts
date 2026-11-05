@@ -116,8 +116,10 @@ export const api = {
   createGithub: (workspaceId: string) =>
     unwrap(workspaceApi.github.$post({ param: { workspaceId } })),
   /** Leaving a value out keeps it; a null token removes it. */
-  updateGithub: (workspaceId: string, json: { mergeBranch?: string; token?: string | null }) =>
-    unwrap(workspaceApi.github.$patch({ param: { workspaceId }, json })),
+  updateGithub: (
+    workspaceId: string,
+    json: { mergeBranch?: string; productionBranch?: string; token?: string | null },
+  ) => unwrap(workspaceApi.github.$patch({ param: { workspaceId }, json })),
   deleteGithub: (workspaceId: string) =>
     unwrap(workspaceApi.github.$delete({ param: { workspaceId } })),
 

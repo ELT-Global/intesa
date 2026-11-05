@@ -97,7 +97,8 @@ export function GithubWebhookPanel({
           <p className="text-muted-foreground">
             GitHub tells Intesa about pull requests through this webhook. A PR that says “Fixes
             ELT-151” is linked to that task, and merging a task's PRs into the merge branch moves it
-            to Review.
+            to Review. Its card then shows whether the code is in the merge branch or has reached
+            the production branch.
           </p>
           {!github ? (
             isOwner ? (
@@ -137,10 +138,22 @@ export function GithubWebhookPanel({
                 <li>
                   Choose <span className="font-medium text-foreground">application/json</span>,
                   paste the secret, and pick the{" "}
-                  <span className="font-medium text-foreground">Pull requests</span> event.
+                  <span className="font-medium text-foreground">Pull requests</span> and{" "}
+                  <span className="font-medium text-foreground">Pushes</span> events.
                 </li>
               </ol>
-              <MergeBranch workspaceId={workspaceId} github={github} isOwner={isOwner} />
+              <BranchField
+                name="mergeBranch"
+                workspaceId={workspaceId}
+                github={github}
+                isOwner={isOwner}
+              />
+              <BranchField
+                name="productionBranch"
+                workspaceId={workspaceId}
+                github={github}
+                isOwner={isOwner}
+              />
               <GithubToken workspaceId={workspaceId} github={github} isOwner={isOwner} />
               {isOwner && (
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
@@ -183,8 +196,11 @@ export function GithubWebhookPanel({
 function useUpdate(workspaceId: string, onSaved: () => void) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (json: { mergeBranch?: string; token?: string | null }) =>
-      api.updateGithub(workspaceId, json),
+    mutationFn: (json: {
+      mergeBranch?: string
+      productionBranch?: string
+      token?: string | null
+    }) => api.updateGithub(workspaceId, json),
     onSuccess: ({ github }) => {
       qc.setQueryData(keys.github(workspaceId), github)
       onSaved()
@@ -192,39 +208,51 @@ function useUpdate(workspaceId: string, onSaved: () => void) {
   })
 }
 
-function MergeBranch({ workspaceId, github, isOwner }: SectionProps) {
-  const [branch, setBranch] = useState(github.mergeBranch)
-  const save = useUpdate(workspaceId, () => notify("Saved the merge branch"))
+const BRANCHES = {
+  mergeBranch: {
+    label: "Merge branch",
+    hint: "Merging a task's pull requests into this branch moves the task to Review.",
+  },
+  productionBranch: {
+    label: "Production branch",
+    hint: "When code merges into this branch, Intesa checks which tasks' code reached it and shows them as in it.",
+  },
+} as const
+
+type BranchKey = keyof typeof BRANCHES
+
+/** One of the webhook's branches: owners edit it, members see it. */
+function BranchField({ workspaceId, github, isOwner, name }: SectionProps & { name: BranchKey }) {
+  const { label, hint } = BRANCHES[name]
+  const [branch, setBranch] = useState(github[name])
+  const save = useUpdate(workspaceId, () => notify(`Saved the ${label.toLowerCase()}`))
   if (!isOwner) {
     return (
       <p>
-        Merge branch: <Chip>{github.mergeBranch}</Chip>
+        {label}: <Chip>{github[name]}</Chip>
       </p>
     )
   }
   function submit(e: FormEvent) {
     e.preventDefault()
-    save.mutate({ mergeBranch: branch.trim() })
+    save.mutate({ [name]: branch.trim() })
   }
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <div className="flex items-end gap-2">
-        <Field
-          className="flex-1"
-          label="Merge branch"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          maxLength={255}
-          hint="Merging a task's pull requests into this branch moves the task to Review."
-        />
-      </div>
+      <Field
+        label={label}
+        value={branch}
+        onChange={(e) => setBranch(e.target.value)}
+        maxLength={255}
+        hint={hint}
+      />
       <FormError message={save.error?.message} />
       <div>
         <Button
           type="submit"
           size="sm"
           pending={save.isPending}
-          disabled={!branch.trim() || branch.trim() === github.mergeBranch}
+          disabled={!branch.trim() || branch.trim() === github[name]}
         >
           Save
         </Button>
@@ -269,7 +297,7 @@ function GithubToken({ workspaceId, github, isOwner }: SectionProps) {
         onChange={(e) => setToken(e.target.value)}
         maxLength={500}
         placeholder={github.tokenSet ? "Saved; type a new one to replace it" : ""}
-        hint="A fine-grained token with read-only Pull requests access, used to look PRs up when someone links one."
+        hint="A fine-grained token with read-only Pull requests and Contents access, used to look PRs up when someone links one and to check which code reached the production branch."
       />
       <FormError message={save.error?.message} />
       <div className="flex flex-wrap items-center gap-2">

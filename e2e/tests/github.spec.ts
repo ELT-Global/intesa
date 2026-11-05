@@ -13,21 +13,28 @@ const card = (page: Page, col: string, title: string) =>
   column(page, col).getByRole("button", { name: new RegExp(title) })
 
 /** Sends a pull_request event the way GitHub does: JSON, signed with the webhook's secret. */
-async function deliverPullRequest(page: Page, url: string, secret: string, title: string) {
+async function deliverPullRequest(
+  page: Page,
+  url: string,
+  secret: string,
+  title: string,
+  { number = 12, merged = false, base = "qa" } = {},
+) {
   const body = JSON.stringify({
-    action: "opened",
+    action: merged ? "closed" : "opened",
     repository: { full_name: REPO },
     pull_request: {
-      number: 12,
+      number,
       title,
       body: null,
-      state: "open",
+      state: merged ? "closed" : "open",
       draft: false,
-      merged_at: null,
-      html_url: `https://github.com/${REPO}/pull/12`,
+      merged_at: merged ? new Date().toISOString() : null,
+      merge_commit_sha: merged ? `sha${number}` : null,
+      html_url: `https://github.com/${REPO}/pull/${number}`,
       updated_at: new Date().toISOString(),
       user: { login: "ada" },
-      base: { ref: "qa" },
+      base: { ref: base },
     },
   })
   const res = await page.request.post(new URL(url).pathname, {
@@ -42,6 +49,15 @@ async function deliverPullRequest(page: Page, url: string, secret: string, title
   return res.json()
 }
 
+/** Creates the workspace's webhook on the Settings page; returns its URL and secret. */
+async function createWebhook(page: Page, slug: string) {
+  await page.goto(`/w/${slug}/settings`)
+  await page.getByRole("button", { name: "Create webhook" }).click()
+  const secret = (await page.getByLabel("Secret", { exact: true }).textContent()) ?? ""
+  const url = (await page.getByLabel("Payload URL").textContent()) ?? ""
+  return { url, secret }
+}
+
 test("an owner creates the webhook; a PR saying 'Fixes KEY' starts the task with an In PR capsule", async ({
   page,
 }) => {
@@ -49,13 +65,11 @@ test("an owner creates the webhook; a PR saying 'Fixes KEY' starts the task with
   const slug = await createWorkspace(page, uniqueName("GitHub"))
   const workspaceId = await workspaceIdBySlug(page, slug)
 
-  await page.goto(`/w/${slug}/settings`)
-  await page.getByRole("button", { name: "Create webhook" }).click()
-  const secret = (await page.getByLabel("Secret", { exact: true }).textContent()) ?? ""
-  const url = (await page.getByLabel("Payload URL").textContent()) ?? ""
+  const { url, secret } = await createWebhook(page, slug)
   expect(secret).toMatch(/^[0-9a-f]{48}$/)
   expect(url).toContain("/api/webhooks/github/")
   await expect(page.getByLabel("Merge branch")).toHaveValue("qa")
+  await expect(page.getByLabel("Production branch")).toHaveValue("main")
 
   const project = await createProject(page, workspaceId, "Project")
   const task = await createTaskViaApi(page, project.id, { title: "Wire the webhook" })
@@ -88,4 +102,36 @@ test("an owner creates the webhook; a PR saying 'Fixes KEY' starts the task with
     "href",
     `https://github.com/${REPO}/pull/12`,
   )
+})
+
+test("Review cards show whether the task's code is in qa or main", async ({ page }) => {
+  await signIn(page, { email: uniqueEmail("github"), name: "Ada Owner" })
+  const slug = await createWorkspace(page, uniqueName("GitHub"))
+  const workspaceId = await workspaceIdBySlug(page, slug)
+  const { url, secret } = await createWebhook(page, slug)
+  const project = await createProject(page, workspaceId, "Project")
+  const inQa = await createTaskViaApi(page, project.id, { title: "Still in qa" })
+  const inMain = await createTaskViaApi(page, project.id, {
+    title: "Straight to main",
+    status: "review",
+  })
+
+  await deliverPullRequest(page, url, secret, `Fixes ${inQa.key}`, { number: 21 })
+  const merged = await deliverPullRequest(page, url, secret, `Fixes ${inQa.key}`, {
+    number: 21,
+    merged: true,
+  })
+  expect(merged.moved).toEqual([{ task: inQa.key, to: "review" }])
+  // Merged straight into main, so it is there without asking GitHub; without a token the
+  // other PR is not looked for, and stays in qa.
+  const release = await deliverPullRequest(page, url, secret, `Fixes ${inMain.key}`, {
+    number: 22,
+    merged: true,
+    base: "main",
+  })
+  expect(release.inMain).toEqual([inMain.key])
+
+  await page.goto(`/w/${slug}/projects/${project.id}/board`)
+  await expect(card(page, "Review", "Still in qa")).toContainText("In qa")
+  await expect(card(page, "Review", "Straight to main")).toContainText("In main")
 })

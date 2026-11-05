@@ -538,6 +538,30 @@ const githubMemory: Migration = {
   },
 }
 
+// Where a task's code is: each webhook names its production branch (main), and a merged PR
+// records its merge commit and, once that commit is found in the production branch, the
+// branch's name. The default only exists because SQLite cannot add a NOT NULL column without
+// one.
+const githubCodeLocation: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .alterTable("github_webhooks")
+        .addColumn("production_branch", text, (c) => c.notNull().defaultTo("main"))
+        .execute()
+      await trx.schema
+        .alterTable("task_pull_requests")
+        .addColumn("merge_commit_sha", text)
+        .execute()
+      await trx.schema.alterTable("task_pull_requests").addColumn("released_to", text).execute()
+      // PRs already merged straight into the production branch are in it.
+      await sql`update task_pull_requests set released_to = base_branch where state = 'merged' and base_branch = coalesce((select w.production_branch from github_webhooks w join tasks t on t.workspace_id = w.workspace_id where t.id = task_pull_requests.task_id), 'main')`.execute(
+        trx,
+      )
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -549,4 +573,5 @@ export const migrations: Record<string, Migration> = {
   "0008_review_and_test": reviewAndTest,
   "0009_github": github,
   "0010_github_memory": githubMemory,
+  "0011_github_code_location": githubCodeLocation,
 }
