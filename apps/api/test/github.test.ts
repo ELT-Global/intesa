@@ -23,6 +23,8 @@ function pullRequest(number: number, more: PrState & { title?: string; body?: st
     updated_at: tick(),
     user: { login: "mei" },
     base: { ref: more.base ?? "qa" },
+    // GitHub fills it in for open PRs too, with a trial merge; only a merged PR's counts.
+    merge_commit_sha: (more.merged ? `sha${number}` : `trial${number}`) as string | null,
   }
 }
 
@@ -693,5 +695,155 @@ describe("the workspace's webhook", () => {
       body: JSON.stringify({ email: "github@intesa.invalid" }),
     })
     expect(res.status).toBe(400)
+  })
+})
+
+describe("where a task's code is", () => {
+  // GitHub's compare API: whether each merge commit is in the branch. A list gives one answer
+  // per call, the last one repeating.
+  const compare = (statuses: Record<string, string | string[]>) => {
+    const asked: Record<string, number> = {}
+    return (url: string) => {
+      const match = /\/compare\/([^.]+)\.\.\.(.+)$/.exec(url)
+      if (!match) return byNumber(url)
+      const sha = match[1] as string
+      const answers = [statuses[sha] ?? "diverged"].flat()
+      const times = asked[sha] ?? 0
+      asked[sha] = times + 1
+      const status = answers[Math.min(times, answers.length - 1)]
+      return new Response(JSON.stringify({ status }))
+    }
+  }
+  const merge = (hook: Hook, number: number, base: string, body?: string) =>
+    prEvent(hook, "closed", pullRequest(number, { state: "closed", merged: true, base, body }))
+
+  test("a PR merged into qa is in qa until a merge into main finds its commit there", async () => {
+    const { hook, create, view } = await setup()
+    const fetched = stubGithub(compare({ sha7: "ahead" }))
+    const task = await create("todo")
+    await prEvent(hook, "opened", pullRequest(7, { body: `Fixes ${task.key}` }))
+    await merge(hook, 7, "qa", `Fixes ${task.key}`)
+    expect(await view(task.id)).toMatchObject({
+      status: "review",
+      pullRequests: [{ state: "merged", baseBranch: "qa", releasedTo: null }],
+    })
+
+    const release = await merge(hook, 20, "main")
+    expect(release.body.inMain).toEqual([task.key])
+    expect((await view(task.id)).pullRequests[0].releasedTo).toBe("main")
+    const urls = fetched.mock.calls.map((c) => String(c[0]))
+    expect(urls).toContain("https://api.github.com/repos/acme/web/compare/sha7...main")
+  })
+
+  test("identical counts as in main; diverged stays in qa and is checked again next time", async () => {
+    const { hook, create, view } = await setup()
+    stubGithub(compare({ sha7: "identical", sha8: ["diverged", "ahead"] }))
+    const first = await create("todo")
+    const second = await create("todo")
+    await merge(hook, 7, "qa", `Fixes ${first.key}`)
+    await merge(hook, 8, "qa", `Fixes ${second.key}`)
+
+    expect((await merge(hook, 20, "main")).body.inMain).toEqual([first.key])
+    expect((await view(second.id)).pullRequests[0].releasedTo).toBeNull()
+    expect((await merge(hook, 21, "main")).body.inMain).toEqual([second.key])
+    expect((await view(second.id)).pullRequests[0].releasedTo).toBe("main")
+  })
+
+  test("a PR merged straight into main is in main without asking GitHub", async () => {
+    const { hook, create, view } = await setup()
+    const fetched = stubGithub(compare({}))
+    const task = await create("todo")
+    const res = await merge(hook, 9, "main", `Fixes ${task.key}`)
+    expect(res.body.inMain).toEqual([task.key])
+    expect((await view(task.id)).pullRequests[0]).toMatchObject({
+      baseBranch: "main",
+      releasedTo: "main",
+    })
+    expect(fetched).not.toHaveBeenCalled()
+  })
+
+  test("without a token nothing is checked, and the reply says why", async () => {
+    const { hook, owner, workspaceId, create, view } = await setup()
+    await owner.call("PATCH", `/api/workspaces/${workspaceId}/github`, { token: null })
+    const fetched = stubGithub(compare({ sha7: "ahead" }))
+    const task = await create("todo")
+    await merge(hook, 7, "qa", `Fixes ${task.key}`)
+    const release = await merge(hook, 20, "main")
+    expect(release.body).toMatchObject({
+      inMain: [],
+      releaseCheck: expect.stringContaining("token"),
+    })
+    expect((await view(task.id)).pullRequests[0].releasedTo).toBeNull()
+    expect(fetched).not.toHaveBeenCalled()
+  })
+
+  test("a merge commit the webhook never sent is asked for once and kept", async () => {
+    const { t, hook, create, view } = await setup()
+    const fetched = stubGithub((url) =>
+      url.endsWith("/pulls/7")
+        ? prResponse(7, { state: "closed", merged: true })
+        : compare({ sha7: "ahead" })(url),
+    )
+    const task = await create("todo")
+    const withoutSha = {
+      ...pullRequest(7, { state: "closed", merged: true }),
+      merge_commit_sha: null,
+    }
+    await prEvent(hook, "closed", { ...withoutSha, body: `Fixes ${task.key}` })
+
+    await merge(hook, 20, "main")
+    expect((await view(task.id)).pullRequests[0].releasedTo).toBe("main")
+    const stored = await t.db.selectFrom("taskPullRequests").select("mergeCommitSha").execute()
+    expect(stored).toEqual([{ mergeCommitSha: "sha7" }])
+    expect(fetched.mock.calls.filter((c) => String(c[0]).endsWith("/pulls/7"))).toHaveLength(1)
+  })
+
+  test("an open PR's trial merge commit is not kept", async () => {
+    const { t, hook, create } = await setup()
+    const task = await create("todo")
+    await prEvent(hook, "opened", pullRequest(7, { body: `Fixes ${task.key}` }))
+    const stored = await t.db.selectFrom("taskPullRequests").select("mergeCommitSha").execute()
+    expect(stored).toEqual([{ mergeCommitSha: null }])
+  })
+
+  test("another workspace's PRs are never looked at or changed", async () => {
+    const { t, hook, create } = await setup()
+    const fetched = stubGithub(compare({ sha7: "ahead", sha30: "ahead" }))
+    const mine = await create("todo")
+    await merge(hook, 7, "qa", `Fixes ${mine.key}`)
+
+    const other = await setupProject(t, "other@example.com")
+    const created = await other.owner.call("POST", `/api/workspaces/${other.workspaceId}/github`)
+    const otherHook = {
+      t,
+      path: new URL(created.body.github.url).pathname,
+      secret: created.body.secret,
+    }
+    const theirs = await other.owner.call("POST", `/api/projects/${other.project.id}/tasks`, {
+      title: "Theirs",
+    })
+    await merge(otherHook, 30, "qa", `Fixes ${theirs.body.task.key}`)
+
+    expect((await merge(hook, 20, "main")).body.inMain).toEqual([mine.key])
+    const urls = fetched.mock.calls.map((c) => String(c[0]))
+    expect(urls.some((u) => u.includes("sha30"))).toBe(false)
+    const untouched = await other.owner.call("GET", `/api/tasks/${theirs.body.task.id}`)
+    expect(untouched.body.task.pullRequests[0].releasedTo).toBeNull()
+  })
+
+  test("the production branch is the webhook's setting", async () => {
+    const { hook, owner, workspaceId, create, view } = await setup()
+    stubGithub(compare({ sha7: "ahead" }))
+    const path = `/api/workspaces/${workspaceId}/github`
+    expect((await owner.call("GET", path)).body.github.productionBranch).toBe("main")
+    expect((await owner.call("PATCH", path, { productionBranch: "bad branch" })).status).toBe(400)
+    const patched = await owner.call("PATCH", path, { productionBranch: "release" })
+    expect(patched.body.github).toMatchObject({ mergeBranch: "qa", productionBranch: "release" })
+
+    const task = await create("todo")
+    await merge(hook, 7, "qa", `Fixes ${task.key}`)
+    expect((await merge(hook, 20, "main")).body.inMain).toBeUndefined()
+    expect((await merge(hook, 21, "release")).body.inMain).toEqual([task.key])
+    expect((await view(task.id)).pullRequests[0].releasedTo).toBe("release")
   })
 })

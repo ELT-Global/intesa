@@ -15,6 +15,7 @@ export const githubPullRequest = z.object({
   updated_at: z.string(),
   user: z.object({ login: z.string() }).nullish(),
   base: z.object({ ref: z.string() }),
+  merge_commit_sha: z.string().nullish(),
 })
 export type GithubPullRequest = z.infer<typeof githubPullRequest>
 
@@ -28,6 +29,8 @@ export type PrDetails = {
   state: PullRequestState
   baseBranch: string
   githubUpdatedAt: string
+  // Only kept once merged: for an open PR GitHub reports a trial merge that may never happen.
+  mergeCommitSha: string | null
 }
 
 export const prUrl = ({ repo, number }: PrRef) => `https://github.com/${repo}/pull/${number}`
@@ -47,6 +50,7 @@ export function prDetails(pr: GithubPullRequest): PrDetails {
     state,
     baseBranch: pr.base.ref,
     githubUpdatedAt: pr.updated_at,
+    mergeCommitSha: state === "merged" ? (pr.merge_commit_sha ?? null) : null,
   }
 }
 
@@ -87,8 +91,37 @@ export async function fetchGithubPullRequest(
   ref: PrRef,
   token: string | null | undefined,
 ): Promise<GithubPullRequest | "missing" | undefined> {
+  const res = await githubGet(`repos/${ref.repo}/pulls/${ref.number}`, token)
+  if (res === undefined) return undefined
+  if (res.status === 404 && token) return "missing"
+  if (!res.ok) return undefined
+  const parsed = githubPullRequest.safeParse(await res.json().catch(() => null))
+  return parsed.success ? parsed.data : undefined
+}
+
+// Whether `sha` is in `branch`'s history, by GitHub's compare API: "ahead" or "identical" means
+// the branch contains the commit, "behind" or "diverged" that it does not. Commit ids make the
+// answer exact. Undefined when GitHub could not be asked or gave no clear answer.
+export async function containsCommit(
+  repo: string,
+  sha: string,
+  branch: string,
+  token: string | null | undefined,
+): Promise<boolean | undefined> {
+  const path = branch.split("/").map(encodeURIComponent).join("/")
+  const res = await githubGet(`repos/${repo}/compare/${sha}...${path}`, token)
+  if (!res?.ok) return undefined
+  const status = ((await res.json().catch(() => null)) as { status?: unknown } | null)?.status
+  if (status === "ahead" || status === "identical") return true
+  if (status === "behind" || status === "diverged") return false
+  return undefined
+}
+
+// A GET to GitHub's REST API, with the token when there is one. Undefined when GitHub could not
+// be reached in time.
+async function githubGet(path: string, token: string | null | undefined) {
   try {
-    const res = await fetch(`https://api.github.com/repos/${ref.repo}/pulls/${ref.number}`, {
+    return await fetch(`https://api.github.com/${path}`, {
       headers: {
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -97,10 +130,6 @@ export async function fetchGithubPullRequest(
       },
       signal: AbortSignal.timeout(5000),
     })
-    if (res.status === 404 && token) return "missing"
-    if (!res.ok) return undefined
-    const parsed = githubPullRequest.safeParse(await res.json())
-    return parsed.success ? parsed.data : undefined
   } catch {
     return undefined
   }
