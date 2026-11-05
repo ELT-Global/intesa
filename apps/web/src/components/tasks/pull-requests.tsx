@@ -13,7 +13,8 @@ function describe(pr: PullRequestRef) {
     pr.state && PULL_REQUEST_LABELS[pr.state],
     pr.author,
     pr.baseBranch && `into ${pr.baseBranch}`,
-    pr.releasedTo && `in ${pr.releasedTo}`,
+    // Where its code went after merging; a PR merged straight into it says so already.
+    pr.releasedTo && pr.releasedTo !== pr.baseBranch && `in ${pr.releasedTo}`,
     pr.source === "auto" ? "linked from the PR" : pr.linkedBy && `linked by ${pr.linkedBy.name}`,
   ]
     .filter(Boolean)
