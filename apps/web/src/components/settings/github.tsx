@@ -138,7 +138,8 @@ export function GithubWebhookPanel({
                 <li>
                   Choose <span className="font-medium text-foreground">application/json</span>,
                   paste the secret, and pick the{" "}
-                  <span className="font-medium text-foreground">Pull requests</span> event.
+                  <span className="font-medium text-foreground">Pull requests</span> and{" "}
+                  <span className="font-medium text-foreground">Pushes</span> events.
                 </li>
               </ol>
               <BranchField

@@ -65,10 +65,10 @@ const create = defineCommand({
   summary: "Create the workspace's GitHub webhook, or give it a new secret (owners only)",
   description:
     "Create the webhook and print its payload URL and secret, to paste into GitHub (content\n" +
-    'type application/json, "Pull requests" events). Run again to replace the secret: the URL\n' +
-    "stays the same and deliveries signed with the old secret are refused. The secret is shown\n" +
-    "only here. Replacing it asks first on a terminal; otherwise --yes is required. To see the\n" +
-    "URL, use `intesa github view`.",
+    'type application/json, "Pull requests" and "Pushes" events). Run again to replace the\n' +
+    "secret: the URL stays the same and deliveries signed with the old secret are refused. The\n" +
+    "secret is shown only here. Replacing it asks first on a terminal; otherwise --yes is\n" +
+    "required. To see the URL, use `intesa github view`.",
   context: ["workspace"],
   output: "githubCreated",
   examples: [
@@ -96,8 +96,8 @@ const edit = defineCommand({
   summary: "Change the webhook's branches (owners only)",
   description:
     "Merging a task's pull requests into the merge branch moves the task to review. When code\n" +
-    "merges into the production branch, Intesa checks which tasks' code reached it, and shows\n" +
-    "them as in that branch instead of the merge branch.",
+    "merges or is pushed into the production branch, Intesa checks which tasks' code reached\n" +
+    "it, and shows them as in that branch instead of the merge branch.",
   flags: z.object({
     mergeBranch: z
       .string()
@@ -131,8 +131,9 @@ const token = defineCommand({
   summary: "Set the GitHub token from stdin (owners only)",
   description:
     "Read a GitHub token from the first line of stdin, or remove it with --clear. Intesa uses\n" +
-    "it to look a pull request up when someone links one; a fine-grained token with read-only\n" +
-    "Pull requests access is enough. It is never shown again.",
+    "it to look a pull request up when someone links one and to check which code reached the\n" +
+    "production branch; a fine-grained token with read-only Pull requests and Contents access\n" +
+    "is enough. It is never shown again.",
   flags: z.object({
     clear: z.boolean().default(false).meta({ description: "Remove the token" }),
   }),

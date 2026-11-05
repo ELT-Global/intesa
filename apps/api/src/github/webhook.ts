@@ -4,7 +4,7 @@ import { bodyLimit } from "hono/body-limit"
 import type { Db } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
-import { type Hook, onPullRequest } from "./pull-requests"
+import { type Hook, onPullRequest, onPush } from "./pull-requests"
 
 // What Intesa does with each GitHub event, by the X-GitHub-Event header. The reply is shown in
 // GitHub's list of recent deliveries. A new use of the webhook is a new entry here.
@@ -12,6 +12,8 @@ const handlers: Record<string, (db: Db, hook: Hook, payload: unknown) => Promise
   // Sent once when the webhook is created, to check it is reachable.
   ping: async () => ({ ok: true }),
   pull_request: onPullRequest,
+  // Code reaching the production branch, by a PR merge or otherwise.
+  push: onPush,
 }
 
 // GitHub caps its payloads at 25 MB; anything bigger is not from GitHub.

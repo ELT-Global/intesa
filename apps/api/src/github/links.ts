@@ -1,8 +1,9 @@
-import { type Db, newId, now } from "../db"
+import type { ExpressionBuilder } from "kysely"
+import { type Database, type Db, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
 import { TASK_KEY_PATTERN } from "../schemas"
 import { fetchPullRequest, type PrDetails, type PrRef, parsePrRef, prUrl } from "./client"
-import { workspaceWebhook } from "./settings"
+import { DEFAULT_PRODUCTION_BRANCH, workspaceWebhook } from "./settings"
 
 // TASK_KEY_PATTERN without its anchors, so a key is found anywhere in the text.
 const KEY = String.raw`${TASK_KEY_PATTERN.source.replace(/^\^|\$$/g, "")}\b`
@@ -96,6 +97,24 @@ export async function linkPullRequest(
       .where("source", "=", "auto")
       .execute()
   }
+  if (inserted) {
+    // A PR already found in the production branch through another task is there for this one.
+    await trx
+      .updateTable("taskPullRequests")
+      .set((eb) => ({
+        releasedTo: eb
+          .selectFrom("taskPullRequests as other")
+          .innerJoin("tasks", "tasks.id", "other.taskId")
+          .select("other.releasedTo")
+          .where("other.repo", "=", pr.repo)
+          .where("other.number", "=", pr.number)
+          .where("other.releasedTo", "is not", null)
+          .where("tasks.workspaceId", "=", task.workspaceId)
+          .limit(1),
+      }))
+      .where("id", "=", inserted.id)
+      .execute()
+  }
   if (pr.details) await applyDetails(trx, task.workspaceId, pr, pr.details)
   return inserted !== undefined
 }
@@ -117,18 +136,49 @@ export async function unlinkPullRequest(trx: Db, taskId: string, pullRequestId: 
     .execute()
 }
 
+// Only the workspace's own links: its webhook's secret says nothing about anyone else's tasks.
+export const inWorkspace =
+  (workspaceId: string) => (eb: ExpressionBuilder<Database, "taskPullRequests">) =>
+    eb("taskId", "in", eb.selectFrom("tasks").select("id").where("workspaceId", "=", workspaceId))
+
+// A PR merged into the production branch itself is in it. Marks the workspace's links of such
+// PRs in a repository (or of one PR) that are not marked yet, and returns their tasks.
+export const releaseMerged = (trx: Db, workspaceId: string, repo: string, number?: number) =>
+  trx
+    .updateTable("taskPullRequests")
+    .set((eb) => ({ releasedTo: eb.ref("baseBranch") }))
+    .where("repo", "=", repo)
+    .$if(number !== undefined, (qb) => qb.where("number", "=", number as number))
+    .where("state", "=", "merged")
+    .where("releasedTo", "is", null)
+    .where("baseBranch", "=", (eb) =>
+      eb.fn.coalesce(
+        eb
+          .selectFrom("githubWebhooks")
+          .select("productionBranch")
+          .where("workspaceId", "=", workspaceId),
+        eb.val(DEFAULT_PRODUCTION_BRANCH),
+      ),
+    )
+    .where(inWorkspace(workspaceId))
+    .returning("taskId")
+    .execute()
+
 // Copies GitHub's view of a PR onto every task in the workspace it is linked to, unless what is
-// stored is already newer (events can arrive late, twice or out of order). Only the workspace's
-// own rows: its webhook's secret says nothing about anyone else's tasks.
+// stored is already newer (events can arrive late, twice or out of order). Returns the tasks
+// whose code this showed to be in the production branch.
 export async function applyDetails(trx: Db, workspaceId: string, ref: PrRef, details: PrDetails) {
   await trx
     .updateTable("taskPullRequests")
-    .set({ ...details, updatedAt: now() })
+    // A merge commit once known is kept, should a later view of the PR leave it out.
+    .set((eb) => ({
+      ...details,
+      mergeCommitSha: details.mergeCommitSha ?? eb.ref("mergeCommitSha"),
+      updatedAt: now(),
+    }))
     .where("repo", "=", ref.repo)
     .where("number", "=", ref.number)
-    .where("taskId", "in", (eb) =>
-      eb.selectFrom("tasks").select("id").where("workspaceId", "=", workspaceId),
-    )
+    .where(inWorkspace(workspaceId))
     .where((eb) =>
       eb.or([
         eb("githubUpdatedAt", "is", null),
@@ -136,4 +186,5 @@ export async function applyDetails(trx: Db, workspaceId: string, ref: PrRef, det
       ]),
     )
     .execute()
+  return details.state === "merged" ? releaseMerged(trx, workspaceId, ref.repo, ref.number) : []
 }
