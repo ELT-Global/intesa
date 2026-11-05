@@ -40,7 +40,7 @@ export function webhookRoutes({ db }: Deps) {
     async (c) => {
       const hook = await db
         .selectFrom("githubWebhooks")
-        .select(["workspaceId", "secret", "mergeBranch", "token"])
+        .select(["workspaceId", "secret", "mergeBranch", "productionBranch", "token"])
         .where("hookId", "=", c.req.param("hookId"))
         .executeTakeFirst()
       if (!hook) throw refused()

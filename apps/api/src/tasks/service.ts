@@ -26,6 +26,8 @@ export type PullRequestRef = {
   author: string | null
   state: PullRequestState | null
   baseBranch: string | null
+  /** The production branch (main) once the PR's merge commit has been found in it. */
+  releasedTo: string | null
   /** "auto" when a keyword in the PR ("Fixes ELT-151") linked it. */
   source: "manual" | "auto"
   linkedBy: UserRef | null
@@ -195,6 +197,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
         "taskPullRequests.author",
         "taskPullRequests.state",
         "taskPullRequests.baseBranch",
+        "taskPullRequests.releasedTo",
         "taskPullRequests.source",
         "users.id as linkedById",
         "users.name as linkedByName",

@@ -168,6 +168,8 @@ export type GithubWebhookTable = {
   secret: string
   // Merging a linked PR into this branch is what moves its task to review.
   mergeBranch: string
+  // Where released code ends up (main); merges into it are when Intesa checks what reached it.
+  productionBranch: Generated<string>
   token: string | null
   createdAt: string
   updatedAt: string
@@ -187,6 +189,10 @@ export type TaskPullRequestTable = {
   baseBranch: string | null
   // GitHub's updated_at for the details above, so an older event never overwrites a newer one.
   githubUpdatedAt: string | null
+  // The commit the merge made on the base branch; null until merged (or not yet heard of).
+  mergeCommitSha: Generated<string | null>
+  // The production branch, once the merge commit has been found in it.
+  releasedTo: Generated<string | null>
   source: "manual" | "auto"
   linkedBy: string | null
   createdAt: string

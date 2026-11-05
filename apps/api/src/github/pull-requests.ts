@@ -1,9 +1,11 @@
+import type { ExpressionBuilder } from "kysely"
 import { z } from "zod"
-import { type Db, inTransaction } from "../db"
+import { type Database, type Db, inTransaction } from "../db"
 import { ApiError } from "../lib/errors"
 import type { Status } from "../schemas"
 import { findTaskIdByKey, updateTask } from "../tasks/service"
 import {
+  containsCommit,
   fetchGithubPullRequest,
   fetchPullRequest,
   githubPullRequest,
@@ -28,11 +30,24 @@ export type PullRequestResult = {
   ignoredKeys: string[]
   // The event is older than what is stored, so it changed nothing.
   stale?: true
+  // After a merge into the production branch: tasks whose PRs were found there.
+  inMain?: string[]
+  // Why the production branch was not checked, when it was not.
+  releaseCheck?: string
 }
 
-// The webhook the event came in on: whose tasks it may touch, which branch counts, and the
+// The webhook the event came in on: whose tasks it may touch, which branches count, and the
 // token to ask GitHub with.
-export type Hook = { workspaceId: string; mergeBranch: string; token: string | null }
+export type Hook = {
+  workspaceId: string
+  mergeBranch: string
+  productionBranch: string
+  token: string | null
+}
+
+// At most this many merged PRs are checked against the production branch per delivery; the
+// rest wait for the next merge into it.
+const MAX_RELEASE_CHECKS = 50
 
 // Anyone who can open a PR on a repository that sends to the webhook can name keys in it, so
 // only this many are looked up; the rest are reported as ignored.
@@ -98,6 +113,73 @@ async function refreshUnknown(db: Db, hook: Hook, ref: PrRef, named: string[]) {
   )
 }
 
+// Records where the workspace's merged PRs are once a PR merges into the production branch
+// (main): that PR is there, and every other merged PR not yet found there is looked for by its
+// merge commit. Nothing is guessed: a PR whose commit GitHub cannot place stays where it was,
+// and is looked for again at the next merge into the production branch.
+async function trackMain(db: Db, hook: Hook, ref: PrRef) {
+  const inWorkspace = (eb: ExpressionBuilder<Database, "taskPullRequests">) =>
+    eb(
+      "taskId",
+      "in",
+      eb.selectFrom("tasks").select("id").where("workspaceId", "=", hook.workspaceId),
+    )
+  const release = async (pr: PrRef) =>
+    db
+      .updateTable("taskPullRequests")
+      .set({ releasedTo: hook.productionBranch })
+      .where("repo", "=", pr.repo)
+      .where("number", "=", pr.number)
+      .where(inWorkspace)
+      .returning("taskId")
+      .execute()
+
+  const released = await release(ref)
+  const candidates = await db
+    .selectFrom("taskPullRequests")
+    .select(["repo", "number", (eb) => eb.fn.max("mergeCommitSha").as("mergeCommitSha")])
+    .where(inWorkspace)
+    .where("state", "=", "merged")
+    .where("releasedTo", "is", null)
+    .where("baseBranch", "!=", hook.productionBranch)
+    .groupBy(["repo", "number"])
+    .limit(MAX_RELEASE_CHECKS)
+    .execute()
+
+  let releaseCheck: string | undefined
+  if (candidates.length > 0 && !hook.token) {
+    releaseCheck = "Set a GitHub token on the webhook to check which PRs reached the branch"
+  } else {
+    for (const pr of candidates) {
+      let sha = pr.mergeCommitSha
+      if (!sha) {
+        const fetched = await fetchPullRequest(pr, hook.token)
+        if (fetched && fetched !== "missing") {
+          await applyDetails(db, hook.workspaceId, pr, fetched)
+          sha = fetched.mergeCommitSha
+        }
+      }
+      if (sha && (await containsCommit(pr.repo, sha, hook.productionBranch, hook.token))) {
+        released.push(...(await release(pr)))
+      }
+    }
+  }
+
+  const taskIds = [...new Set(released.map((r) => r.taskId))]
+  const inMain =
+    taskIds.length === 0
+      ? []
+      : (
+          await db
+            .selectFrom("tasks")
+            .innerJoin("projects", "projects.id", "tasks.projectId")
+            .select(["projects.key", "tasks.number"])
+            .where("tasks.id", "in", taskIds)
+            .execute()
+        ).map((t) => `${t.key}-${t.number}`)
+  return { inMain, ...(releaseCheck && { releaseCheck }) }
+}
+
 // Links and unlinks the workspace's tasks named by keywords in the PR (except those someone
 // unlinked it from), stores the PR's state, and makes the only two automatic status changes
 // there are:
@@ -131,7 +213,7 @@ export async function onPullRequest(
     else ignoredKeys.push(key)
   }
   if (action === "closed") await refreshUnknown(db, hook, ref, [...named.keys()])
-  return inTransaction(db, async (trx) => {
+  const result: PullRequestResult = await inTransaction(db, async (trx) => {
     const links = (
       await trx
         .selectFrom("taskPullRequests")
@@ -236,4 +318,10 @@ export async function onPullRequest(
       ignoredKeys,
     }
   })
+  // GitHub is asked about the other PRs, so this runs after the transaction.
+  const merged = action === "closed" && details.state === "merged"
+  if (!result.stale && merged && details.baseBranch === hook.productionBranch) {
+    Object.assign(result, await trackMain(db, hook, ref))
+  }
+  return result
 }
