@@ -81,8 +81,9 @@ export function parsePrRef(input: string): PrRef {
 export async function fetchPullRequest(
   ref: PrRef,
   token: string | null | undefined,
+  signal?: AbortSignal,
 ): Promise<PrDetails | "missing" | undefined> {
-  const pr = await fetchGithubPullRequest(ref, token)
+  const pr = await fetchGithubPullRequest(ref, token, signal)
   return pr && pr !== "missing" ? prDetails(pr) : pr
 }
 
@@ -90,8 +91,9 @@ export async function fetchPullRequest(
 export async function fetchGithubPullRequest(
   ref: PrRef,
   token: string | null | undefined,
+  signal?: AbortSignal,
 ): Promise<GithubPullRequest | "missing" | undefined> {
-  const res = await githubGet(`repos/${ref.repo}/pulls/${ref.number}`, token)
+  const res = await githubGet(`repos/${ref.repo}/pulls/${ref.number}`, token, signal)
   if (res === undefined) return undefined
   if (res.status === 404 && token) return "missing"
   if (!res.ok) return undefined
@@ -99,17 +101,20 @@ export async function fetchGithubPullRequest(
   return parsed.success ? parsed.data : undefined
 }
 
-// Whether `sha` is in `branch`'s history, by GitHub's compare API: "ahead" or "identical" means
-// the branch contains the commit, "behind" or "diverged" that it does not. Commit ids make the
-// answer exact. Undefined when GitHub could not be asked or gave no clear answer.
+// Whether `sha` is in the history of `target` (a branch or a commit), by GitHub's compare API:
+// "ahead" or "identical" means it contains the commit, "behind" or "diverged" that it does not.
+// Commit ids make the answer exact. Undefined when GitHub could not be asked or gave no clear
+// answer.
 export async function containsCommit(
   repo: string,
   sha: string,
-  branch: string,
+  target: string,
   token: string | null | undefined,
+  signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  const path = branch.split("/").map(encodeURIComponent).join("/")
-  const res = await githubGet(`repos/${repo}/compare/${sha}...${path}`, token)
+  const path = target.split("/").map(encodeURIComponent).join("/")
+  // Only the status is read, so one commit of the list (not up to 250) is enough.
+  const res = await githubGet(`repos/${repo}/compare/${sha}...${path}?per_page=1`, token, signal)
   if (!res?.ok) return undefined
   const status = ((await res.json().catch(() => null)) as { status?: unknown } | null)?.status
   if (status === "ahead" || status === "identical") return true
@@ -117,9 +122,33 @@ export async function containsCommit(
   return undefined
 }
 
+const commitPullRequests = z.array(
+  z.object({
+    merged_at: z.string().nullish(),
+    merge_commit_sha: z.string().nullish(),
+    head: z.object({ sha: z.string() }),
+  }),
+)
+
+// The head commit of the PR whose merge made commit `sha`, so what the PR brought in can be
+// looked for in it even when the merge was a squash or a rebase. Undefined when no merged PR
+// made it (a plain push) or GitHub could not be asked.
+export async function mergedHead(
+  repo: string,
+  sha: string,
+  token: string | null | undefined,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const res = await githubGet(`repos/${repo}/commits/${sha}/pulls`, token, signal)
+  if (!res?.ok) return undefined
+  const parsed = commitPullRequests.safeParse(await res.json().catch(() => null))
+  if (!parsed.success) return undefined
+  return parsed.data.find((pr) => pr.merged_at && pr.merge_commit_sha === sha)?.head.sha
+}
+
 // A GET to GitHub's REST API, with the token when there is one. Undefined when GitHub could not
-// be reached in time.
-async function githubGet(path: string, token: string | null | undefined) {
+// be reached in time, or `signal` gave up waiting first.
+async function githubGet(path: string, token: string | null | undefined, signal?: AbortSignal) {
   try {
     return await fetch(`https://api.github.com/${path}`, {
       headers: {
@@ -128,7 +157,9 @@ async function githubGet(path: string, token: string | null | undefined) {
         "User-Agent": "intesa",
         ...(token && { Authorization: `Bearer ${token}` }),
       },
-      signal: AbortSignal.timeout(5000),
+      signal: signal
+        ? AbortSignal.any([AbortSignal.timeout(5000), signal])
+        : AbortSignal.timeout(5000),
     })
   } catch {
     return undefined

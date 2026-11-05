@@ -554,6 +554,10 @@ const githubCodeLocation: Migration = {
         .addColumn("merge_commit_sha", text)
         .execute()
       await trx.schema.alterTable("task_pull_requests").addColumn("released_to", text).execute()
+      // PRs already merged straight into the production branch are in it.
+      await sql`update task_pull_requests set released_to = base_branch where state = 'merged' and base_branch = coalesce((select w.production_branch from github_webhooks w join tasks t on t.workspace_id = w.workspace_id where t.id = task_pull_requests.task_id), 'main')`.execute(
+        trx,
+      )
     })
   },
 }
