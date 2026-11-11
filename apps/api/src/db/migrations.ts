@@ -636,6 +636,95 @@ const contentAddressedArtifacts: Migration = {
   },
 }
 
+// Bugs group the tasks tagged `bug` that worked on them. A bug's description shows images
+// through its own handles on blobs (`bug_images`), so a blob now lives while either an artifact
+// or a bug image refers to it. A bug goes with its last task, whichever path removes the link.
+const bugs: Migration = {
+  async up(db) {
+    const sqlite = db.getExecutor().adapter instanceof SqliteAdapter
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .alterTable("projects")
+        .addColumn("bug_counter", "integer", (c) => c.notNull().defaultTo(0))
+        .execute()
+      await trx.schema
+        .createTable("bugs")
+        .addColumn("id", text, (c) => c.primaryKey())
+        .addColumn("project_id", text, (c) =>
+          c.notNull().references("projects.id").onDelete("cascade"),
+        )
+        .addColumn("number", "integer", notNull)
+        .addColumn("title", text, notNull)
+        .addColumn("body", text)
+        // No foreign key: the task it mirrors may be deleted while the bug lives on.
+        .addColumn("source_task_id", text)
+        .addColumn("edited_at", text)
+        .addColumn("created_by", text, (c) => c.notNull().references("users.id"))
+        .addColumn("created_at", text, notNull)
+        .addColumn("updated_at", text, notNull)
+        .addUniqueConstraint("bugs_project_number", ["project_id", "number"])
+        .execute()
+      await trx.schema
+        .createTable("bug_tasks")
+        .addColumn("task_id", text, (c) =>
+          c.primaryKey().references("tasks.id").onDelete("cascade"),
+        )
+        .addColumn("bug_id", text, (c) => c.notNull().references("bugs.id").onDelete("cascade"))
+        .addColumn("created_at", text, notNull)
+        .execute()
+      await trx.schema.createIndex("bug_tasks_bug_id").on("bug_tasks").column("bug_id").execute()
+      await trx.schema
+        .createTable("bug_images")
+        .addColumn("id", text, (c) => c.primaryKey())
+        .addColumn("bug_id", text, (c) => c.notNull().references("bugs.id").onDelete("cascade"))
+        .addColumn("name", text, notNull)
+        .addColumn("mime_type", text, notNull)
+        .addColumn("size", "integer", notNull)
+        .addColumn("blob_hash", text, (c) => c.notNull().references("blobs.hash"))
+        .addColumn("created_at", text, notNull)
+        .execute()
+      await trx.schema.createIndex("bug_images_bug_id").on("bug_images").column("bug_id").execute()
+      await trx.schema
+        .createIndex("bug_images_blob_hash")
+        .on("bug_images")
+        .column("blob_hash")
+        .execute()
+
+      const release = sql`delete from blobs where hash = old.blob_hash
+        and not exists (select 1 from artifacts where blob_hash = old.blob_hash)
+        and not exists (select 1 from bug_images where blob_hash = old.blob_hash)`
+      const dropEmptyBug = sql`delete from bugs where id = old.bug_id
+        and not exists (select 1 from bug_tasks where bug_id = old.bug_id)`
+      if (sqlite) {
+        await sql`drop trigger artifacts_release_blob_on_delete`.execute(trx)
+        await sql`drop trigger artifacts_release_blob_on_update`.execute(trx)
+        for (const table of ["artifacts", "bug_images"]) {
+          await sql`create trigger ${sql.id(`${table}_release_blob_on_delete`)}
+            after delete on ${sql.table(table)} begin ${release}; end`.execute(trx)
+          await sql`create trigger ${sql.id(`${table}_release_blob_on_update`)}
+            after update of blob_hash on ${sql.table(table)} begin ${release}; end`.execute(trx)
+        }
+        await sql`create trigger bug_tasks_drop_empty_bug after delete on bug_tasks
+          begin ${dropEmptyBug}; end`.execute(trx)
+      } else {
+        await sql`drop trigger artifacts_release_blob on artifacts`.execute(trx)
+        await sql`drop function release_artifact_blob()`.execute(trx)
+        await sql`create function release_blob() returns trigger
+          language plpgsql as $$ begin ${release}; return null; end $$`.execute(trx)
+        for (const table of ["artifacts", "bug_images"]) {
+          await sql`create trigger ${sql.id(`${table}_release_blob`)}
+            after delete or update of blob_hash on ${sql.table(table)}
+            for each row execute function release_blob()`.execute(trx)
+        }
+        await sql`create function drop_empty_bug() returns trigger
+          language plpgsql as $$ begin ${dropEmptyBug}; return null; end $$`.execute(trx)
+        await sql`create trigger bug_tasks_drop_empty_bug after delete on bug_tasks
+          for each row execute function drop_empty_bug()`.execute(trx)
+      }
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -649,4 +738,5 @@ export const migrations: Record<string, Migration> = {
   "0010_github_memory": githubMemory,
   "0011_github_code_location": githubCodeLocation,
   "0012_content_addressed_artifacts": contentAddressedArtifacts,
+  "0013_bugs": bugs,
 }

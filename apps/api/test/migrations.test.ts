@@ -629,3 +629,159 @@ describe.each(targets)("migration 0012 (content-addressed artifacts) on %s", (_n
     await close()
   })
 })
+
+describe.each(targets)("migration 0013 (bugs) on %s", (_name, open) => {
+  test("a blob lives while an artifact or a bug image holds it, and a bug goes with its last task", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0012_content_addressed_artifacts")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values({
+        id: "u",
+        name: "U",
+        email: "u@x.com",
+        totpEnabled: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    // `projects` has no bug counter at this schema version, which the types already include.
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 2,
+        createdAt: ts,
+        updatedAt: ts,
+      } as never)
+      .execute()
+    for (const [id, number] of [
+      ["t1", 1],
+      ["t2", 2],
+    ] as const)
+      await db
+        .insertInto("tasks")
+        .values({
+          id,
+          workspaceId: "w",
+          projectId: "p",
+          number,
+          title: id,
+          status: "todo",
+          position: `a${number}`,
+          createdBy: "u",
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    const shot = Buffer.from("screenshot")
+    const hash = createHash("sha256").update(shot).digest("hex")
+    await db.insertInto("blobs").values({ hash, size: shot.length, content: shot }).execute()
+    const handle = { name: "shot.png", mimeType: "image/png", size: shot.length, blobHash: hash }
+    await db
+      .insertInto("artifacts")
+      .values({ id: "a1", taskId: "t1", ...handle, createdAt: ts, updatedAt: ts })
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    expect(await db.selectFrom("projects").select("bugCounter").execute()).toEqual([
+      { bugCounter: 0 },
+    ])
+    await db
+      .insertInto("bugs")
+      .values({
+        id: "b",
+        projectId: "p",
+        number: 1,
+        title: "Broken",
+        body: null,
+        sourceTaskId: "t1",
+        editedAt: null,
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("bugTasks")
+      .values([
+        { taskId: "t1", bugId: "b", createdAt: ts },
+        { taskId: "t2", bugId: "b", createdAt: ts },
+      ])
+      .execute()
+    await db
+      .insertInto("bugImages")
+      .values({ id: "i1", bugId: "b", ...handle, createdAt: ts })
+      .execute()
+    const blobs = () => db.selectFrom("blobs").select("hash").execute()
+
+    // The artifact goes with its task; the bug image still holds the blob.
+    await db.deleteFrom("tasks").where("id", "=", "t1").execute()
+    expect(await db.selectFrom("artifacts").select("id").execute()).toEqual([])
+    expect(await blobs()).toEqual([{ hash }])
+    expect(await db.selectFrom("bugs").select("id").execute()).toEqual([{ id: "b" }])
+
+    // The bug's last task takes the bug with it, and its image handle releases the blob.
+    await db.deleteFrom("tasks").where("id", "=", "t2").execute()
+    expect(await db.selectFrom("bugs").select("id").execute()).toEqual([])
+    expect(await db.selectFrom("bugImages").select("id").execute()).toEqual([])
+    expect(await blobs()).toEqual([])
+
+    // The other way round: a bug image released first leaves the artifact's blob alone.
+    await db.insertInto("blobs").values({ hash, size: shot.length, content: shot }).execute()
+    await db
+      .insertInto("tasks")
+      .values({
+        id: "t3",
+        workspaceId: "w",
+        projectId: "p",
+        number: 3,
+        title: "t3",
+        status: "todo",
+        position: "a3",
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("artifacts")
+      .values({ id: "a3", taskId: "t3", ...handle, createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("bugs")
+      .values({
+        id: "b2",
+        projectId: "p",
+        number: 2,
+        title: "Again",
+        body: null,
+        sourceTaskId: "t3",
+        editedAt: null,
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db.insertInto("bugTasks").values({ taskId: "t3", bugId: "b2", createdAt: ts }).execute()
+    await db
+      .insertInto("bugImages")
+      .values({ id: "i3", bugId: "b2", ...handle, createdAt: ts })
+      .execute()
+    await db.deleteFrom("bugImages").where("id", "=", "i3").execute()
+    expect(await blobs()).toEqual([{ hash }])
+    await db.deleteFrom("artifacts").where("id", "=", "a3").execute()
+    expect(await blobs()).toEqual([])
+    await close()
+  })
+})

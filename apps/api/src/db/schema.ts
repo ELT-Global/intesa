@@ -75,6 +75,7 @@ export type ProjectTable = {
   key: string
   description: string | null
   taskCounter: number
+  bugCounter: Generated<number>
   createdAt: string
   updatedAt: string
 }
@@ -215,8 +216,37 @@ export type TaskPullRequestUnlinkTable = {
   createdAt: string
 }
 
+// A bug of a project, grouping the tasks that worked on it (bugTasks). It copies its first
+// task's title and body (`sourceTaskId`) until it is edited itself (`editedAt`).
+export type BugTable = {
+  id: string
+  projectId: string
+  number: number
+  title: string
+  body: string | null
+  sourceTaskId: string | null
+  editedAt: string | null
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+// A task belongs to at most one bug; the bug is deleted with its last link.
+export type BugTaskTable = { taskId: string; bugId: string; createdAt: string }
+
+// A handle on a blob for an image a bug's description shows.
+export type BugImageTable = {
+  id: string
+  bugId: string
+  name: string
+  mimeType: string
+  size: number
+  blobHash: string
+  createdAt: string
+}
+
 export type Database = {
-  // A handle on a blob: the blob is deleted with its last artifact.
+  // A task's handle on a blob.
   artifacts: {
     id: string
     taskId: string
@@ -227,7 +257,8 @@ export type Database = {
     createdAt: string
     updatedAt: string
   }
-  // File bytes, stored once per distinct content under their SHA-256 (hex).
+  // File bytes, stored once per distinct content under their SHA-256 (hex), deleted with their
+  // last artifact or bug image.
   blobs: {
     hash: string
     size: number
@@ -253,4 +284,7 @@ export type Database = {
   taskPullRequests: TaskPullRequestTable
   githubPullRequests: GithubPullRequestTable
   taskPullRequestUnlinks: TaskPullRequestUnlinkTable
+  bugs: BugTable
+  bugTasks: BugTaskTable
+  bugImages: BugImageTable
 }

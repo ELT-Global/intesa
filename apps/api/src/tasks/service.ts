@@ -1,5 +1,6 @@
 import { type Selectable, sql, type Updateable } from "kysely"
 import { deleteDroppedImages } from "../artifacts/images"
+import { type BugRef, loadTaskBug, syncTaskBug } from "../bugs/links"
 import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
@@ -67,6 +68,8 @@ export type TaskDetail = TaskSummary & {
   reviewedBy?: UserRef | null
   /** Who tested it: a member, null for nobody; absent while unanswered. */
   testedBy?: UserRef | null
+  /** The bug the task worked on, when it is tagged `bug`. */
+  bug: BugRef | null
 }
 
 export type HistoryEntry = {
@@ -299,7 +302,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     .where("tasks.id", "=", taskId)
     .executeTakeFirstOrThrow()
 
-  const [project, parent, children, relationships, customFields] = await Promise.all([
+  const [project, parent, children, relationships, customFields, bug] = await Promise.all([
     db
       .selectFrom("projects")
       .select(["id", "name", "key", "workspaceId"])
@@ -321,6 +324,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
       .execute(),
     loadRelationships(db, { id: taskId, workspaceId: task.workspaceId }),
     loadCustomFieldValues(db, taskId),
+    loadTaskBug(db, taskId),
   ])
 
   return {
@@ -340,6 +344,7 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     ),
     ...relationships,
     customFields,
+    bug,
     // Unanswered leaves the key out; "nobody" is an explicit null.
     ...(task.reviewedBySet === 1 && {
       reviewedBy: task.reviewerId
@@ -514,11 +519,13 @@ async function replaceTags(db: Db, taskId: string, tagIds: string[]) {
 
 const unique = (ids: string[] | undefined) => [...new Set(ids ?? [])]
 
+// `bugId` links the task to that bug rather than opening a new one (a regression task).
 export async function createTask(
   db: Db,
   userId: string,
   project: ProjectRow,
   input: CreateTaskInput,
+  bugId?: string,
 ): Promise<string> {
   const assigneeIds = unique(input.assigneeIds)
   const tagIds = unique(input.tagIds)
@@ -598,6 +605,7 @@ export async function createTask(
       .execute()
     await replaceAssignees(trx, id, assigneeIds, ts)
     await replaceTags(trx, id, tagIds)
+    if (tagIds.length > 0) await syncTaskBug(trx, userId, id, { bugId })
     if (input.customFields) {
       await applyCustomFields(trx, { id, projectId: project.id }, input.customFields)
     }
@@ -695,6 +703,11 @@ export async function updateTask(
         .set(changed ? { ...set, updatedAt: ts } : set)
         .where("id", "=", task.id)
         .execute()
+    }
+    // After the row is written, since a bug copies the task as it now is.
+    const contentChanged = patch.title !== undefined || patch.body !== undefined
+    if (patch.tagIds || contentChanged) {
+      await syncTaskBug(trx, userId, task.id, { mirror: contentChanged })
     }
   })
 }

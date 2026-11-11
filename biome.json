@@ -19,7 +19,11 @@
   "linter": { "enabled": true },
   "overrides": [
     {
-      "includes": ["apps/api/src/schemas.ts", "apps/api/src/tasks/schemas.ts"],
+      "includes": [
+        "apps/api/src/schemas.ts",
+        "apps/api/src/tasks/schemas.ts",
+        "apps/api/src/bugs/schemas.ts"
+      ],
       "linter": {
         "rules": {
           "style": {
@@ -28,7 +32,7 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["**", "!zod", "!./tasks/schemas"],
+                    "group": ["**", "!zod", "!./tasks/schemas", "!./bugs/schemas", "!../tasks/schemas"],
                     "message": "Clients import these schemas, so only zod (and the schema modules re-exported here) may be imported."
                   }
                 ]

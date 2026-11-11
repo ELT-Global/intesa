@@ -12,6 +12,7 @@ import { compressJson } from "./lib/compress-json"
 import { ApiError, onError } from "./lib/errors"
 import { requestLog } from "./lib/request-log"
 import { authRoutes } from "./routes/auth"
+import { bugRoutes, projectBugRoutes, workspaceBugRoutes } from "./routes/bugs"
 import { fieldRoutes, projectFieldRoutes } from "./routes/custom-fields"
 import { deviceRoutes } from "./routes/device"
 import { workspaceGithubRoutes } from "./routes/github"
@@ -55,8 +56,11 @@ export function createApp({ db, config, webDist }: AppDeps) {
     .route("/workspaces", workspaceTagRoutes(deps))
     .route("/workspaces", searchRoutes(deps))
     .route("/workspaces", workspaceGithubRoutes(deps))
+    .route("/workspaces", workspaceBugRoutes(deps))
     .route("/projects", projectRoutes(deps))
     .route("/projects", projectFieldRoutes(deps))
+    .route("/projects", projectBugRoutes(deps))
+    .route("/bugs", bugRoutes(deps))
     .route("/custom-fields", fieldRoutes(deps))
     .route("/tags", tagRoutes(deps))
     .route("/tasks", taskRoutes(deps))

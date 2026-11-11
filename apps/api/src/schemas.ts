@@ -1,6 +1,7 @@
 // Constants and request schemas shared with clients (the CLI imports this as
 // @intesa/api/schemas). Only zod may be imported here, directly or through the modules
 // re-exported, so a client bundle never pulls in the database driver or the server.
+export * from "./bugs/schemas"
 export * from "./tasks/schemas"
 
 export const TAG_COLORS = ["blue", "orange", "aqua", "violet", "magenta", "gray"] as const
