@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { ApiError } from "@/lib/api"
+import { useUploadImage } from "@/lib/artifacts"
 import {
   TASK_BODY_MAX_LENGTH,
   type TaskDetail,
@@ -182,6 +183,8 @@ function SheetBody({
             className="text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]"
           />
           <DescriptionField
+            key={`body-${task.id}`}
+            taskId={task.id}
             value={task.body ?? ""}
             onCommit={(body, revert) => patch({ body: body || null }, revert)}
           />
@@ -308,31 +311,58 @@ function EditableText({
   )
 }
 
-/** Markdown description that saves on blur. Escape reverts an unsaved edit. */
+/**
+ * Markdown description that saves on blur. Escape reverts an unsaved edit. Pasted or dropped
+ * images are stored with the task and inserted as Markdown images.
+ */
 function DescriptionField({
+  taskId,
   value,
   onCommit,
 }: {
+  taskId: string
   value: string
   onCommit: (value: string, revert: () => void) => void
 }) {
-  const [draft, setDraft] = useState(value)
+  const [draft, setDraftState] = useState(value)
+  // Read by commits that run after an upload settles, outside a render.
+  const latest = useRef(draft)
+  const setDraft = (next: string) => {
+    latest.current = next
+    setDraftState(next)
+  }
   const focused = useRef(false)
+  const uploading = useRef(0)
+  const upload = useUploadImage(taskId)
 
   // Adopt server changes unless the user is mid-edit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setDraft only writes state
   useEffect(() => {
-    if (!focused.current) setDraft(value)
+    if (!focused.current && !uploading.current) setDraft(value)
   }, [value])
 
   function commit() {
     focused.current = false
-    const next = draft.trim()
+    // Saved once the uploads settle, so no "Uploading…" placeholder reaches the task.
+    if (uploading.current) return
+    const next = latest.current.trim()
     if (next === value) {
       setDraft(value)
       return
     }
     setDraft(next)
     onCommit(next, () => setDraft(value))
+  }
+
+  async function uploadImage(file: File) {
+    uploading.current++
+    try {
+      return await upload(file)
+    } finally {
+      uploading.current--
+      // The editor swaps the placeholder for the image right after this resolves.
+      if (!uploading.current && !focused.current) setTimeout(commit)
+    }
   }
 
   return (
@@ -343,6 +373,7 @@ function DescriptionField({
       value={draft}
       onChange={setDraft}
       keepsEscape={draft !== value}
+      uploadImage={uploadImage}
       onFocus={() => {
         focused.current = true
       }}

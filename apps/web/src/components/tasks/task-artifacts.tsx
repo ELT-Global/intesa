@@ -1,4 +1,4 @@
-import { ARTIFACT_ACCEPT, artifactFileError } from "@intesa/api/artifacts"
+import { artifactFileError, artifactFormat, DOCUMENT_ACCEPT, isImage } from "@intesa/api/artifacts"
 import { MarkdownEditor } from "@intesa/markdown-editor"
 import { useQuery } from "@tanstack/react-query"
 import { FileText, Upload } from "lucide-react"
@@ -20,13 +20,19 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [editing, setEditing] = useState<Artifact | null>(null)
+  // Images belong to the description they were pasted into.
+  const documents = query.data?.filter((artifact) => !isImage(artifact.mimeType))
 
   async function add(files: File[]) {
     if (upload.isPending || !files.length) return
     setError(null)
     // Validate the whole selection first so an invalid batch doesn't partially upload.
     for (const file of files) {
-      const invalid = artifactFileError(file)
+      const format = artifactFormat(file.name)
+      const invalid =
+        format && isImage(format.mime)
+          ? "Paste or drop images into the description instead."
+          : artifactFileError(file)
       if (invalid) {
         setError(`${file.name}: ${invalid}`)
         return
@@ -57,7 +63,7 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
         ref={input}
         type="file"
         multiple
-        accept={ARTIFACT_ACCEPT}
+        accept={DOCUMENT_ACCEPT}
         aria-label="Upload artifacts"
         className="hidden"
         onChange={(e) => {
@@ -97,9 +103,9 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
             </button>
           </div>
         )}
-        {!!query.data?.length && (
+        {!!documents?.length && (
           <ul className="mt-2 flex flex-col gap-1">
-            {query.data.map((artifact) => (
+            {documents.map((artifact) => (
               <li key={artifact.id} className="flex items-center gap-2 text-[13px]">
                 <FileText aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                 {artifact.mimeType === "text/markdown" ? (
