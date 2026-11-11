@@ -262,7 +262,7 @@ describe("unlinking", () => {
 
 describe("bug images", () => {
   test("uploads images only, serves them like image artifacts, and drops them with the body", async () => {
-    const { owner, bugTag, createTask, bugs, upload } = await setup()
+    const { t, owner, bugTag, createTask, bugs, upload } = await setup()
     await createTask({ title: "Glitch", tagIds: [bugTag] })
     const [bug] = await bugs()
     const images = `/api/bugs/${bug.id}/images`
@@ -291,6 +291,14 @@ describe("bug images", () => {
     expect((await owner.request(`${images}/${image.id}`)).status).toBe(200)
     await owner.call("PATCH", `/api/bugs/${bug.id}`, { body: "Gone" })
     expect((await owner.request(`${images}/${image.id}`)).status).toBe(404)
+
+    // An upload that never reached a saved body is deleted by the client.
+    const { image: unsaved } = await json(await upload(images, "draft.png", PNG, "image/png"))
+    const remove = () => owner.request(`${images}/${unsaved.id}`, { method: "DELETE" })
+    expect((await remove()).status).toBe(204)
+    expect((await owner.request(`${images}/${unsaved.id}`)).status).toBe(404)
+    expect((await remove()).status).toBe(404)
+    expect(await t.db.selectFrom("blobs").select("hash").execute()).toEqual([])
   })
 })
 

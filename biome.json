@@ -32,7 +32,13 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["**", "!zod", "!./tasks/schemas", "!./bugs/schemas", "!../tasks/schemas"],
+                    "group": [
+                      "**",
+                      "!zod",
+                      "!./tasks/schemas",
+                      "!./bugs/schemas",
+                      "!../tasks/schemas"
+                    ],
                     "message": "Clients import these schemas, so only zod (and the schema modules re-exported here) may be imported."
                   }
                 ]
