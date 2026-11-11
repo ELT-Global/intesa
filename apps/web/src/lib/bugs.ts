@@ -95,3 +95,18 @@ export function useDeleteBugImage(bugId: string) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.storage }),
   })
 }
+
+/** What a bug's status badge says: a pending bug that has come back is "regressed". */
+export type BugState = BugStatus | "regressed"
+
+export const bugState = (bug: { status: BugStatus; regressions?: number }): BugState =>
+  bug.status === "pending" && (bug.regressions ?? 0) > 0 ? "regressed" : bug.status
+
+/** Whether the bug's key or title, or any of its tasks' keys or titles, contain `query`. */
+export function bugMatches(bug: BugSummary, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [bug, ...bug.tasks].some(
+    (x) => x.key.toLowerCase().includes(q) || x.title.toLowerCase().includes(q),
+  )
+}

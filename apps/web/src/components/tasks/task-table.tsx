@@ -1,7 +1,13 @@
 import { compareBy, nextSort, type Sort, type SortKey, STATUS_LABELS } from "@intesa/task-query"
-import { ChevronDown, ChevronUp } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import { Avatar } from "@/components/ui/avatar"
+import {
+  tableCell as cell,
+  Dash,
+  SortHeader,
+  tableFirstCell,
+  tableRow,
+} from "@/components/ui/table"
 import { type TaskSummary, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import {
@@ -37,65 +43,6 @@ const HEADERS: Record<TableColumn, string> = {
 }
 const SORTABLE: TableColumn[] = ["task", "status", "priority", "due"]
 
-const cell =
-  "h-10 pointer-coarse:h-11 border-b border-border/70 px-4 align-middle group-last/row:border-b-0"
-
-function SortHeader({
-  column,
-  sort,
-  onSort,
-  first,
-}: {
-  column: TableColumn
-  sort: Sort | null
-  onSort: (key: SortKey) => void
-  first: boolean
-}) {
-  const th = cn(
-    "h-9 whitespace-nowrap border-b border-border px-4 text-left text-[12px] font-medium text-muted-foreground",
-    first && "sticky left-0 z-10 bg-card",
-  )
-  if (!SORTABLE.includes(column)) {
-    return (
-      <th scope="col" className={th}>
-        {HEADERS[column]}
-      </th>
-    )
-  }
-  const active = sort?.key === column
-  const Chevron = active && sort.dir === "desc" ? ChevronDown : ChevronUp
-  return (
-    <th
-      scope="col"
-      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
-      className={th}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(column as SortKey)}
-        className={cn(
-          "touch-target group/sort -mx-1 inline-flex cursor-pointer items-center gap-1 rounded px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-          active && "text-foreground",
-        )}
-      >
-        {HEADERS[column]}
-        <Chevron
-          aria-hidden
-          className={cn(
-            "size-3",
-            !active &&
-              "opacity-0 group-hover/sort:opacity-100 group-focus-visible/sort:opacity-100",
-          )}
-        />
-      </button>
-    </th>
-  )
-}
-
-function Dash() {
-  return <span className="text-muted-foreground">—</span>
-}
-
 const Row = memo(function Row({
   task,
   columns,
@@ -119,10 +66,7 @@ const Row = memo(function Row({
             key={column}
             // w-full with max-w-0 hands this column the table's spare width, so titles use
             // what the page gives the table and truncate only once it runs out.
-            className={cn(
-              cell,
-              "sticky left-0 z-10 w-full max-w-0 bg-card group-hover/row:bg-[color-mix(in_oklab,var(--muted)_40%,var(--card))]",
-            )}
+            className={cn(cell, tableFirstCell)}
           >
             <button
               type="button"
@@ -227,7 +171,7 @@ const Row = memo(function Row({
           if (e.currentTarget.contains(t) && !t.closest("button,input,[role^=menuitem]"))
             onOpen(task)
         }}
-        className="group/row cursor-pointer transition-colors hover:bg-muted/40"
+        className={tableRow}
       >
         {columns.map(renderCell)}
       </tr>
@@ -270,7 +214,14 @@ export function TaskTable({
         <thead>
           <tr>
             {columns.map((c, i) => (
-              <SortHeader key={c} column={c} sort={sort} onSort={onSort} first={i === 0} />
+              <SortHeader
+                key={c}
+                label={HEADERS[c]}
+                sortKey={SORTABLE.includes(c) ? (c as SortKey) : undefined}
+                sort={sort}
+                onSort={onSort}
+                first={i === 0}
+              />
             ))}
           </tr>
         </thead>

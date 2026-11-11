@@ -26,7 +26,7 @@ test("a project's Bugs link unfolds when the project is opened, and folds by its
   await expect(sidebarBugs(page, projectName)).toHaveCount(0)
 })
 
-test("a bug shows the avatars of everyone assigned to its tasks", async ({ page }) => {
+test("a bug shows the avatars of everyone who has worked on its tasks", async ({ page }) => {
   const { bugTag, createTask, bugsPath, project } = await setup(page)
   const me = (
     (await (await page.request.get("/api/me")).json()) as { user: { id: string; name: string } }
@@ -34,7 +34,7 @@ test("a bug shows the avatars of everyone assigned to its tasks", async ({ page 
   await createTask({ title: "Crash on save", tagIds: [bugTag], assigneeIds: [me.id] })
   const bug = await onlyBug(page, project.id)
   await page.goto(bugsPath)
-  const avatars = bugRow(page, bug.key).getByRole("list", { name: `${bug.key} assignees` })
+  const avatars = bugRow(page, bug.key).getByRole("list", { name: `${bug.key} worked on by` })
   await expect(avatars.getByRole("img", { name: me.name })).toBeVisible()
   await bugRow(page, bug.key).getByText("Crash on save").click()
   await expect(bugSheet(page, bug.key).getByRole("img", { name: me.name })).toBeVisible()
@@ -66,9 +66,11 @@ async function setup(page: Page) {
   return { slug, project, projectName, bugTag, createTask, bugsPath }
 }
 
-const bugsList = (page: Page) => page.getByRole("list", { name: "Bugs" })
-const bugRow = (page: Page, key: string) =>
-  bugsList(page).getByRole("listitem").filter({ hasText: key }).first()
+const bugsTable = (page: Page) => page.getByRole("table", { name: "Bugs" })
+const bugRows = (page: Page) => bugsTable(page).locator("tbody tr")
+const bugRow = (page: Page, key: string) => bugRows(page).filter({ hasText: key }).first()
+// The row's Fixed cell, the last column.
+const fixedCell = (row: Locator) => row.getByRole("cell").last()
 const bugSheet = (page: Page, key: string) => page.getByRole("dialog", { name: key })
 
 async function onlyBug(page: Page, projectId: string) {
@@ -142,6 +144,72 @@ test("tagging a task bug lists it under Bugs as pending, and completing it resol
   await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/bugs\\?bug=${bug.id}$`))
 })
 
+test("the bugs table sorts, searches, and shows when bugs were raised, fixed and regressed", async ({
+  page,
+}) => {
+  const { project, bugTag, createTask, bugsPath } = await setup(page)
+  const alpha = await createTask({ title: "Alpha crash", tagIds: [bugTag] })
+  const beta = await createTask({ title: "Beta glitch", tagIds: [bugTag] })
+  const res = await page.request.get(`/api/projects/${project.id}/bugs`)
+  const [betaBug, alphaBug] = ((await res.json()) as { bugs: { id: string; key: string }[] })
+    .bugs as [{ id: string; key: string }, { id: string; key: string }]
+  await page.goto(bugsPath)
+
+  const table = bugsTable(page)
+  for (const name of ["Bug", "Tasks", "Worked on by", "Status", "Raised", "Fixed"]) {
+    await expect(table.getByRole("columnheader", { name, exact: true })).toBeVisible()
+  }
+  // The API's order first: pending, newest first.
+  await expect(bugRows(page).first()).toContainText(betaBug.key)
+
+  // Raised sorts oldest first, then flips.
+  const raised = table.getByRole("columnheader", { name: "Raised" })
+  await raised.getByRole("button").click()
+  await expect(raised).toHaveAttribute("aria-sort", "ascending")
+  await expect(bugRows(page).first()).toContainText(alphaBug.key)
+  await raised.getByRole("button").click()
+  await expect(raised).toHaveAttribute("aria-sort", "descending")
+  await expect(bugRows(page).first()).toContainText(betaBug.key)
+
+  // Search matches titles and task keys, in any case.
+  const search = page.getByRole("searchbox", { name: "Search bugs" })
+  await search.fill("ALPHA")
+  await expect(bugRows(page)).toHaveCount(1)
+  await expect(bugRows(page).first()).toContainText(alphaBug.key)
+  await search.fill(beta.key)
+  await expect(bugRows(page)).toHaveCount(1)
+  await expect(bugRows(page).first()).toContainText(betaBug.key)
+  await search.fill("nothing like this")
+  await expect(page.getByText("No matching bugs.")).toBeVisible()
+  await search.fill("")
+  await expect(bugRows(page)).toHaveCount(2)
+  await expect(fixedCell(bugRow(page, alphaBug.key))).toHaveText("—")
+
+  // Completing the task fixes the bug: the Fixed column takes the day, the sheet the task's dates.
+  await setTaskStatus(page, alpha.id, "complete")
+  await page.reload()
+  const row = bugRow(page, alphaBug.key)
+  await expect(row).toContainText("Resolved")
+  const fixed = fixedCell(row).locator("time")
+  await expect(fixed).toBeVisible()
+  await expect(fixed).toHaveAttribute("title", /\d/)
+  await row.getByRole("button", { name: "Alpha crash" }).click()
+  const sheet = bugSheet(page, alphaBug.key)
+  const tasks = sheet.getByRole("list", { name: "Bug tasks" })
+  await expect(tasks).toContainText(/Raised \w+ \d+ · Completed \w+ \d+/)
+
+  // A regression task makes it pending again, as regressed, and it is not fixed any more.
+  const opened = await page.request.post(`/api/bugs/${alphaBug.id}/tasks`, { data: {} })
+  expect(opened.status()).toBe(201)
+  await page.reload()
+  await expect(sheet.getByText("Regressed (1)")).toBeVisible()
+  await expect(tasks.getByRole("listitem").last()).toContainText("Not complete yet")
+  await sheet.getByRole("button", { name: "Close" }).click()
+  await expect(row).toContainText("Regressed (1)")
+  await expect(fixedCell(row)).toHaveText("—")
+  await expect(bugRow(page, betaBug.key)).toContainText("Pending")
+})
+
 test("a pending bug cannot open a regression task until its open task is complete", async ({
   page,
 }) => {
@@ -174,7 +242,7 @@ test("a pending bug cannot open a regression task until its open task is complet
   await expect(taskSheet).toBeHidden()
 
   const row = bugRow(page, bug.key)
-  await expect(row).toContainText("Pending")
+  await expect(row).toContainText("Regressed (1)")
   await expect(row.getByRole("button", { name: `${reopened.key} Todo` })).toBeVisible()
   await row.getByRole("button", { name: "Crash on save" }).click()
   await expect(open).toBeDisabled()

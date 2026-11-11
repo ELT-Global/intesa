@@ -10,6 +10,7 @@ import { StatusIcon } from "@/components/tasks/properties"
 import { TaskKey } from "@/components/tasks/task-key"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { Timestamp } from "@/components/ui/timestamp"
 import { ApiError } from "@/lib/api"
 import {
   type BugDetail,
@@ -97,7 +98,7 @@ function BugBody({ bug }: { bug: BugDetail }) {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
-        <BugStatusBadge status={bug.status} />
+        <BugStatusBadge bug={bug} />
         <div className="ml-auto flex items-center gap-2">
           {open && (
             <span id="regression-hint" className="text-xs text-muted-foreground">
@@ -160,6 +161,16 @@ function BugBody({ bug }: { bug: BugDetail }) {
                     {STATUS_LABELS[t.status]}
                   </span>
                 </button>
+                <p className="ml-1 pl-3.5 text-xs text-muted-foreground">
+                  Raised <Timestamp iso={t.raisedAt} /> ·{" "}
+                  {t.completedAt ? (
+                    <>
+                      Completed <Timestamp iso={t.completedAt} />
+                    </>
+                  ) : (
+                    "Not complete yet"
+                  )}
+                </p>
                 {t.body ? (
                   <MarkdownEditor
                     label={`${t.key} description`}

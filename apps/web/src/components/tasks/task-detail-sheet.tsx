@@ -251,7 +251,7 @@ function BugLink({ bug, projectId }: { bug: NonNullable<TaskDetail["bug"]>; proj
       <Bug className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
       <TaskKey className="shrink-0 text-[inherit] group-hover:underline">{bug.key}</TaskKey>
       <span className="truncate group-hover:underline">{bug.title}</span>
-      <BugStatusBadge status={bug.status} />
+      <BugStatusBadge bug={bug} />
       <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
     </Link>
   )
