@@ -67,6 +67,7 @@ describe("bug creation", () => {
           title: "Login fails",
           status: "todo",
           createdAt: expect.any(String),
+          assignees: [],
         },
       ],
       createdAt: expect.any(String),
@@ -100,6 +101,21 @@ describe("bug creation", () => {
     const list = await bugs()
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({ number: 1, title: "Later a bug" })
+  })
+})
+
+describe("assignees", () => {
+  test("each of a bug's tasks lists who it is assigned to", async () => {
+    const { owner, createTask, bugTag, bugs } = await setup()
+    const me = (await owner.call("GET", "/api/me")).body.user
+    const task = await createTask({ title: "Crash", tagIds: [bugTag], assigneeIds: [me.id] })
+    const [bug] = await bugs()
+    const assignee = { id: me.id, name: me.name, avatarUrl: me.avatarUrl }
+    expect(bug.tasks).toEqual([expect.objectContaining({ id: task.id, assignees: [assignee] })])
+    const detail = (await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug
+    expect(detail.tasks[0].assignees).toEqual([assignee])
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { assigneeIds: [] })
+    expect((await bugs())[0].tasks[0].assignees).toEqual([])
   })
 })
 

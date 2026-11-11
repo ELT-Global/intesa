@@ -3,11 +3,18 @@ import { type Db, inTransaction, newId, now } from "../db"
 import type { BugTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
 import type { Status } from "../tasks/schemas"
-import { createTask } from "../tasks/service"
+import { createTask, type UserRef } from "../tasks/service"
 import { bugKey, findBugTagId, isPending } from "./links"
 import { BUG_KEY_PATTERN, type BugStatus, type RegressionTaskInput } from "./schemas"
 
-export type BugTask = { id: string; key: string; title: string; status: Status; createdAt: string }
+export type BugTask = {
+  id: string
+  key: string
+  title: string
+  status: Status
+  createdAt: string
+  assignees: UserRef[]
+}
 
 export type BugSummary = {
   id: string
@@ -37,11 +44,16 @@ const scopedIds = (db: Db, scope: BugScope) => {
     : q.where("bugs.projectId", "=", scope.projectId)
 }
 
-// Two queries however many bugs match: the bugs, and the tasks linked to them. Pending bugs
+// Three queries however many bugs match: the bugs, their tasks and those tasks' assignees.
+// Pending bugs
 // come first, then the newest.
 async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
-  const [bugs, links] = await Promise.all([
+  const linkedTaskIds = db
+    .selectFrom("bugTasks")
+    .select("bugTasks.taskId")
+    .where("bugTasks.bugId", "in", scopedIds(db, scope))
+  const [bugs, links, assignees] = await Promise.all([
     db
       .selectFrom("bugs")
       .innerJoin("projects", "projects.id", "bugs.projectId")
@@ -75,7 +87,19 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
       .orderBy("bugTasks.createdAt")
       .orderBy("tasks.number")
       .execute(),
+    db
+      .selectFrom("taskAssignees")
+      .innerJoin("users", "users.id", "taskAssignees.userId")
+      .select(["taskAssignees.taskId", "users.id", "users.name", "users.avatarUrl"])
+      .where("taskAssignees.taskId", "in", linkedTaskIds)
+      .orderBy("users.name")
+      .execute(),
   ])
+
+  const assigneesByTask = new Map<string, UserRef[]>()
+  for (const { taskId, ...user } of assignees) {
+    assigneesByTask.set(taskId, [...(assigneesByTask.get(taskId) ?? []), user])
+  }
 
   const tasksByBug = new Map<string, BugDetail["tasks"]>()
   for (const link of links) {
@@ -85,6 +109,7 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
       title: link.title,
       status: link.status as Status,
       createdAt: link.createdAt,
+      assignees: assigneesByTask.get(link.id) ?? [],
       body: link.body,
     }
     tasksByBug.set(link.bugId, [...(tasksByBug.get(link.bugId) ?? []), task])
