@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto"
 import { unzipSync } from "fflate"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { artifactFileError, artifactFormat, isImage, MAX_IMAGE_BYTES } from "../artifacts/formats"
 import type { AppEnv } from "../auth/middleware"
-import { newId, now } from "../db"
+import { type Db, inTransaction, newId, now } from "../db"
 import type { Deps } from "../deps"
 import { ApiError } from "../lib/errors"
 import { requireTask } from "../tasks/service"
@@ -71,6 +72,19 @@ async function readFile(req: Request) {
   return { name: file.name, mimeType, size: file.size, content }
 }
 
+type ArtifactFile = Awaited<ReturnType<typeof readFile>>
+
+// Stores the bytes once per distinct content and returns the hash an artifact refers to them by.
+async function storeBlob(trx: Db, { size, content }: ArtifactFile) {
+  const hash = createHash("sha256").update(content).digest("hex")
+  await trx
+    .insertInto("blobs")
+    .values({ hash, size, content })
+    .onConflict((oc) => oc.column("hash").doNothing())
+    .execute()
+  return hash
+}
+
 // Mounted under taskRoutes, which authenticates before any task-scoped handler.
 export function artifactRoutes({ db }: Pick<Deps, "db">) {
   return new Hono<AppEnv>()
@@ -99,26 +113,32 @@ export function artifactRoutes({ db }: Pick<Deps, "db">) {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
       const file = await readFile(c.req.raw)
       const timestamp = now()
-      const artifact = await db
-        .insertInto("artifacts")
-        .values({
-          ...file,
-          id: newId(),
-          taskId: task.id,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })
-        .returning(metadata)
-        .executeTakeFirstOrThrow()
+      const artifact = await inTransaction(db, async (trx) =>
+        trx
+          .insertInto("artifacts")
+          .values({
+            id: newId(),
+            taskId: task.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            size: file.size,
+            blobHash: await storeBlob(trx, file),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          })
+          .returning(metadata)
+          .executeTakeFirstOrThrow(),
+      )
       return c.json({ artifact }, 201)
     })
     .get("/:taskId/artifacts/:artifactId", async (c) => {
       await requireTask(db, c.var.user.id, c.req.param("taskId"))
       const artifact = await db
         .selectFrom("artifacts")
-        .selectAll()
-        .where("taskId", "=", c.req.param("taskId"))
-        .where("id", "=", c.req.param("artifactId"))
+        .innerJoin("blobs", "blobs.hash", "artifacts.blobHash")
+        .select(["artifacts.name", "artifacts.mimeType", "artifacts.size", "blobs.content"])
+        .where("artifacts.taskId", "=", c.req.param("taskId"))
+        .where("artifacts.id", "=", c.req.param("artifactId"))
         .executeTakeFirst()
       if (!artifact) throw new ApiError("NOT_FOUND", "Artifact not found")
       return new Response(new Uint8Array(artifact.content), {
@@ -160,12 +180,15 @@ export function artifactRoutes({ db }: Pick<Deps, "db">) {
           "VALIDATION_ERROR",
           "Replace this artifact with Markdown using the same filename.",
         )
-      const artifact = await db
-        .updateTable("artifacts")
-        .set({ ...file, updatedAt: now() })
-        .where("id", "=", existing.id)
-        .returning(metadata)
-        .executeTakeFirstOrThrow()
+      // The trigger on artifacts deletes the old blob if nothing else refers to it.
+      const artifact = await inTransaction(db, async (trx) =>
+        trx
+          .updateTable("artifacts")
+          .set({ size: file.size, blobHash: await storeBlob(trx, file), updatedAt: now() })
+          .where("id", "=", existing.id)
+          .returning(metadata)
+          .executeTakeFirstOrThrow(),
+      )
       return c.json({ artifact })
     })
     .delete("/:taskId/artifacts/:artifactId", async (c) => {

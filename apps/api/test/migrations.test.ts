@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { generateKeyBetween } from "fractional-indexing"
 import { CamelCasePlugin, Kysely, sql } from "kysely"
 import { Migrator } from "kysely/migration"
@@ -517,6 +518,114 @@ describe.each(targets)("migration 0008 (review and test) on %s", (_name, open) =
     ).toEqual([
       { id: "checked", reviewedBy: null, reviewedBySet: 1, testedBy: null, testedBySet: 0 },
     ])
+    await close()
+  })
+})
+
+describe.each(targets)("migration 0012 (content-addressed artifacts) on %s", (_name, open) => {
+  test("stores each distinct file once and deletes it with its last artifact", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0011_github_code_location")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values({
+        id: "u",
+        name: "U",
+        email: "u@x.com",
+        totpEnabled: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 2,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    for (const [id, number] of [
+      ["t1", 1],
+      ["t2", 2],
+    ] as const)
+      await db
+        .insertInto("tasks")
+        .values({
+          id,
+          workspaceId: "w",
+          projectId: "p",
+          number,
+          title: id,
+          status: "todo",
+          position: `a${number}`,
+          createdBy: "u",
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    const artifact = (id: string, taskId: string, text: string) => ({
+      id,
+      taskId,
+      name: `${id}.md`,
+      mimeType: "text/markdown",
+      size: text.length,
+      content: Buffer.from(text),
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    // `artifacts` still holds its bytes at this schema version, which the types no longer show.
+    await db
+      .insertInto("artifacts")
+      .values([
+        artifact("a1", "t1", "same"),
+        artifact("a2", "t2", "same"),
+        artifact("a3", "t1", "other"),
+      ] as never)
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    const sha = (text: string) => createHash("sha256").update(text).digest("hex")
+    const blobs = async () =>
+      (
+        await db.selectFrom("blobs").select(["hash", "size", "content"]).orderBy("hash").execute()
+      ).map((b) => ({ ...b, content: Buffer.from(b.content).toString() }))
+    expect(await blobs()).toEqual(
+      [
+        { hash: sha("same"), size: 4, content: "same" },
+        { hash: sha("other"), size: 5, content: "other" },
+      ].sort((a, b) => (a.hash < b.hash ? -1 : 1)),
+    )
+    expect(
+      await db.selectFrom("artifacts").select(["id", "taskId", "blobHash"]).orderBy("id").execute(),
+    ).toEqual([
+      { id: "a1", taskId: "t1", blobHash: sha("same") },
+      { id: "a2", taskId: "t2", blobHash: sha("same") },
+      { id: "a3", taskId: "t1", blobHash: sha("other") },
+    ])
+
+    // A task's cascade releases its handles; a blob stays while another artifact holds it.
+    await db.deleteFrom("tasks").where("id", "=", "t2").execute()
+    expect(await blobs()).toHaveLength(2)
+    await db
+      .updateTable("artifacts")
+      .set({ blobHash: sha("other") })
+      .where("id", "=", "a1")
+      .execute()
+    expect((await blobs()).map((b) => b.content)).toEqual(["other"])
+    await db.deleteFrom("tasks").where("id", "=", "t1").execute()
+    expect(await blobs()).toEqual([])
     await close()
   })
 })

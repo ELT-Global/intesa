@@ -51,13 +51,13 @@ export function storageRoutes({ db }: Pick<Deps, "db">) {
   return new Hono<AppEnv>().use(requireUser(db)).get("/", async (c) => {
     const { path, ...database } = await databaseUsage(db)
     const files = await db
-      .selectFrom("artifacts")
+      .selectFrom("blobs")
       .select((eb) => [eb.fn.countAll<string>().as("count"), eb.fn.sum<string>("size").as("bytes")])
       .executeTakeFirstOrThrow()
     return c.json({
       database: {
         ...database,
-        // Uploaded artifacts and screenshots, which are stored in the database itself.
+        // Distinct uploaded files and screenshots (each stored once), in the database itself.
         files: { count: Number(files.count), bytes: Number(files.bytes ?? 0) },
       },
       // Unknown for PostgreSQL, whose disk belongs to the database server.

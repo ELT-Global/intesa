@@ -216,15 +216,22 @@ export type TaskPullRequestUnlinkTable = {
 }
 
 export type Database = {
+  // A handle on a blob: the blob is deleted with its last artifact.
   artifacts: {
     id: string
     taskId: string
     name: string
     mimeType: string
     size: number
-    content: Uint8Array
+    blobHash: string
     createdAt: string
     updatedAt: string
+  }
+  // File bytes, stored once per distinct content under their SHA-256 (hex).
+  blobs: {
+    hash: string
+    size: number
+    content: Uint8Array
   }
   users: UserTable
   sessions: SessionTable

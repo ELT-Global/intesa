@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { strToU8, zipSync } from "fflate"
 import { MAX_ARTIFACT_BYTES, MAX_IMAGE_BYTES } from "../src/artifacts/formats"
 import { createTestApp, setupProject, signIn } from "./helpers"
@@ -266,5 +267,59 @@ describe("images in a task's description", () => {
     })
     expect(res.status).toBe(400)
     expect((await owner.call("GET", url)).body.artifacts).toHaveLength(1)
+  })
+})
+
+describe("identical files", () => {
+  test("are stored once, and the bytes go with the last artifact holding them", async () => {
+    const { t, owner, taskId, url, upload } = await setup()
+    const blobs = () => t.db.selectFrom("blobs").select(["hash", "size"]).execute()
+    const { artifact: shot } = await uploaded(await upload("shot.png", PNG))
+    const { artifact: copy } = await uploaded(await upload("copy.png", PNG))
+    // The same bytes in another workspace share the stored file but not the artifact.
+    const other = await setupProject(t, "other-blobs@example.com")
+    const otherTask = await other.owner.call("POST", `/api/projects/${other.project.id}/tasks`, {
+      title: "Elsewhere",
+    })
+    const otherUrl = `/api/tasks/${otherTask.body.task.id}/artifacts`
+    const body = new FormData()
+    body.set("file", new File([PNG], "same.png"))
+    expect((await other.owner.request(otherUrl, { method: "POST", body })).status).toBe(201)
+
+    expect(await blobs()).toEqual([
+      { hash: createHash("sha256").update(PNG).digest("hex"), size: PNG.length },
+    ])
+    const storage = await owner.call("GET", "/api/storage")
+    expect(storage.body.database.files).toEqual({ count: 1, bytes: PNG.length })
+
+    expect((await owner.request(`${url}/${shot.id}`, { method: "DELETE" })).status).toBe(204)
+    expect(Buffer.from(await (await owner.request(`${url}/${copy.id}`)).arrayBuffer())).toEqual(PNG)
+    await other.owner.call("DELETE", `/api/tasks/${otherTask.body.task.id}`)
+    expect(await blobs()).toHaveLength(1)
+
+    // The last handle goes when the description stops showing it.
+    const save = (text: string | null) =>
+      owner.call("PATCH", `/api/tasks/${taskId}`, { body: text })
+    await save(`![copy](${url}/${copy.id})`)
+    await save(null)
+    expect(await blobs()).toEqual([])
+  })
+
+  test("replacing Markdown keeps the old bytes only while another artifact holds them", async () => {
+    const { t, owner, url, upload } = await setup()
+    const count = async () => (await t.db.selectFrom("blobs").select("hash").execute()).length
+    const { artifact: a } = await uploaded(await upload("a.md", "# Same"))
+    const { artifact: b } = await uploaded(await upload("b.md", "# Same"))
+    expect(await count()).toBe(1)
+    await upload("a.md", "# New", "text/markdown", `${url}/${a.id}`, "PUT")
+    expect(await count()).toBe(2)
+    expect(await (await owner.request(`${url}/${b.id}`)).text()).toBe("# Same")
+    await upload("b.md", "# New", "text/markdown", `${url}/${b.id}`, "PUT")
+    expect(await count()).toBe(1)
+    // Replacing with the same bytes keeps them.
+    await upload("b.md", "# New", "text/markdown", `${url}/${b.id}`, "PUT")
+    await owner.request(`${url}/${a.id}`, { method: "DELETE" })
+    expect(await count()).toBe(1)
+    expect(await (await owner.request(`${url}/${b.id}`)).text()).toBe("# New")
   })
 })

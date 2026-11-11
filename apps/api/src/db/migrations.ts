@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { generateNKeysBetween } from "fractional-indexing"
 import { type ColumnDefinitionBuilder, type Kysely, SqliteAdapter, sql } from "kysely"
 import type { Migration } from "kysely/migration"
@@ -562,6 +563,79 @@ const githubCodeLocation: Migration = {
   },
 }
 
+// Artifact bytes move to `blobs`, keyed by their SHA-256, so identical files are stored once.
+// An artifact is a handle on a blob; triggers delete a blob once no artifact refers to it, on
+// every path an artifact goes (its own delete, a task's cascade, a Markdown replacement).
+const contentAddressedArtifacts: Migration = {
+  async up(db) {
+    const sqlite = db.getExecutor().adapter instanceof SqliteAdapter
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .createTable("blobs")
+        .addColumn("hash", text, (c) => c.primaryKey())
+        .addColumn("size", "integer", notNull)
+        .addColumn("content", sqlite ? sql`blob` : sql`bytea`, notNull)
+        .execute()
+      await trx.schema
+        .createTable("artifacts_next")
+        .addColumn("id", text, (c) => c.primaryKey())
+        .addColumn("task_id", text, (c) => c.notNull().references("tasks.id").onDelete("cascade"))
+        .addColumn("name", text, notNull)
+        .addColumn("mime_type", text, notNull)
+        .addColumn("size", "integer", notNull)
+        .addColumn("blob_hash", text, (c) => c.notNull().references("blobs.hash"))
+        .addColumn("created_at", text, notNull)
+        .addColumn("updated_at", text, notNull)
+        .execute()
+
+      // One row at a time, so only one file's bytes are held in memory.
+      const ids = await trx.selectFrom("artifacts").select("id").execute()
+      for (const { id } of ids) {
+        const { content, ...row } = await trx
+          .selectFrom("artifacts")
+          .selectAll()
+          .where("id", "=", id)
+          .executeTakeFirstOrThrow()
+        const hash = createHash("sha256").update(content).digest("hex")
+        await trx
+          .insertInto("blobs")
+          .values({ hash, size: content.byteLength, content })
+          .onConflict((oc) => oc.column("hash").doNothing())
+          .execute()
+        await trx
+          .insertInto("artifactsNext")
+          .values({ ...row, blobHash: hash })
+          .execute()
+      }
+
+      await trx.schema.dropTable("artifacts").execute()
+      await trx.schema.alterTable("artifacts_next").renameTo("artifacts").execute()
+      await trx.schema.createIndex("artifacts_task_id").on("artifacts").column("task_id").execute()
+      await trx.schema
+        .createIndex("artifacts_blob_hash")
+        .on("artifacts")
+        .column("blob_hash")
+        .execute()
+
+      // Updating an artifact to the same blob finds itself still referring to it: a no-op.
+      const release = sql`delete from blobs where hash = old.blob_hash
+        and not exists (select 1 from artifacts where blob_hash = old.blob_hash)`
+      if (sqlite) {
+        await sql`create trigger artifacts_release_blob_on_delete after delete on artifacts
+          begin ${release}; end`.execute(trx)
+        await sql`create trigger artifacts_release_blob_on_update
+          after update of blob_hash on artifacts begin ${release}; end`.execute(trx)
+      } else {
+        await sql`create function release_artifact_blob() returns trigger
+          language plpgsql as $$ begin ${release}; return null; end $$`.execute(trx)
+        await sql`create trigger artifacts_release_blob
+          after delete or update of blob_hash on artifacts
+          for each row execute function release_artifact_blob()`.execute(trx)
+      }
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -574,4 +648,5 @@ export const migrations: Record<string, Migration> = {
   "0009_github": github,
   "0010_github_memory": githubMemory,
   "0011_github_code_location": githubCodeLocation,
+  "0012_content_addressed_artifacts": contentAddressedArtifacts,
 }
