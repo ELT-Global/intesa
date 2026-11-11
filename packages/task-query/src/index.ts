@@ -45,7 +45,7 @@ export {
   suggest,
   type Term,
 } from "./search"
-export { compareBy, nextSort, type Sort, type SortKey } from "./sort"
+export { compareBy, nextSort, orderBy, type Sort, type SortKey } from "./sort"
 export {
   formatWeek,
   parseWeek,
