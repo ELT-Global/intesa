@@ -540,3 +540,41 @@ describe("artifact replace", () => {
     expect(r.stderr).toContain("plan.md")
   })
 })
+
+describe("artifact delete", () => {
+  test("refuses without --yes when it cannot prompt, and keeps the artifact", async () => {
+    const { box, task, onServer } = await setup()
+    await box.run(["artifact", "upload", task.key, fixture("brief.pdf")])
+    const r = await box.run(["artifact", "delete", task.key, "brief.pdf"], { env: DEBUG })
+    expect(r.exitCode).toBe(2)
+    expect(r.stderr).toContain("--yes")
+    expect(sent(r.stderr, "DELETE")).toBe(false)
+    expect(await onServer()).toHaveLength(1)
+  })
+
+  test("--yes deletes it, found by name in any case, and --json reports what was deleted", async () => {
+    const { box, task, onServer } = await setup()
+    const kept = put(box, "files/kept.md", "kept")
+    await box.run(["artifact", "upload", task.key, fixture("brief.pdf"), kept])
+    const [pdf] = await onServer()
+    const r = await box.run(["a", "delete", task.key, "BRIEF.pdf", "--yes", "--json"])
+    expect(r.exitCode).toBe(0)
+    expect(r.json()).toEqual({ id: pdf?.id, name: "brief.pdf", deleted: true })
+    expect((await onServer()).map((a) => a.name)).toEqual(["kept.md"])
+  })
+
+  test("an unknown artifact exits 5", async () => {
+    const { box, task } = await setup()
+    const r = await box.run(["artifact", "delete", task.key, "nothing.pdf", "--yes"])
+    expect(r.exitCode).toBe(5)
+  })
+
+  test("a read-only token cannot delete (exit 7)", async () => {
+    const { box, task, session } = await setup({ scope: "read" })
+    const upload = new FormData()
+    upload.set("file", new File([readFileSync(fixture("brief.pdf"))], "brief.pdf"))
+    await session.request(`/api/tasks/${task.id}/artifacts`, { method: "POST", body: upload })
+    const r = await box.run(["artifact", "delete", task.key, "brief.pdf", "--yes"])
+    expect(r.exitCode).toBe(7)
+  })
+})

@@ -96,6 +96,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "field delete": "destructive",
   "token revoke": "destructive",
   "github delete": "destructive",
+  "artifact delete": "destructive",
   // Writes to any local path, replacing a file with --force.
   "artifact download": "destructive",
   "artifact replace": "destructive",

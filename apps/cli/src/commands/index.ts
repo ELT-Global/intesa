@@ -62,7 +62,7 @@ export const nouns: NounEntry[] = [
   {
     name: "artifact",
     aliases: ["a"],
-    summary: "List, upload, download and edit a task's artifacts",
+    summary: "List, upload, download, edit and delete a task's artifacts",
     load: () => import("./artifact").then((m) => m.default),
   },
   {

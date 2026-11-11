@@ -7,7 +7,7 @@ import { links } from "../client/links"
 import { pickOne, resolver } from "../client/resolve"
 import { openOrPrint } from "../io/browser"
 import { editText } from "../io/editor"
-import { personPresent } from "../io/prompt"
+import { confirmDestructive, personPresent } from "../io/prompt"
 import { CliError, formatError, invalid, prefixed, usageError } from "../output/errors"
 import { renderMarkdown } from "../output/markdown"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
@@ -295,15 +295,38 @@ const replace = defineCommand({
   },
 })
 
+const remove = defineCommand({
+  name: "delete",
+  summary: "Delete an artifact",
+  description:
+    "Delete an artifact of any format, an image shown in the task's description included\n" +
+    "(the description then shows a broken image). Asks first on a terminal; otherwise --yes\n" +
+    "is required.",
+  args: [taskArg, artifactArg],
+  context: ["workspace", "project"],
+  output: "deleted",
+  examples: ["intesa artifact delete WEB-12 spec.pdf", "intesa a delete WEB-12 spec.pdf --yes"],
+  async run(ctx, { task: taskRef, artifact: ref }) {
+    const { http, task, artifact } = await find(ctx, taskRef, ref)
+    await confirmDestructive(ctx, `Delete ${artifact.name} from ${task.key}?`)
+    await http.client.api.tasks[":taskId"].artifacts[":artifactId"].$delete({
+      param: { taskId: task.id, artifactId: artifact.id },
+    })
+    ctx.done(`Deleted ${artifact.name}`)
+    return { id: artifact.id, name: artifact.name, deleted: true }
+  },
+  human: () => "",
+})
+
 export default defineGroup({
   name: "artifact",
   aliases: ["a"],
-  summary: "List, upload, download and edit a task's artifacts",
+  summary: "List, upload, download, edit and delete a task's artifacts",
   description:
     "Artifacts are files attached to a task: HTML, PDF, Markdown, Word and OpenDocument up\n" +
     "to 5 MB each, and PNG, JPEG, GIF and WebP images up to 10 MB. Only Markdown artifacts\n" +
     "can be edited or replaced, and a replacement keeps the artifact's name.",
-  commands: [list, upload, download, view, edit, replace],
+  commands: [list, upload, download, view, edit, replace, remove],
   examples: [
     "intesa artifact list WEB-12",
     "intesa a upload WEB-12 spec.pdf",

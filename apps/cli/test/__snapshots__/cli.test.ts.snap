@@ -16,7 +16,7 @@ COMMANDS
   member:      List, add and manage workspace members
   tag:         List, create and manage tags
   field:       List, create and manage a project's custom fields
-  artifact:    List, upload, download and edit a task's artifacts
+  artifact:    List, upload, download, edit and delete a task's artifacts
   status:      Show your recent projects, your tasks and what is due soon
   week:        Show what each person worked on in a week
   api:         Make an authenticated request to the Intesa API

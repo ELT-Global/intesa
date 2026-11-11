@@ -224,6 +224,7 @@ intesa field delete Estimate --yes
 - `intesa artifact view <task> <artifact>`: Show a Markdown artifact or open any other in the browser
 - `intesa artifact edit <task> <artifact>`: Edit a Markdown artifact in your editor
 - `intesa artifact replace <task> <artifact> <file>`: Replace a Markdown artifact with a file
+- `intesa artifact delete <task> <artifact>`: Delete an artifact
 
 ```sh
 intesa artifact list WEB-12
@@ -239,6 +240,8 @@ intesa artifact view WEB-12 spec.pdf --no-browser
 intesa artifact edit WEB-12 notes.md
 EDITOR='code --wait' intesa a edit WEB-12 notes.md
 intesa artifact replace WEB-12 notes.md ./drafts/notes.md
+intesa artifact delete WEB-12 spec.pdf
+intesa a delete WEB-12 spec.pdf --yes
 ```
 
 ## config

@@ -54,8 +54,14 @@ const PARITY: { web: string; cli: string[] }[] = [
   { web: "Relationships: add and remove", cli: ["task link", "task unlink"] },
   { web: "Relationship picker search", cli: ["task search"] },
   {
-    web: "Artifacts: list, upload, open",
-    cli: ["artifact list", "artifact upload", "artifact download", "artifact view"],
+    web: "Artifacts: list, upload, open, delete",
+    cli: [
+      "artifact list",
+      "artifact upload",
+      "artifact download",
+      "artifact view",
+      "artifact delete",
+    ],
   },
   { web: "Markdown artifact editor", cli: ["artifact edit", "artifact replace"] },
   { web: "Context menu: open, copy link, copy ID", cli: ["task open", "task url", "task view"] },

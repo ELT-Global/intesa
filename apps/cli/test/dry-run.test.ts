@@ -295,6 +295,11 @@ beforeAll(async () => {
       method: "PUT",
       path: `${task}/artifacts/${artifact.id}`,
     },
+    "intesa artifact delete": {
+      args: ["artifact", "delete", parent.key, "notes.md"],
+      method: "DELETE",
+      path: `${task}/artifacts/${artifact.id}`,
+    },
     "intesa api": {
       args: ["api", "/auth/dev-login", "-f", "email=api-dry@example.com"],
       method: "POST",
@@ -453,6 +458,7 @@ describe("--dry-run", () => {
     "intesa artifact upload",
     "intesa artifact edit",
     "intesa artifact replace",
+    "intesa artifact delete",
     "intesa api",
     "intesa config set",
     "intesa token create",
