@@ -57,6 +57,9 @@ describe("bug list", () => {
     expect(pending.stdout).toBe("WEB-B2\n")
     const resolved = await box.run(["bug", "list", "-p", "WEB", "--status", "resolved"])
     expect(resolved.stdout).toBe("WEB-B1\tresolved\tLogin fails\n")
+    const fixed = await box.run(["bug", "view", "WEB-B1", "--json", "--fields", "fixedAt"])
+    const view = await box.run(["bug", "view", "WEB-B1"])
+    expect(view.stdout).toContain(`Fixed\t${fixed.json().fixedAt}`)
   })
 
   test("a project without bugs prints nothing; a bad status is a usage error", async () => {
@@ -101,6 +104,9 @@ describe("bug view", () => {
     expect(text.stdout).not.toContain("Follows")
     expect(text.stdout).toContain("Tasks (1)")
     expect(text.stdout).toContain(`${task.key}\tTodo\tLogin fails`)
+    expect(text.stdout).toContain(`Raised\t${byKey.json().createdAt}`)
+    expect(text.stdout).toContain("Fixed\t—")
+    expect(text.stdout).toContain("Regressions\t0")
   })
 
   test("--fields selects, and unknown or malformed bugs fail", async () => {
@@ -184,6 +190,16 @@ describe("bug reopen", () => {
     expect(out.bug.tasks.map((t: { key: string }) => t.key)).toEqual([task.key, out.key])
     expect((await getTask(out.id)).bug).toMatchObject({ id: bug.id, status: "pending" })
     expect(r.stderr).toContain(`Opened ${out.key} for WEB-B1`)
+
+    // A bug that came back says so, with its count of regression tasks.
+    const list = await box.run(["bug", "list", "-p", "WEB"])
+    expect(list.stdout).toBe("WEB-B1\tregressed (1)\tLogin fails\n")
+    const json = (await box.run(["bug", "view", "WEB-B1", "--json"])).json()
+    expect(json).toMatchObject({ status: "pending", regressions: 1, fixedAt: null })
+    expect(json.tasks[0].completedAt).toEqual(expect.any(String))
+    const text = await box.run(["bug", "view", "WEB-B1"])
+    expect(text.stdout).toContain("Status\tregressed (1)")
+    expect(text.stdout).toContain("Regressions\t1")
   })
 
   test("takes the task-create options", async () => {

@@ -40,6 +40,8 @@ const BUG = [
   "title",
   "status",
   "tasks",
+  "regressions",
+  "fixedAt",
   "createdAt",
   "updatedAt",
   "url",

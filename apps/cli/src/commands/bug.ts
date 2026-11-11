@@ -6,7 +6,7 @@ import { webLinks } from "../client/links"
 import { resolver } from "../client/resolve"
 import { CliError, usageError } from "../output/errors"
 import { renderMarkdown } from "../output/markdown"
-import { rows, section } from "../output/render"
+import { asTable, rows, section } from "../output/render"
 import { type Ctx, defineCommand, defineGroup } from "../registry/define"
 import { dueDate, readBody, showTasks, splitList, tagIds, userIds } from "./task/shared"
 
@@ -24,6 +24,10 @@ const withUrl = async <B extends { id: string; projectId: string }>(ctx: Ctx, bu
   const { workspaceId } = await resolver(ctx).project(bug.projectId)
   return (await webLinks(ctx, workspaceId)).bug(bug)
 }
+
+// A pending bug whose earlier tasks were completed has come back: "regressed (1)".
+const statusText = (bug: { status: string; regressions: number }) =>
+  bug.status === "pending" && bug.regressions > 0 ? `regressed (${bug.regressions})` : bug.status
 
 const textFlags = {
   title: z.string().optional().meta({ short: "T", placeholder: "title", description: "Title" }),
@@ -64,14 +68,22 @@ const list = defineCommand({
     const links = await webLinks(ctx, workspaceId)
     return (await res.json()).bugs.map(links.bug)
   },
+  human: (ctx, bugs) =>
+    asTable(
+      ctx.mode,
+      bugs.map((b) => ({ ...b, status: statusText(b) })),
+      "bug",
+    ),
 })
 
 function format(ctx: Ctx, bug: BugView, raw: boolean) {
   const { mode } = ctx
   const when = (iso: string) => (mode.tty ? relativeTime(iso) : iso)
   const properties = [
-    { name: "Status", value: bug.status },
-    { name: "Created", value: when(bug.createdAt) },
+    { name: "Status", value: statusText(bug) },
+    { name: "Raised", value: when(bug.createdAt) },
+    { name: "Fixed", value: bug.fixedAt ? when(bug.fixedAt) : "—" },
+    { name: "Regressions", value: String(bug.regressions) },
     { name: "Updated", value: when(bug.updatedAt) },
   ]
   const tasks = rows(
