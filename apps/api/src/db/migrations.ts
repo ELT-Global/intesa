@@ -742,6 +742,68 @@ const bugOwnDescription: Migration = {
   },
 }
 
+// Bugs are opened when a task gets the bug tag, so tasks tagged before bugs existed have none.
+// Each becomes a bug of its own, numbered in task order within its project: which of them were
+// regressions of one another cannot be told after the fact.
+const backfillBugs: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      const tasks = await trx
+        .selectFrom("tasks")
+        .innerJoin("taskTags", "taskTags.taskId", "tasks.id")
+        .innerJoin("tags", "tags.id", "taskTags.tagId")
+        .select([
+          "tasks.id",
+          "tasks.projectId",
+          "tasks.title",
+          "tasks.createdBy",
+          "tasks.createdAt",
+        ])
+        .where((eb) => eb(eb.fn("lower", ["tags.name"]), "=", "bug"))
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom("bugTasks")
+                .select("taskId")
+                .whereRef("bugTasks.taskId", "=", "tasks.id"),
+            ),
+          ),
+        )
+        .orderBy("tasks.projectId")
+        .orderBy("tasks.number")
+        .execute()
+      const ts = new Date().toISOString()
+      for (const task of tasks) {
+        const { bugCounter } = await trx
+          .updateTable("projects")
+          .set((eb) => ({ bugCounter: eb("bugCounter", "+", 1) }))
+          .where("id", "=", task.projectId)
+          .returning("bugCounter")
+          .executeTakeFirstOrThrow()
+        const id = crypto.randomUUID()
+        await trx
+          .insertInto("bugs")
+          .values({
+            id,
+            projectId: task.projectId,
+            number: bugCounter,
+            title: task.title,
+            body: null,
+            createdBy: task.createdBy,
+            createdAt: task.createdAt,
+            updatedAt: ts,
+          })
+          .execute()
+        await trx
+          .insertInto("bugTasks")
+          .values({ taskId: task.id, bugId: id, createdAt: task.createdAt })
+          .execute()
+      }
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -757,4 +819,5 @@ export const migrations: Record<string, Migration> = {
   "0012_content_addressed_artifacts": contentAddressedArtifacts,
   "0013_bugs": bugs,
   "0014_bug_own_description": bugOwnDescription,
+  "0015_backfill_bugs": backfillBugs,
 }

@@ -913,3 +913,131 @@ describe.each(targets)("migration 0014 (bug own description) on %s", (_name, ope
     await close()
   })
 })
+
+describe.each(targets)("migration 0015 (backfill bugs) on %s", (_name, open) => {
+  test("opens a bug for each task tagged bug before bugs existed, numbered per project", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0014_bug_own_description")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values({
+        id: "u",
+        name: "U",
+        email: "u@x.com",
+        totpEnabled: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    for (const [id, key] of [
+      ["p1", "ONE"],
+      ["p2", "TWO"],
+    ] as const)
+      await db
+        .insertInto("projects")
+        .values({
+          id,
+          workspaceId: "w",
+          name: id,
+          key,
+          taskCounter: 9,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    const task = (id: string, projectId: string, number: number) => ({
+      id,
+      workspaceId: "w",
+      projectId,
+      number,
+      title: `Title ${id}`,
+      body: `Body ${id}`,
+      status: "todo",
+      position: `a${number}`,
+      createdBy: "u",
+      createdAt: `2026-01-0${number}T00:00:00.000Z`,
+      updatedAt: ts,
+    })
+    await db
+      .insertInto("tasks")
+      .values([
+        task("t2", "p1", 2),
+        task("t1", "p1", 1),
+        task("t3", "p2", 3),
+        task("plain", "p1", 4),
+      ])
+      .execute()
+    await db
+      .insertInto("tags")
+      .values([
+        { id: "bug", workspaceId: "w", name: "Bug", color: "orange", createdAt: ts },
+        { id: "ui", workspaceId: "w", name: "ui", color: "blue", createdAt: ts },
+      ])
+      .execute()
+    await db
+      .insertInto("taskTags")
+      .values([
+        { taskId: "t1", tagId: "bug" },
+        { taskId: "t2", tagId: "bug" },
+        { taskId: "t3", tagId: "bug" },
+        { taskId: "plain", tagId: "ui" },
+      ])
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    const bugs = await db
+      .selectFrom("bugs")
+      .innerJoin("bugTasks", "bugTasks.bugId", "bugs.id")
+      .select([
+        "bugs.projectId",
+        "bugs.number",
+        "bugs.title",
+        "bugs.body",
+        "bugs.createdAt",
+        "bugTasks.taskId",
+      ])
+      .orderBy("bugs.projectId")
+      .orderBy("bugs.number")
+      .execute()
+    expect(bugs).toEqual([
+      {
+        projectId: "p1",
+        number: 1,
+        title: "Title t1",
+        body: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        taskId: "t1",
+      },
+      {
+        projectId: "p1",
+        number: 2,
+        title: "Title t2",
+        body: null,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        taskId: "t2",
+      },
+      {
+        projectId: "p2",
+        number: 1,
+        title: "Title t3",
+        body: null,
+        createdAt: "2026-01-03T00:00:00.000Z",
+        taskId: "t3",
+      },
+    ])
+    expect(
+      await db.selectFrom("projects").select(["id", "bugCounter"]).orderBy("id").execute(),
+    ).toEqual([
+      { id: "p1", bugCounter: 2 },
+      { id: "p2", bugCounter: 1 },
+    ])
+    await close()
+  })
+})
