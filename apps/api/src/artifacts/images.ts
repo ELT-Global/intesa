@@ -1,11 +1,10 @@
 import type { Db } from "../db"
 
-export const artifactPath = (taskId: string) =>
-  `/api/tasks/${encodeURIComponent(taskId)}/artifacts/`
-export const bugImagePath = (bugId: string) => `/api/bugs/${encodeURIComponent(bugId)}/images/`
+const artifactPath = (taskId: string) => `/api/tasks/${encodeURIComponent(taskId)}/artifacts/`
+const bugImagePath = (bugId: string) => `/api/bugs/${encodeURIComponent(bugId)}/images/`
 
 // The ids after `path` that some Markdown links to, by relative or absolute URL.
-export function linkedIds(path: string, markdown: string | null) {
+function linkedIds(path: string, markdown: string | null) {
   const ids = new Set<string>()
   if (!markdown) return ids
   for (let at = markdown.indexOf(path); at !== -1; at = markdown.indexOf(path, at + 1)) {

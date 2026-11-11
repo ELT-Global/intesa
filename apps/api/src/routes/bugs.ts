@@ -53,15 +53,12 @@ export function bugRoutes({ db }: Deps) {
         if (patch.title !== undefined || patch.body !== undefined) {
           await inTransaction(db, async (trx) => {
             if (patch.body !== undefined) await deleteDroppedBugImages(trx, bug.id, patch.body)
-            const ts = now()
-            // Once edited, the bug stops following its first task.
             await trx
               .updateTable("bugs")
               .set({
                 ...(patch.title !== undefined && { title: patch.title }),
                 ...(patch.body !== undefined && { body: patch.body }),
-                editedAt: ts,
-                updatedAt: ts,
+                updatedAt: now(),
               })
               .where("id", "=", bug.id)
               .execute()

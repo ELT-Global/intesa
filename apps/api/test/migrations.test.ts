@@ -705,8 +705,6 @@ describe.each(targets)("migration 0013 (bugs) on %s", (_name, open) => {
         number: 1,
         title: "Broken",
         body: null,
-        sourceTaskId: "t1",
-        editedAt: null,
         createdBy: "u",
         createdAt: ts,
         updatedAt: ts,
@@ -766,8 +764,6 @@ describe.each(targets)("migration 0013 (bugs) on %s", (_name, open) => {
         number: 2,
         title: "Again",
         body: null,
-        sourceTaskId: "t3",
-        editedAt: null,
         createdBy: "u",
         createdAt: ts,
         updatedAt: ts,
@@ -782,6 +778,138 @@ describe.each(targets)("migration 0013 (bugs) on %s", (_name, open) => {
     expect(await blobs()).toEqual([{ hash }])
     await db.deleteFrom("artifacts").where("id", "=", "a3").execute()
     expect(await blobs()).toEqual([])
+    await close()
+  })
+})
+
+describe.each(targets)("migration 0014 (bug own description) on %s", (_name, open) => {
+  test("empties the descriptions bugs only mirrored, keeps edited ones, and drops the columns", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0013_bugs")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    await db
+      .insertInto("users")
+      .values({
+        id: "u",
+        name: "U",
+        email: "u@x.com",
+        totpEnabled: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 2,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    for (const [id, number] of [
+      ["t1", 1],
+      ["t2", 2],
+    ] as const)
+      await db
+        .insertInto("tasks")
+        .values({
+          id,
+          workspaceId: "w",
+          projectId: "p",
+          number,
+          title: id,
+          status: "todo",
+          position: `a${number}`,
+          createdBy: "u",
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    const blob = (text: string) => {
+      const content = Buffer.from(text)
+      return {
+        hash: createHash("sha256").update(content).digest("hex"),
+        size: content.length,
+        content,
+      }
+    }
+    const mirrored = blob("mirrored")
+    const own = blob("own")
+    await db.insertInto("blobs").values([mirrored, own]).execute()
+    // At this schema version bugs still have `source_task_id` and `edited_at`.
+    const bug = (id: string, taskId: string, editedAt: string | null) =>
+      ({
+        id,
+        projectId: "p",
+        number: id === "b1" ? 1 : 2,
+        title: id,
+        body: `![shot](/api/bugs/${id}/images/i${id})`,
+        sourceTaskId: taskId,
+        editedAt,
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      }) as never
+    await db
+      .insertInto("bugs")
+      .values([bug("b1", "t1", null), bug("b2", "t2", ts)])
+      .execute()
+    await db
+      .insertInto("bugTasks")
+      .values([
+        { taskId: "t1", bugId: "b1", createdAt: ts },
+        { taskId: "t2", bugId: "b2", createdAt: ts },
+      ])
+      .execute()
+    const image = (bugId: string, hash: string) => ({
+      id: `i${bugId}`,
+      bugId,
+      name: "shot.png",
+      mimeType: "image/png",
+      size: 3,
+      blobHash: hash,
+      createdAt: ts,
+    })
+    await db
+      .insertInto("bugImages")
+      .values([image("b1", mirrored.hash), image("b2", own.hash)])
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    expect(await db.selectFrom("bugs").selectAll().orderBy("id").execute()).toEqual([
+      {
+        id: "b1",
+        projectId: "p",
+        number: 1,
+        title: "b1",
+        body: null,
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      },
+      {
+        id: "b2",
+        projectId: "p",
+        number: 2,
+        title: "b2",
+        body: "![shot](/api/bugs/b2/images/ib2)",
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      },
+    ])
+    expect(await db.selectFrom("bugImages").select("id").execute()).toEqual([{ id: "ib2" }])
+    expect(await db.selectFrom("blobs").select("hash").execute()).toEqual([{ hash: own.hash }])
     await close()
   })
 })

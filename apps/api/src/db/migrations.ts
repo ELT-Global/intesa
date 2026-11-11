@@ -725,6 +725,23 @@ const bugs: Migration = {
   },
 }
 
+// A bug has its own description and no longer follows its first task. A bug never edited
+// only showed a copy of that task, so its description and the image handles the copy made go
+// (the triggers release their blobs).
+const bugOwnDescription: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await sql`delete from bug_images where bug_id in (select id from bugs where edited_at is null)`.execute(
+        trx,
+      )
+      await sql`update bugs set body = null where edited_at is null`.execute(trx)
+      // One column per statement: SQLite drops a single column at a time.
+      await trx.schema.alterTable("bugs").dropColumn("source_task_id").execute()
+      await trx.schema.alterTable("bugs").dropColumn("edited_at").execute()
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -739,4 +756,5 @@ export const migrations: Record<string, Migration> = {
   "0011_github_code_location": githubCodeLocation,
   "0012_content_addressed_artifacts": contentAddressedArtifacts,
   "0013_bugs": bugs,
+  "0014_bug_own_description": bugOwnDescription,
 }

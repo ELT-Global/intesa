@@ -48,7 +48,7 @@ const count = async (t: TestApp, table: "blobs" | "bugImages" | "bugs") =>
   )
 
 describe("bug creation", () => {
-  test("a task created with the bug tag opens a bug that copies it", async () => {
+  test("a task created with the bug tag opens a bug with its title and no description", async () => {
     const { owner, project, bugTag, createTask, bugs, taskBug } = await setup()
     const task = await createTask({ title: "Login fails", body: "Steps", tagIds: [bugTag] })
 
@@ -69,12 +69,16 @@ describe("bug creation", () => {
           createdAt: expect.any(String),
         },
       ],
-      mirroring: true,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     })
+    // The detail adds the bug's own description and each task's.
     const detail = await owner.call("GET", `/api/bugs/${bug.id}`)
-    expect(detail.body.bug).toEqual({ ...bug, body: "Steps" })
+    expect(detail.body.bug).toEqual({
+      ...bug,
+      body: null,
+      tasks: [{ ...bug.tasks[0], body: "Steps" }],
+    })
     expect(await taskBug(task.id)).toEqual({
       id: bug.id,
       key: `${project.key}-B1`,
@@ -99,64 +103,35 @@ describe("bug creation", () => {
   })
 })
 
-describe("mirroring", () => {
-  test("follows its first task's title and body, with images on the same blobs", async () => {
+describe("own description", () => {
+  test("task edits never change the bug, whose detail shows the task's current description", async () => {
     const { t, owner, bugTag, createTask, bugs, upload } = await setup()
     // The new-task dialog creates the task, uploads its screenshot, then patches the body.
     const task = await createTask({ title: "Crash", tagIds: [bugTag] })
     const artifacts = `/api/tasks/${task.id}/artifacts`
     const shot = (await json(await upload(artifacts, "shot.png", PNG, "image/png"))).artifact
-    const doc = (await json(await upload(artifacts, "log.pdf", "%PDF-1.7"))).artifact
-    const shotLink = `${artifacts}/${shot.id}`
-    const docLink = `${artifacts}/${doc.id}`
+    const body = `![shot](${artifacts}/${shot.id})`
     const patched = await owner.call("PATCH", `/api/tasks/${task.id}`, {
       title: "Crash on save",
-      body: `![shot](${shotLink}) ![again](http://localhost:3000${shotLink}) [log](${docLink})`,
+      body,
     })
     expect(patched.status).toBe(200)
 
     const [bug] = await bugs()
     const detail = (await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug
-    expect(detail.title).toBe("Crash on save")
-    const [, imageId] = /\/api\/bugs\/[\w-]+\/images\/([\w-]+)/.exec(detail.body) ?? []
-    expect(detail.body).toBe(
-      `![shot](/api/bugs/${bug.id}/images/${imageId}) ![again](http://localhost:3000/api/bugs/${bug.id}/images/${imageId}) [log](${docLink})`,
-    )
-    // A handle on the screenshot's blob, not a copy of its bytes.
-    expect(await count(t, "blobs")).toBe(2)
-    expect(await count(t, "bugImages")).toBe(1)
-    const image = await owner.request(`/api/bugs/${bug.id}/images/${imageId}`)
-    expect(image.status).toBe(200)
-    expect(Buffer.from(await image.arrayBuffer())).toEqual(PNG)
-
-    // Dropping the screenshot from the task's body deletes it from both, and its blob.
-    await owner.call("PATCH", `/api/tasks/${task.id}`, { body: `[log](${docLink})` })
-    expect((await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug.body).toBe(`[log](${docLink})`)
+    expect(detail).toMatchObject({ title: "Crash", body: null })
+    // The task's own links, served by the task's artifacts.
+    expect(detail.tasks).toMatchObject([{ id: task.id, title: "Crash on save", body }])
     expect(await count(t, "bugImages")).toBe(0)
-    expect(await count(t, "blobs")).toBe(1)
-  })
 
-  test("the bug keeps the screenshot after the task drops it once the bug was edited", async () => {
-    const { t, owner, bugTag, createTask, bugs, upload } = await setup()
-    const task = await createTask({ title: "Crash", tagIds: [bugTag] })
-    const artifacts = `/api/tasks/${task.id}/artifacts`
-    const shot = (await json(await upload(artifacts, "shot.png", PNG, "image/png"))).artifact
-    await owner.call("PATCH", `/api/tasks/${task.id}`, {
-      body: `![shot](${artifacts}/${shot.id})`,
-    })
-    const [bug] = await bugs()
-    const { body } = (await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug
-    await owner.call("PATCH", `/api/bugs/${bug.id}`, { title: "Crash when saving" })
-
-    await owner.call("PATCH", `/api/tasks/${task.id}`, { title: "Renamed", body: "" })
+    await owner.call("PATCH", `/api/tasks/${task.id}`, { title: "Renamed", body: "Fixed?" })
     const after = (await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug
-    expect(after).toMatchObject({ title: "Crash when saving", body, mirroring: false })
-    expect(await count(t, "blobs")).toBe(1)
-    const path = /\/api\/bugs\/[\w-]+\/images\/[\w-]+/.exec(body)?.[0] ?? ""
-    expect((await owner.request(path)).status).toBe(200)
+    expect(after).toMatchObject({ title: "Crash", body: null, updatedAt: detail.updatedAt })
+    expect(after.tasks).toMatchObject([{ title: "Renamed", body: "Fixed?" }])
+    expect((await owner.request(`${artifacts}/${shot.id}`)).status).toBe(404)
   })
 
-  test("editing a bug leaves its task alone", async () => {
+  test("editing a bug leaves its tasks alone", async () => {
     const { owner, bugTag, createTask, bugs } = await setup()
     const task = await createTask({ title: "Typo", body: "On home", tagIds: [bugTag] })
     const [bug] = await bugs()
@@ -168,7 +143,7 @@ describe("mirroring", () => {
     expect(edited.body.bug).toMatchObject({
       title: "Typo in hero",
       body: "Hero says 'Welcom'",
-      mirroring: false,
+      tasks: [{ id: task.id, title: "Typo", body: "On home" }],
     })
     const after = (await owner.call("GET", `/api/tasks/${task.id}`)).body.task
     expect(after).toMatchObject({ title: "Typo", body: "On home" })
@@ -204,15 +179,11 @@ describe("status and regressions", () => {
       priority: "high",
       tags: [{ id: bugTag, name: "Bug" }],
     })
-    expect(opened.body.bug).toMatchObject({ id: bug.id, status: "pending", mirroring: true })
+    expect(opened.body.bug).toMatchObject({ id: bug.id, status: "pending" })
     expect(opened.body.bug.tasks.map((x: { id: string }) => x.id)).toEqual([
       first.id,
       opened.body.task.id,
     ])
-
-    // Only the first task is mirrored.
-    await owner.call("PATCH", `/api/tasks/${opened.body.task.id}`, { title: "Slow again" })
-    expect((await bugs())[0].title).toBe("Slow search")
   })
 
   test("a regression creates the bug tag when it was deleted", async () => {

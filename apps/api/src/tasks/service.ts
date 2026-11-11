@@ -605,7 +605,7 @@ export async function createTask(
       .execute()
     await replaceAssignees(trx, id, assigneeIds, ts)
     await replaceTags(trx, id, tagIds)
-    if (tagIds.length > 0) await syncTaskBug(trx, userId, id, { bugId })
+    if (tagIds.length > 0) await syncTaskBug(trx, userId, id, bugId)
     if (input.customFields) {
       await applyCustomFields(trx, { id, projectId: project.id }, input.customFields)
     }
@@ -704,11 +704,7 @@ export async function updateTask(
         .where("id", "=", task.id)
         .execute()
     }
-    // After the row is written, since a bug copies the task as it now is.
-    const contentChanged = patch.title !== undefined || patch.body !== undefined
-    if (patch.tagIds || contentChanged) {
-      await syncTaskBug(trx, userId, task.id, { mirror: contentChanged })
-    }
+    if (patch.tagIds) await syncTaskBug(trx, userId, task.id)
   })
 }
 

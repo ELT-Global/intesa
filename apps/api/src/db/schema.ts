@@ -216,16 +216,14 @@ export type TaskPullRequestUnlinkTable = {
   createdAt: string
 }
 
-// A bug of a project, grouping the tasks that worked on it (bugTasks). It copies its first
-// task's title and body (`sourceTaskId`) until it is edited itself (`editedAt`).
+// A bug of a project, grouping the tasks that worked on it (bugTasks). Its title starts as its
+// first task's; its description is its own.
 export type BugTable = {
   id: string
   projectId: string
   number: number
   title: string
   body: string | null
-  sourceTaskId: string | null
-  editedAt: string | null
   createdBy: string
   createdAt: string
   updatedAt: string

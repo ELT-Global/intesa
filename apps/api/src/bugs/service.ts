@@ -18,13 +18,15 @@ export type BugSummary = {
   status: BugStatus
   /** Oldest link first; `createdAt` is when the task joined the bug. */
   tasks: BugTask[]
-  /** Still following its first task, until the bug itself is edited. */
-  mirroring: boolean
   createdAt: string
   updatedAt: string
 }
 
-export type BugDetail = BugSummary & { body: string | null }
+/** Also the bug's own description, and each task's, which the bug shows read-only. */
+export type BugDetail = Omit<BugSummary, "tasks"> & {
+  body: string | null
+  tasks: (BugTask & { body: string | null })[]
+}
 
 type BugScope = { ids: string[] } | { projectId: string }
 
@@ -49,7 +51,6 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
         "bugs.number",
         "bugs.title",
         "bugs.body",
-        "bugs.editedAt",
         "bugs.createdAt",
         "bugs.updatedAt",
         "projects.key as projectKey",
@@ -67,6 +68,7 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
         "tasks.number",
         "tasks.title",
         "tasks.status",
+        "tasks.body",
         "projects.key",
       ])
       .where("bugTasks.bugId", "in", scopedIds(db, scope))
@@ -75,14 +77,15 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
       .execute(),
   ])
 
-  const tasksByBug = new Map<string, BugTask[]>()
+  const tasksByBug = new Map<string, BugDetail["tasks"]>()
   for (const link of links) {
-    const task: BugTask = {
+    const task = {
       id: link.id,
       key: `${link.key}-${link.number}`,
       title: link.title,
       status: link.status as Status,
       createdAt: link.createdAt,
+      body: link.body,
     }
     tasksByBug.set(link.bugId, [...(tasksByBug.get(link.bugId) ?? []), task])
   }
@@ -98,7 +101,6 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
         title: bug.title,
         status: tasks.some((t) => t.status !== "complete") ? "pending" : "resolved",
         tasks,
-        mirroring: bug.editedAt === null,
         createdAt: bug.createdAt,
         updatedAt: bug.updatedAt,
         body: bug.body,
@@ -121,7 +123,10 @@ export async function listProjectBugs(
   const bugs = await loadBugs(db, { projectId })
   return bugs
     .filter((bug) => !status || bug.status === status)
-    .map(({ body: _body, ...summary }) => summary)
+    .map(({ body: _body, tasks, ...summary }) => ({
+      ...summary,
+      tasks: tasks.map(({ body: _taskBody, ...task }) => task),
+    }))
 }
 
 export type BugRow = Selectable<BugTable> & { workspaceId: string }
