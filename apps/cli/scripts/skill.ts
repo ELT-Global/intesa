@@ -113,7 +113,7 @@ intesa artifact upload WEB-12 spec.pdf notes.md --json
 intesa artifact download WEB-12 spec.pdf -o ./downloads    # -o - writes the bytes to stdout
 \`\`\`
 
-A task tagged \`bug\` opens a bug in its project (key \`WEB-B3\`); the bug is pending while any of its tasks is not complete and resolved when all are, and \`task view\` shows the task's bug. \`bug reopen\` opens a regression task for a resolved bug (exit 6, naming the open task, while it is still pending):
+A task tagged \`bug\` opens a bug in its project (key \`WEB-B3\`) with the task's title. The bug's description is its own and starts empty; editing a task never changes its bug, and \`bug view --json\` carries each task's description too. The bug is pending while any of its tasks is not complete and resolved when all are, and \`task view\` shows the task's bug with its link. \`bug reopen\` opens a regression task for a resolved bug (exit 6, naming the open task, while it is still pending):
 
 \`\`\`sh
 intesa bug list --status pending -p WEB --json --fields key,title,status

@@ -14,6 +14,7 @@ afterAll(() => {
 
 type Listed = {
   id: string
+  url: string
   key: string
   title: string
   status: string
@@ -24,19 +25,21 @@ type Listed = {
 async function setup(opts: { scope?: "read" | "write" } = {}) {
   const w = await world(server, opts)
   const bugTag = await w.addTag("bug")
-  // A task tagged bug opens a bug that copies it.
+  // A task tagged bug opens a bug with its title.
   const addBug = async (title: string, body?: string) => {
     const task = await w.addTask({ title, body, tagIds: [bugTag.id] })
     return { task, bug: (await w.getTask(task.id)).bug as { id: string; key: string } }
   }
   const complete = (taskId: string) =>
     w.patchTask(taskId, { status: "complete", reviewedById: null, testedById: null })
-  return { ...w, bugTag, addBug, complete }
+  const bugUrl = (bugId: string) =>
+    `${server.url}/w/${w.workspace.slug}/projects/${w.project.id}/bugs?bug=${bugId}`
+  return { ...w, bugTag, addBug, complete, bugUrl }
 }
 
 describe("bug list", () => {
   test("lists the project's bugs, pending first; --status filters", async () => {
-    const { box, addBug, complete } = await setup()
+    const { box, addBug, complete, bugUrl } = await setup()
     const first = await addBug("Login fails")
     await addBug("Crash on save")
     await complete(first.task.id)
@@ -48,6 +51,7 @@ describe("bug list", () => {
       ["WEB-B1", "resolved"],
     ])
     expect((all.json() as Listed[])[1]?.tasks.map((t) => t.key)).toEqual([first.task.key])
+    expect((all.json() as Listed[])[1]?.url).toBe(bugUrl(first.bug.id))
 
     const pending = await box.run(["b", "ls", "-p", "WEB", "--status", "pending", "-q"])
     expect(pending.stdout).toBe("WEB-B2\n")
@@ -73,7 +77,7 @@ describe("bug list", () => {
 
 describe("bug view", () => {
   test("finds a bug by key in any case or by id and shows it with its tasks", async () => {
-    const { box, addBug } = await setup()
+    const { box, addBug, bugUrl } = await setup()
     const { task, bug } = await addBug("Login fails", "Steps to reproduce")
 
     const byKey = await box.run(["bug", "view", "web-b1", "--json"])
@@ -82,17 +86,19 @@ describe("bug view", () => {
       id: bug.id,
       key: "WEB-B1",
       title: "Login fails",
-      body: "Steps to reproduce",
+      // The bug's own description starts empty; the task's is its own.
+      body: null,
+      url: bugUrl(bug.id),
       status: "pending",
-      mirroring: true,
-      tasks: [{ key: task.key, status: "todo" }],
+      tasks: [{ key: task.key, status: "todo", body: "Steps to reproduce" }],
     })
     expect((await box.run(["bug", "view", bug.id, "--json"])).json().key).toBe("WEB-B1")
     expect((await box.run(["bug", "view", "B1", "-p", "WEB", "--json"])).json().key).toBe("WEB-B1")
 
     const text = await box.run(["b", "view", "WEB-B1"])
     expect(text.stdout).toContain("WEB-B1  Login fails")
-    expect(text.stdout).toContain("Steps to reproduce")
+    expect(text.stdout).toContain(bugUrl(bug.id))
+    expect(text.stdout).not.toContain("Follows")
     expect(text.stdout).toContain("Tasks (1)")
     expect(text.stdout).toContain(`${task.key}\tTodo\tLogin fails`)
   })
@@ -111,7 +117,7 @@ describe("bug view", () => {
 })
 
 describe("bug edit", () => {
-  test("changes the title and body, which stops mirroring", async () => {
+  test("changes the bug's title and body, never its task's", async () => {
     const { box, addBug, getTask } = await setup()
     const { task } = await addBug("Login fails", "old")
     const r = await box.run([
@@ -125,8 +131,12 @@ describe("bug edit", () => {
       "--json",
     ])
     expect(r.exitCode).toBe(0)
-    expect(r.json()).toMatchObject({ title: "SSO login fails", body: "new", mirroring: false })
-    expect((await getTask(task.id)).title).toBe("Login fails")
+    expect(r.json()).toMatchObject({
+      title: "SSO login fails",
+      body: "new",
+      tasks: [{ key: task.key, title: "Login fails", body: "old" }],
+    })
+    expect(await getTask(task.id)).toMatchObject({ title: "Login fails", body: "old" })
   })
 
   test("--body-file reads the description from a file or stdin", async () => {
@@ -272,13 +282,13 @@ describe("bug reopen", () => {
 })
 
 describe("task view", () => {
-  test("shows the task's bug, and --json carries it", async () => {
-    const { box, addBug, addTask } = await setup()
-    const { task } = await addBug("Login fails")
+  test("shows the task's bug with its link, and --json carries it", async () => {
+    const { box, addBug, addTask, bugUrl } = await setup()
+    const { task, bug } = await addBug("Login fails")
     const text = await box.run(["task", "view", task.key])
-    expect(text.stdout).toContain("Bug\tWEB-B1  Login fails (pending)")
+    expect(text.stdout).toContain(`Bug\tWEB-B1  Login fails (pending)  ${bugUrl(bug.id)}`)
     const json = await box.run(["task", "view", task.key, "--json"])
-    expect(json.json().bug).toMatchObject({ key: "WEB-B1", status: "pending" })
+    expect(json.json().bug).toMatchObject({ key: "WEB-B1", status: "pending", url: bugUrl(bug.id) })
 
     const plain = await addTask({ title: "Plain" })
     const view = await box.run(["task", "view", plain.key])

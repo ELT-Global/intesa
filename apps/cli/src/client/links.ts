@@ -8,13 +8,15 @@ export const links = {
     `${host}/w/${slug}/projects/${projectId}`,
   task: (host: string, slug: string, task: { id: string; projectId: string }) =>
     `${host}/w/${slug}/projects/${task.projectId}?task=${task.id}`,
+  bug: (host: string, slug: string, bug: { id: string; projectId: string }) =>
+    `${host}/w/${slug}/projects/${bug.projectId}/bugs?bug=${bug.id}`,
   settings: (host: string) => `${host}/settings`,
   // An artifact's own address (no id: the task's artifact list); a browser needs a web session.
   artifact: (host: string, taskId: string, id?: string) =>
     `${host}/api/tasks/${encodeURIComponent(taskId)}/artifacts${id ? `/${encodeURIComponent(id)}` : ""}`,
 }
 
-// Adds `url` to projects and tasks of one workspace: the one given by id (a task's own, which
+// Adds `url` to projects, tasks and bugs of one workspace: the one given by id (a task's own, which
 // may not be the current one), else the current one.
 export async function webLinks(ctx: Ctx, workspaceId?: string) {
   const [{ host }, { slug }] = await Promise.all([ctx.http(), resolver(ctx).workspace(workspaceId)])
@@ -26,6 +28,10 @@ export async function webLinks(ctx: Ctx, workspaceId?: string) {
     task: <T extends { id: string; projectId: string }>(task: T) => ({
       ...task,
       url: links.task(host, slug, task),
+    }),
+    bug: <B extends { id: string; projectId: string }>(bug: B) => ({
+      ...bug,
+      url: links.bug(host, slug, bug),
     }),
   }
 }

@@ -17,6 +17,13 @@ const bugArg = {
 } as const
 
 type BugDetail = Awaited<ReturnType<ReturnType<typeof resolver>["bug"]>>
+type BugView = BugDetail & { url: string }
+
+// The bug with its web link, in the bug's own workspace.
+const withUrl = async <B extends { id: string; projectId: string }>(ctx: Ctx, bug: B) => {
+  const { workspaceId } = await resolver(ctx).project(bug.projectId)
+  return (await webLinks(ctx, workspaceId)).bug(bug)
+}
 
 const textFlags = {
   title: z.string().optional().meta({ short: "T", placeholder: "title", description: "Title" }),
@@ -48,17 +55,18 @@ const list = defineCommand({
   output: "bug",
   examples: ["intesa bug list -p WEB", "intesa b list --status pending --json --fields key,title"],
   async run(ctx, _args, flags) {
-    const { id: projectId } = await resolver(ctx).project()
+    const { id: projectId, workspaceId } = await resolver(ctx).project()
     const { client } = await ctx.http()
     const res = await client.api.projects[":projectId"].bugs.$get({
       param: { projectId },
       query: flags.status ? { status: flags.status } : {},
     })
-    return (await res.json()).bugs
+    const links = await webLinks(ctx, workspaceId)
+    return (await res.json()).bugs.map(links.bug)
   },
 })
 
-function format(ctx: Ctx, bug: BugDetail, raw: boolean) {
+function format(ctx: Ctx, bug: BugView, raw: boolean) {
   const { mode } = ctx
   const when = (iso: string) => (mode.tty ? relativeTime(iso) : iso)
   const properties = [
@@ -72,10 +80,9 @@ function format(ctx: Ctx, bug: BugDetail, raw: boolean) {
     ["key", "status", "title"],
   )
   const sections = [
-    section(mode, `${bug.key}  ${bug.title}`, ""),
+    section(mode, `${bug.key}  ${bug.title}`, `${bug.url}\n`),
     rows(mode, properties, ["name", "value"]),
   ]
-  if (bug.mirroring) sections.push("Follows its first task until the bug itself is edited.\n")
   if (bug.body?.trim()) {
     sections.push(mode.tty && !raw ? renderMarkdown(bug.body, mode) : `${bug.body.trimEnd()}\n`)
   }
@@ -100,16 +107,14 @@ const view = defineCommand({
   output: "bugDetail",
   paged: true,
   examples: ["intesa bug view WEB-B3", "intesa b view web-b3 --json --fields key,status,tasks"],
-  run: (ctx, { bug }) => resolver(ctx).bug(bug),
+  run: async (ctx, { bug }) => withUrl(ctx, await resolver(ctx).bug(bug)),
   human: (ctx, bug, flags) => format(ctx, bug, flags.raw),
 })
 
 const edit = defineCommand({
   name: "edit",
   summary: "Change a bug's title or description",
-  description:
-    "Change a bug's title or description. Once a bug is edited it stops following its first\n" +
-    "task, and editing a bug never changes a task.",
+  description: "Change a bug's own title or description. Editing a bug never changes its tasks.",
   args: [bugArg],
   flags: z.object(textFlags),
   context: ["workspace", "project"],
@@ -129,7 +134,7 @@ const edit = defineCommand({
       param: { bugId: bug.id },
       json: { title: flags.title, body },
     })
-    return (await res.json()).bug
+    return withUrl(ctx, (await res.json()).bug)
   },
   human: (ctx, bug) => format(ctx, bug, false),
 })
@@ -223,9 +228,10 @@ const reopen = defineCommand({
         throw stillPending(await r.bug(bug.id), err)
       throw err
     }
-    const task = (await webLinks(ctx, workspaceId)).task(created.task)
+    const links = await webLinks(ctx, workspaceId)
+    const task = links.task(created.task)
     ctx.done(`Opened ${task.key} for ${created.bug.key}`)
-    return { ...task, bug: created.bug }
+    return { ...task, bug: links.bug(created.bug) }
   },
   human: (ctx, task) => showTasks(ctx, task),
 })

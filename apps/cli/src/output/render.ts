@@ -40,9 +40,9 @@ const BUG = [
   "title",
   "status",
   "tasks",
-  "mirroring",
   "createdAt",
   "updatedAt",
+  "url",
 ] as const
 
 type FieldSet = {

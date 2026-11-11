@@ -17,7 +17,12 @@ import {
 } from "./shared"
 
 type Artifact = { id: string; name: string; mimeType: string; size: number }
-type View = TaskDetail & { url: string; artifacts: Artifact[]; history?: HistoryEntry[] }
+type View = Omit<TaskDetail, "bug"> & {
+  url: string
+  bug: (NonNullable<TaskDetail["bug"]> & { url: string }) | null
+  artifacts: Artifact[]
+  history?: HistoryEntry[]
+}
 
 const size = (bytes: number) =>
   bytes < 1024
@@ -64,7 +69,10 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
     ["Reviewed by", signoff(task.reviewedBy)],
     ["Tested by", signoff(task.testedBy)],
     ["Project", `${task.project.name} (${task.project.key})`],
-    ["Bug", task.bug ? `${task.bug.key}  ${task.bug.title} (${task.bug.status})` : ""],
+    [
+      "Bug",
+      task.bug ? `${task.bug.key}  ${task.bug.title} (${task.bug.status})  ${task.bug.url}` : "",
+    ],
     ["Parent", task.parent ? `${task.parent.key}  ${task.parent.title}` : ""],
     ["Created", when(task.createdAt)],
     ["Updated", when(task.updatedAt)],
@@ -147,7 +155,8 @@ export const view = defineCommand({
   async run(ctx, { task: ref }, flags): Promise<View | undefined> {
     const task = await resolver(ctx).task(ref)
     // The task's own workspace, which a task id or link may name rather than the current one.
-    const { url } = (await webLinks(ctx, task.project.workspaceId)).task(task)
+    const links = await webLinks(ctx, task.project.workspaceId)
+    const { url } = links.task(task)
     if (flags.web) {
       openOrPrint(ctx, url)
       return
@@ -164,7 +173,12 @@ export const view = defineCommand({
             .then(async (res) => (await res.json()).history)
         : undefined,
     ])
-    return { ...task, url, artifacts, ...(history && { history }) }
+    // A task's bug is in the task's project.
+    const bug = task.bug && {
+      ...task.bug,
+      url: links.bug({ id: task.bug.id, projectId: task.projectId }).url,
+    }
+    return { ...task, url, bug, artifacts, ...(history && { history }) }
   },
   human: (ctx, task, flags) => format(ctx, task, flags.raw),
 })
