@@ -10,6 +10,22 @@ const sidebarBugs = (page: Page, projectName: string) =>
     .filter({ hasText: projectName })
     .getByRole("link", { name: "Bugs", exact: true })
 
+test("a project's Bugs link unfolds when the project is opened, and folds by its chevron", async ({
+  page,
+}) => {
+  const { slug, project, projectName } = await setup(page)
+  await page.goto(`/w/${slug}/home`)
+  await expect(sidebarBugs(page, projectName)).toHaveCount(0)
+  await page
+    .getByRole("region", { name: "Projects", exact: true })
+    .getByRole("link", { name: projectName })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`/projects/${project.id}`))
+  await expect(sidebarBugs(page, projectName)).toBeVisible()
+  await page.getByRole("button", { name: `Collapse ${projectName}`, exact: true }).click()
+  await expect(sidebarBugs(page, projectName)).toHaveCount(0)
+})
+
 // A 1×1 PNG.
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
@@ -61,6 +77,9 @@ test("tagging a task bug lists it under Bugs as pending, and completing it resol
   await page.goto(`/w/${slug}/home`)
 
   // Before any task is tagged, the page explains where bugs come from.
+  // Away from the project its Bugs link is folded away until the chevron opens it.
+  await expect(sidebarBugs(page, projectName)).toHaveCount(0)
+  await page.getByRole("button", { name: `Expand ${projectName}`, exact: true }).click()
   await sidebarBugs(page, projectName).click()
   await expect(page.getByText("No bugs yet.")).toBeVisible()
   await expect(page.getByText(/Tag a task “bug”/)).toBeVisible()
