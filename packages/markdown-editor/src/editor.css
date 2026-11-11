@@ -199,6 +199,27 @@
     opacity: 0.8;
   }
 
+  /* ── Images ───────────────────────────────────────────────────────────── */
+
+  .cm-doc-editor .cm-lp-image {
+    display: inline-block;
+    max-width: 100%;
+    max-height: 28rem;
+    margin: 4px 0;
+    vertical-align: top;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: text;
+  }
+
+  /* An image that failed to load shows its alt text in a small chip. */
+  .cm-doc-editor .cm-lp-image-broken {
+    min-height: 1.6em;
+    padding: 0 0.4em;
+    font-size: 0.85em;
+    color: var(--muted-foreground);
+  }
+
   /* ── Horizontal rule ──────────────────────────────────────────────────── */
 
   .cm-doc-editor .cm-lp-hr {

@@ -2,7 +2,7 @@ import { defaultKeymap, history, historyKeymap, redo } from "@codemirror/command
 import { Annotation, Compartment, EditorSelection, EditorState } from "@codemirror/state"
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view"
 import { useEffect, useRef } from "react"
-import { createMarkdownEditorExtensions } from "./core"
+import { createMarkdownEditorExtensions, imageUploads } from "./core"
 import type { EditorViewProps } from "./types"
 
 /** Marks the transactions that copy the `value` prop into the document, so they are not echoed. */
@@ -31,11 +31,14 @@ export default function MarkdownEditorView({
   autoFocus,
   keepsEscape,
   restore,
+  uploadImage,
 }: EditorViewProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const uploadRef = useRef(uploadImage)
+  uploadRef.current = uploadImage
   // The last text this editor produced or was given; lets the sync effect skip echoes
   // without serialising the document on every render.
   const synced = useRef(value)
@@ -58,6 +61,7 @@ export default function MarkdownEditorView({
           ...createMarkdownEditorExtensions(),
           attrs.of(contentAttrs(label, keepsEscape)),
           placeholder ? placeholderExt(placeholder) : [],
+          uploadImage ? imageUploads((file) => uploadRef.current?.(file) ?? Promise.reject()) : [],
           maxLength ? EditorState.changeFilter.of((tr) => tr.newDoc.length <= maxLength) : [],
           EditorView.updateListener.of((u) => {
             if (!u.docChanged || u.transactions.some((t) => t.annotation(external))) return

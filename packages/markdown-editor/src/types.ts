@@ -14,6 +14,11 @@ export interface MarkdownEditorProps {
   onKeyDown?: (event: React.KeyboardEvent) => void
   onFocus?: () => void
   onBlur?: () => void
+  /**
+   * Uploads a pasted or dropped image and resolves to its URL; the editor inserts it as
+   * `![name](url)`. Without it, images are not accepted.
+   */
+  uploadImage?: (file: File) => Promise<string>
 }
 
 /** The caret the editor takes over from the textarea it replaces; absent when that was unfocused. */

@@ -10,6 +10,7 @@ import {
 
 import { AlertBadgeWidget } from "./blockquotes"
 import { decorateCodeBlock } from "./code-blocks/decorate"
+import { ImageWidget, parseImage } from "./images"
 import { BulletWidget, CheckboxWidget, formatOrderedMarker, OrderedMarkerWidget } from "./lists"
 import { cursorOnLine, cursorTouches } from "./shared/cursor"
 import { decorateRawTable, tableRevealed } from "./tables"
@@ -209,6 +210,20 @@ export function buildDecorations(view: EditorView): DecorationSet {
         return false
       }
 
+      if (name === "Image") {
+        const image = parseImage(state.doc.sliceString(from, to))
+        if (!image) return false
+        // An unfocused editor always shows the picture, wherever its caret was left.
+        if (view.hasFocus && cursorTouches(view, from, to)) {
+          ranges.push(Decoration.mark({ class: "cm-lp-link cm-lp-syntax" }).range(from, to))
+        } else {
+          ranges.push(
+            Decoration.replace({ widget: new ImageWidget(image.src, image.alt) }).range(from, to),
+          )
+        }
+        return false
+      }
+
       if (name === "Link") {
         const rawText = state.doc.sliceString(from, to)
         if (/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]$/i.test(rawText)) {
@@ -348,7 +363,12 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        update.focusChanged
+      ) {
         this.decorations = buildDecorations(update.view)
       }
     }

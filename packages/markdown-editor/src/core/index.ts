@@ -47,6 +47,14 @@ export {
   codeBlockKeymap,
 } from "./code-blocks"
 export { formattingKeymap, insertLink, wrapSelection } from "./formatting"
+export {
+  ImageWidget,
+  imageUploads,
+  insertImages,
+  parseImage,
+  screenshotName,
+  type UploadImage,
+} from "./images"
 export { backspaceUndoInputRule, INPUT_RULES } from "./input-rules"
 export {
   BulletWidget,
