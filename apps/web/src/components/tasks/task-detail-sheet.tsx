@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { ApiError } from "@/lib/api"
-import { useUploadImage } from "@/lib/artifacts"
+import { useDeleteArtifact, useUploadImage } from "@/lib/artifacts"
 import {
   TASK_BODY_MAX_LENGTH,
   type TaskDetail,
@@ -334,6 +334,10 @@ function DescriptionField({
   const focused = useRef(false)
   const uploading = useRef(0)
   const upload = useUploadImage(taskId)
+  const removeArtifact = useDeleteArtifact(taskId)
+  // Images uploaded since the last save, by URL. The server deletes images that a saved
+  // description stops showing; these never reached a saved description, so this deletes them.
+  const unsaved = useRef(new Map<string, string>())
 
   // Adopt server changes unless the user is mid-edit.
   // biome-ignore lint/correctness/useExhaustiveDependencies: setDraft only writes state
@@ -346,6 +350,10 @@ function DescriptionField({
     // Saved once the uploads settle, so no "Uploading…" placeholder reaches the task.
     if (uploading.current) return
     const next = latest.current.trim()
+    for (const [url, id] of unsaved.current) {
+      if (!next.includes(url)) removeArtifact.mutate(id)
+    }
+    unsaved.current.clear()
     if (next === value) {
       setDraft(value)
       return
@@ -357,7 +365,9 @@ function DescriptionField({
   async function uploadImage(file: File) {
     uploading.current++
     try {
-      return await upload(file)
+      const { id, url } = await upload(file)
+      unsaved.current.set(url, id)
+      return url
     } finally {
       uploading.current--
       // The editor swaps the placeholder for the image right after this resolves.

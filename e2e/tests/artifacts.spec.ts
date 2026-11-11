@@ -183,3 +183,28 @@ test("a failed Markdown save keeps edits available for retry", async ({ page }) 
   await section.getByRole("button", { name: "retry.md", exact: true }).click()
   await expect(editor).toContainText("Keep this draft")
 })
+
+test("an artifact is deleted after confirming, and kept when the confirmation is cancelled", async ({
+  page,
+}) => {
+  const { section, input, url } = await setup(page)
+  await input.setInputFiles([
+    { name: "keep.md", mimeType: "text/markdown", buffer: Buffer.from("# Keep") },
+    { name: "drop.md", mimeType: "text/markdown", buffer: Buffer.from("# Drop") },
+  ])
+  await expect(section.getByRole("listitem")).toHaveCount(2)
+
+  await section.getByRole("button", { name: "Delete keep.md" }).click()
+  const confirm = page.getByRole("dialog", { name: "Delete artifact?" })
+  await expect(confirm).toContainText("keep.md will be permanently removed")
+  await confirm.getByRole("button", { name: "Cancel" }).click()
+  await expect(confirm).toBeHidden()
+
+  await section.getByRole("button", { name: "Delete drop.md" }).click()
+  await confirm.getByRole("button", { name: "Delete" }).click()
+  await expect(confirm).toBeHidden()
+  await expect(section.getByRole("listitem")).toHaveCount(1)
+  await expect(section.getByRole("listitem")).toContainText("keep.md")
+  const stored = (await (await page.request.get(url)).json()) as { artifacts: { name: string }[] }
+  expect(stored.artifacts.map((a) => a.name)).toEqual(["keep.md"])
+})

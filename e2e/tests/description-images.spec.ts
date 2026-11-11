@@ -111,6 +111,46 @@ test("a dropped image that is still uploading on blur is saved once it lands, wi
     .toMatch(/^!\[design\.png\]\(\/api\/tasks\/[\w-]+\/artifacts\/[\w-]+\)$/)
 })
 
+async function storedImages(page: Page, taskId: string) {
+  const res = await page.request.get(`/api/tasks/${taskId}/artifacts`)
+  return ((await res.json()) as { artifacts: { mimeType: string }[] }).artifacts.filter((a) =>
+    a.mimeType.startsWith("image/"),
+  ).length
+}
+
+test("a screenshot removed from a saved description is deleted", async ({ page }) => {
+  const { task, sheet, body } = await setup(page)
+  await body.click()
+  await body.pressSequentially("Before")
+  await sendImage(body, "paste")
+  await expect(sheet.locator("img.cm-lp-image")).toBeVisible()
+  await body.blur()
+  await expect.poll(() => savedBody(page, task.id)).toContain("/artifacts/")
+  expect(await storedImages(page, task.id)).toBe(1)
+
+  await body.click()
+  await body.press("ControlOrMeta+a")
+  await body.pressSequentially("After")
+  await body.blur()
+  await expect.poll(() => savedBody(page, task.id)).toBe("After")
+  expect(await storedImages(page, task.id)).toBe(0)
+})
+
+test("a screenshot pasted and removed before the description saves is deleted", async ({
+  page,
+}) => {
+  const { task, sheet, body } = await setup(page)
+  await body.click()
+  await sendImage(body, "paste")
+  await expect(sheet.locator("img.cm-lp-image")).toBeVisible()
+  expect(await storedImages(page, task.id)).toBe(1)
+  // Escape discards the unsaved edit, image and all.
+  await body.press("Escape")
+  await body.blur()
+  await expect.poll(() => storedImages(page, task.id)).toBe(0)
+  expect(await savedBody(page, task.id)).toBeNull()
+})
+
 test("a rejected image is reported and leaves the description unchanged", async ({ page }) => {
   const { task, body } = await setup(page)
   await page.route(`**/api/tasks/${task.id}/artifacts`, (route) =>

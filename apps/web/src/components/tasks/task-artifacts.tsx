@@ -1,8 +1,9 @@
 import { artifactFileError, artifactFormat, DOCUMENT_ACCEPT, isImage } from "@intesa/api/artifacts"
 import { MarkdownEditor } from "@intesa/markdown-editor"
 import { useQuery } from "@tanstack/react-query"
-import { FileText, Upload } from "lucide-react"
+import { FileText, Trash2, Upload } from "lucide-react"
 import { useRef, useState } from "react"
+import { ConfirmDialog } from "@/components/members/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import {
@@ -10,6 +11,7 @@ import {
   artifactsQuery,
   artifactText,
   artifactUrl,
+  useDeleteArtifact,
   useWriteArtifact,
 } from "@/lib/artifacts"
 
@@ -20,6 +22,10 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [editing, setEditing] = useState<Artifact | null>(null)
+  // Kept after the dialog closes, so its text stays put while it animates out.
+  const [deleting, setDeleting] = useState<Artifact | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const remove = useDeleteArtifact(taskId)
   // Images belong to the description they were pasted into.
   const documents = query.data?.filter((artifact) => !isImage(artifact.mimeType))
 
@@ -129,6 +135,19 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
                 <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                   {Math.max(1, Math.ceil(artifact.size / 1024))} KB
                 </span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  icon
+                  aria-label={`Delete ${artifact.name}`}
+                  onClick={() => {
+                    remove.reset()
+                    setDeleting(artifact)
+                    setConfirming(true)
+                  }}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
               </li>
             ))}
           </ul>
@@ -139,6 +158,18 @@ export function TaskArtifacts({ taskId }: { taskId: string }) {
           {error}
         </p>
       )}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Delete artifact?"
+        description={`${deleting?.name} will be permanently removed from this task.`}
+        confirmLabel="Delete"
+        pending={remove.isPending}
+        error={remove.error?.message}
+        onConfirm={() => {
+          if (deleting) remove.mutate(deleting.id, { onSuccess: () => setConfirming(false) })
+        }}
+      />
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         {editing && (
           <MarkdownArtifact

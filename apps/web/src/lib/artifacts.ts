@@ -2,7 +2,7 @@ import { artifactFileError } from "@intesa/api/artifacts"
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import { notify } from "@/components/mutation-error-notice"
-import { ApiError, client, unwrap } from "./api"
+import { ApiError, client, keys, unwrap } from "./api"
 
 const artifacts = client.api.tasks[":taskId"].artifacts
 export type Artifact = InferResponseType<typeof artifacts.$get>["artifacts"][number]
@@ -44,9 +44,21 @@ export function useWriteArtifact(taskId: string) {
   })
 }
 
+export function useDeleteArtifact(taskId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(artifacts[":artifactId"].$delete({ param: { taskId, artifactId: id } })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: artifactKey(taskId) })
+      void qc.invalidateQueries({ queryKey: keys.storage })
+    },
+  })
+}
+
 /**
- * Stores an image pasted or dropped into a task's Markdown and resolves to its URL. A rejected
- * file is reported as a notice; the editor then drops its placeholder.
+ * Stores an image pasted or dropped into a task's Markdown and resolves to its id and URL. A
+ * rejected file is reported as a notice; the editor then drops its placeholder.
  */
 export function useUploadImage(taskId: string) {
   const write = useWriteArtifact(taskId)
@@ -55,7 +67,7 @@ export function useUploadImage(taskId: string) {
       const invalid = artifactFileError(file)
       if (invalid) throw new Error(invalid)
       const artifact = await write.mutateAsync({ file })
-      return artifactUrl(taskId, artifact.id)
+      return { id: artifact.id, url: artifactUrl(taskId, artifact.id) }
     } catch (err) {
       notify(
         `${file.name}: ${err instanceof Error ? err.message : "Could not upload the image."}`,
