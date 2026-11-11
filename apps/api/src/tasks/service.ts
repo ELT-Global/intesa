@@ -1,4 +1,5 @@
 import { type Selectable, sql, type Updateable } from "kysely"
+import { deleteDroppedImages } from "../artifacts/images"
 import { type Db, inTransaction, newId, now } from "../db"
 import type { TaskTable } from "../db/schema"
 import { ApiError } from "../lib/errors"
@@ -637,6 +638,7 @@ export async function updateTask(
     if (patch.assigneeIds) await assertAssignees(trx, task.workspaceId, unique(patch.assigneeIds))
     if (patch.tagIds) await assertTags(trx, task.workspaceId, unique(patch.tagIds))
     await assertSignoffs(trx, task.workspaceId, patch)
+    if (patch.body !== undefined) await deleteDroppedImages(trx, task.id, patch.body)
 
     const ts = now()
     const { placement } = patch

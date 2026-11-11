@@ -84,7 +84,7 @@ describe("artifacts", () => {
     const { t, owner, project, url, upload } = await setup()
     const { artifact } = await uploaded(await upload("secret.md", "Private"))
     const outsider = await signIn(t.app, "outsider@example.com")
-    for (const method of ["GET", "POST", "PUT"]) {
+    for (const method of ["GET", "POST", "PUT", "DELETE"]) {
       const path = method === "GET" ? url : `${url}/${artifact.id}`
       expect((await outsider.request(path, { method })).status).toBe(404)
     }
@@ -95,6 +95,7 @@ describe("artifacts", () => {
     const wrong = `/api/tasks/${other.body.task.id}/artifacts/${artifact.id}`
     expect((await owner.request(wrong)).status).toBe(404)
     expect((await upload("secret.md", "Overwrite", "text/markdown", wrong, "PUT")).status).toBe(404)
+    expect((await owner.request(wrong, { method: "DELETE" })).status).toBe(404)
     expect(await (await owner.request(`${url}/${artifact.id}`)).text()).toBe("Private")
   })
 
@@ -210,4 +211,60 @@ describe("artifacts", () => {
     expect(((await tooBig.json()) as { message: string }).message).toContain("10 MB")
     expect((await upload("six.md", "x".repeat(MAX_ARTIFACT_BYTES + 1))).status).toBe(400)
   }, 30_000)
+
+  test("deletes an artifact of any format; deleting it again is a 404", async () => {
+    const { owner, url, upload } = await setup()
+    const { artifact: pdf } = await uploaded(await upload("brief.pdf", "%PDF-1.7\n"))
+    const { artifact: png } = await uploaded(await upload("shot.png", PNG))
+    expect((await owner.request(`${url}/${pdf.id}`, { method: "DELETE" })).status).toBe(204)
+    expect((await owner.request(`${url}/${png.id}`, { method: "DELETE" })).status).toBe(204)
+    expect((await owner.call("GET", url)).body.artifacts).toEqual([])
+    expect((await owner.request(`${url}/${pdf.id}`)).status).toBe(404)
+    expect((await owner.request(`${url}/${pdf.id}`, { method: "DELETE" })).status).toBe(404)
+  })
+})
+
+describe("images in a task's description", () => {
+  test("an image removed from the description is deleted; kept images and documents stay", async () => {
+    const { t, owner, taskId, url, upload } = await setup()
+    const ids = async () =>
+      ((await owner.call("GET", url)).body.artifacts as { id: string }[]).map((a) => a.id).sort()
+    const { artifact: kept } = await uploaded(await upload("kept.png", PNG))
+    const { artifact: dropped } = await uploaded(await upload("dropped.png", PNG))
+    const { artifact: doc } = await uploaded(await upload("spec.pdf", "%PDF-1.7\n"))
+    const { artifact: loose } = await uploaded(await upload("loose.png", PNG))
+    const image = (id: string, host = "") => `![shot](${host}${url}/${id})`
+    const save = (body: string | null) => owner.call("PATCH", `/api/tasks/${taskId}`, { body })
+
+    // Absolute links (as the CLI or an agent may write them) count as well as relative ones.
+    await save(
+      [
+        image(kept.id),
+        image(dropped.id, "https://intesa.example"),
+        `[spec](${url}/${doc.id})`,
+      ].join("\n"),
+    )
+    expect(await ids()).toEqual([kept.id, dropped.id, doc.id, loose.id].sort())
+
+    expect((await save(`Moved.\n${image(kept.id)}`)).status).toBe(200)
+    // The document leaves the description but stays an artifact; the unlinked image is not
+    // the description's to delete.
+    expect(await ids()).toEqual([kept.id, doc.id, loose.id].sort())
+
+    await save(null)
+    expect(await ids()).toEqual([doc.id, loose.id].sort())
+    expect(await t.db.selectFrom("artifacts").select("id").execute()).toHaveLength(2)
+  })
+
+  test("an update rejected after the clean-up deletes nothing", async () => {
+    const { owner, taskId, url, upload } = await setup()
+    const { artifact } = await uploaded(await upload("shot.png", PNG))
+    await owner.call("PATCH", `/api/tasks/${taskId}`, { body: `![shot](${url}/${artifact.id})` })
+    const res = await owner.call("PATCH", `/api/tasks/${taskId}`, {
+      body: "",
+      customFields: { "no-such-field": "x" },
+    })
+    expect(res.status).toBe(400)
+    expect((await owner.call("GET", url)).body.artifacts).toHaveLength(1)
+  })
 })

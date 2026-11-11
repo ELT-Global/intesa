@@ -168,4 +168,15 @@ export function artifactRoutes({ db }: Pick<Deps, "db">) {
         .executeTakeFirstOrThrow()
       return c.json({ artifact })
     })
+    .delete("/:taskId/artifacts/:artifactId", async (c) => {
+      await requireTask(db, c.var.user.id, c.req.param("taskId"))
+      const deleted = await db
+        .deleteFrom("artifacts")
+        .where("taskId", "=", c.req.param("taskId"))
+        .where("id", "=", c.req.param("artifactId"))
+        .executeTakeFirst()
+      if (Number(deleted.numDeletedRows) === 0)
+        throw new ApiError("NOT_FOUND", "Artifact not found")
+      return c.body(null, 204)
+    })
 }
