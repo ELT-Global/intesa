@@ -20,6 +20,7 @@ import { meRoutes } from "./routes/me"
 import { memberRoutes } from "./routes/members"
 import { projectRoutes, workspaceProjectRoutes } from "./routes/projects"
 import { searchRoutes } from "./routes/search"
+import { storageRoutes } from "./routes/storage"
 import { tagRoutes, workspaceTagRoutes } from "./routes/tags"
 import { taskRoutes } from "./routes/tasks"
 import { tokenRoutes } from "./routes/tokens"
@@ -59,6 +60,7 @@ export function createApp({ db, config, webDist }: AppDeps) {
     .route("/custom-fields", fieldRoutes(deps))
     .route("/tags", tagRoutes(deps))
     .route("/tasks", taskRoutes(deps))
+    .route("/storage", storageRoutes(deps))
     // Signed by GitHub instead of a session; see github/webhook.ts.
     .route("/webhooks", webhookRoutes(deps))
 

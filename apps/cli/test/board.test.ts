@@ -1395,7 +1395,7 @@ describe("board: subtasks and artifacts in the open task", () => {
     await b.type("notes.md notes.txt")
     let frame = await b.enter()
     expect(rows(frame).at(-1)).toBe(
-      " Upload to WEB-1: notes.md notes.txt▏  notes.txt: Only HTML, PDF, Markdown, Word and OpenDocument files are allowed.",
+      " Upload to WEB-1: notes.md notes.txt▏  notes.txt: Only HTML, PDF, Markdown, Word, OpenDocument and images are allowed.",
     )
     for (let i = 0; i < 9; i++) await b.press("BACKSPACE")
     await b.type("nope.md")

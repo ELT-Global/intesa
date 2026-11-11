@@ -73,8 +73,8 @@ const upload = defineCommand({
   name: "upload",
   summary: "Upload files to a task",
   description:
-    "Upload files to a task, one after the other. Each file can be up to 5 MB; HTML, PDF,\n" +
-    "Markdown, Word and OpenDocument files are accepted.\n\n" +
+    "Upload files to a task, one after the other. HTML, PDF, Markdown, Word and OpenDocument\n" +
+    "files can be up to 5 MB each; PNG, JPEG, GIF and WebP images up to 10 MB.\n\n" +
     "Every file is checked before anything is sent, and the whole upload is refused (exit 8)\n" +
     "if one is not acceptable. A file the server rejects stops the upload with its exit code;\n" +
     "the files before it stay uploaded and are printed. With --continue-on-error a failure is\n" +
@@ -300,9 +300,9 @@ export default defineGroup({
   aliases: ["a"],
   summary: "List, upload, download and edit a task's artifacts",
   description:
-    "Artifacts are files attached to a task: HTML, PDF, Markdown, Word and OpenDocument,\n" +
-    "up to 5 MB each. Only Markdown artifacts can be edited or replaced, and a replacement\n" +
-    "keeps the artifact's name.",
+    "Artifacts are files attached to a task: HTML, PDF, Markdown, Word and OpenDocument up\n" +
+    "to 5 MB each, and PNG, JPEG, GIF and WebP images up to 10 MB. Only Markdown artifacts\n" +
+    "can be edited or replaced, and a replacement keeps the artifact's name.",
   commands: [list, upload, download, view, edit, replace],
   examples: [
     "intesa artifact list WEB-12",

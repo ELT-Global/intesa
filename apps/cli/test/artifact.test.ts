@@ -94,7 +94,7 @@ describe("artifact upload", () => {
     const r = await box.run(["artifact", "upload", task.key, exe], { env: DEBUG })
     expect(r.exitCode).toBe(8)
     expect(r.stderr).toContain("run.exe")
-    expect(r.stderr).toContain("Only HTML, PDF, Markdown, Word and OpenDocument files")
+    expect(r.stderr).toContain("Only HTML, PDF, Markdown, Word, OpenDocument and images")
     expect(r.stderr).not.toContain("> ")
     expect(await onServer()).toEqual([])
   })

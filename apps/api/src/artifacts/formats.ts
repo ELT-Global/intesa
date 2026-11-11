@@ -1,4 +1,6 @@
 export const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
+// Full-screen PNG captures on high-density displays often pass 5 MB.
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 const formats: Record<string, { mime: string; aliases?: string[] }> = {
   html: { mime: "text/html" },
@@ -12,20 +14,36 @@ const formats: Record<string, { mime: string; aliases?: string[] }> = {
   ods: { mime: "application/vnd.oasis.opendocument.spreadsheet" },
   odp: { mime: "application/vnd.oasis.opendocument.presentation" },
   odg: { mime: "application/vnd.oasis.opendocument.graphics" },
+  // Raster screenshots only: SVG can carry script.
+  png: { mime: "image/png" },
+  jpg: { mime: "image/jpeg" },
+  jpeg: { mime: "image/jpeg" },
+  gif: { mime: "image/gif" },
+  webp: { mime: "image/webp" },
 }
 
-export const ARTIFACT_ACCEPT = Object.keys(formats)
-  .map((ext) => `.${ext}`)
+export const isImage = (mimeType: string) => mimeType.startsWith("image/")
+
+/** The non-image formats, for pickers that attach documents rather than screenshots. */
+export const DOCUMENT_ACCEPT = Object.entries(formats)
+  .filter(([, format]) => !isImage(format.mime))
+  .map(([ext]) => `.${ext}`)
   .join(",")
+
+export const maxBytes = (mimeType: string) =>
+  isImage(mimeType) ? MAX_IMAGE_BYTES : MAX_ARTIFACT_BYTES
 
 /** Browsers may omit MIME or report a generic binary type; the extension remains required. */
 export function artifactFileError(file: { name: string; type: string; size: number }) {
   const format = artifactFormat(file.name)
-  if (!format) return "Only HTML, PDF, Markdown, Word and OpenDocument files are allowed."
+  if (!format) return "Only HTML, PDF, Markdown, Word, OpenDocument and images are allowed."
   // biome-ignore lint/suspicious/noControlCharactersInRegex: reject unsafe filename characters
-  if (file.name.length > 255 || /[\\/\u0000-\u001f\u007f]/.test(file.name))
+  if (file.name.length > 255 || /[/\u0000-\u001f\u007f]/.test(file.name))
     return "Use a filename of at most 255 characters without paths or control characters."
-  if (file.size > MAX_ARTIFACT_BYTES) return "Artifacts must be 5 MB or smaller."
+  if (file.size > maxBytes(format.mime))
+    return isImage(format.mime)
+      ? "Images must be 10 MB or smaller."
+      : "Artifacts must be 5 MB or smaller."
   const mime = file.type.toLowerCase().split(";")[0]?.trim() ?? ""
   if (
     mime &&

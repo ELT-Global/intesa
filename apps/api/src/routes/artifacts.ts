@@ -1,7 +1,7 @@
 import { unzipSync } from "fflate"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
-import { artifactFileError, artifactFormat, MAX_ARTIFACT_BYTES } from "../artifacts/formats"
+import { artifactFileError, artifactFormat, isImage, MAX_IMAGE_BYTES } from "../artifacts/formats"
 import type { AppEnv } from "../auth/middleware"
 import { newId, now } from "../db"
 import type { Deps } from "../deps"
@@ -9,6 +9,15 @@ import { ApiError } from "../lib/errors"
 import { requireTask } from "../tasks/service"
 
 const metadata = ["id", "name", "mimeType", "size", "createdAt", "updatedAt"] as const
+
+const imageSignatures: Record<string, (content: Buffer) => boolean> = {
+  "image/png": (c) => c.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+  "image/jpeg": (c) => c.subarray(0, 3).equals(Buffer.from("ffd8ff", "hex")),
+  "image/gif": (c) => ["GIF87a", "GIF89a"].includes(c.subarray(0, 6).toString("latin1")),
+  "image/webp": (c) =>
+    c.subarray(0, 4).toString("latin1") === "RIFF" &&
+    c.subarray(8, 12).toString("latin1") === "WEBP",
+}
 
 async function readFile(req: Request) {
   let form: Awaited<ReturnType<Request["formData"]>>
@@ -28,7 +37,8 @@ async function readFile(req: Request) {
   const content = Buffer.from(await file.arrayBuffer())
   // Reject renamed binaries and corrupt binary headers; never trust a supplied MIME alone.
   let valid = true
-  if (mimeType === "application/pdf") valid = content.subarray(0, 5).toString() === "%PDF-"
+  if (isImage(mimeType)) valid = imageSignatures[mimeType]?.(content) ?? false
+  else if (mimeType === "application/pdf") valid = content.subarray(0, 5).toString() === "%PDF-"
   else if (mimeType === "application/msword")
     valid =
       content.subarray(0, 8).equals(Buffer.from("d0cf11e0a1b11ae1", "hex")) &&
@@ -67,10 +77,10 @@ export function artifactRoutes({ db }: Pick<Deps, "db">) {
     .use(
       "*",
       bodyLimit({
-        // Leave room for multipart headers, while checking the actual file size separately.
-        maxSize: MAX_ARTIFACT_BYTES + 64 * 1024,
+        // Leave room for multipart headers, while checking each format's own limit separately.
+        maxSize: MAX_IMAGE_BYTES + 64 * 1024,
         onError: () => {
-          throw new ApiError("VALIDATION_ERROR", "Artifacts must be 5 MB or smaller.")
+          throw new ApiError("VALIDATION_ERROR", "Files must be 10 MB or smaller.")
         },
       }),
     )
@@ -118,7 +128,10 @@ export function artifactRoutes({ db }: Pick<Deps, "db">) {
             : artifact.mimeType,
           "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(artifact.name)}`,
           "Content-Length": String(artifact.size),
-          "Cache-Control": "private, no-store",
+          // Only Markdown is ever replaced, so an image's bytes never change under its id.
+          "Cache-Control": isImage(artifact.mimeType)
+            ? "private, max-age=86400"
+            : "private, no-store",
           "X-Content-Type-Options": "nosniff",
           // HTML needs isolation; sandboxing PDFs would disable browser PDF viewers/downloads.
           ...(artifact.mimeType === "text/html"

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { strToU8, zipSync } from "fflate"
-import { MAX_ARTIFACT_BYTES } from "../src/artifacts/formats"
+import { MAX_ARTIFACT_BYTES, MAX_IMAGE_BYTES } from "../src/artifacts/formats"
 import { createTestApp, setupProject, signIn } from "./helpers"
 
 async function setup() {
@@ -23,6 +23,11 @@ async function setup() {
   }
   return { t, owner, project, taskId: task.body.task.id as string, url, upload }
 }
+
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+)
 
 const uploaded = async (res: Response) =>
   (await res.json()) as {
@@ -161,5 +166,48 @@ describe("artifacts", () => {
     expect((await owner.request(`${url}/${artifact.id}`)).headers.get("content-length")).toBe(
       String(MAX_ARTIFACT_BYTES),
     )
+  }, 30_000)
+
+  test("stores screenshots as images, served cacheably, and checks their signatures", async () => {
+    const { owner, url, upload } = await setup()
+    const res = await upload("Screenshot 2026-11-11.png", PNG, "image/png")
+    expect(res.status).toBe(201)
+    const { artifact } = await uploaded(res)
+    expect(artifact).toMatchObject({ mimeType: "image/png", size: PNG.length })
+    const download = await owner.request(`${url}/${artifact.id}`)
+    expect(Buffer.from(await download.arrayBuffer())).toEqual(PNG)
+    expect(download.headers.get("content-type")).toBe("image/png")
+    expect(download.headers.get("cache-control")).toBe("private, max-age=86400")
+    expect(download.headers.get("x-content-type-options")).toBe("nosniff")
+    const jpeg = Buffer.concat([Buffer.from("ffd8ffe0", "hex"), Buffer.alloc(16)])
+    const gif = Buffer.from("GIF89a  ", "latin1")
+    const webp = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")])
+    for (const [name, bytes] of [
+      ["photo.JPG", jpeg],
+      ["photo.jpeg", jpeg],
+      ["loop.gif", gif],
+      ["shot.webp", webp],
+    ] as const) {
+      expect((await upload(name, bytes)).status, name).toBe(201)
+    }
+    for (const [name, bytes, type] of [
+      ["fake.png", Buffer.from("<script>alert(1)</script>"), "image/png"],
+      ["jpeg.png", jpeg, ""],
+      ["png.webp", PNG, ""],
+      ["vector.svg", Buffer.from("<svg/>"), "image/svg+xml"],
+    ] as const) {
+      expect((await upload(name, bytes, type)).status, name).toBe(400)
+    }
+    expect((await upload("shot.png", PNG, "", `${url}/${artifact.id}`, "PUT")).status).toBe(400)
+  })
+
+  test("images may be up to 10 MB while documents stay at 5 MB", async () => {
+    const { upload } = await setup()
+    const pad = (bytes: number) => Buffer.concat([PNG, Buffer.alloc(bytes - PNG.length)])
+    expect((await upload("big.png", pad(MAX_IMAGE_BYTES))).status).toBe(201)
+    const tooBig = await upload("huge.png", pad(MAX_IMAGE_BYTES + 1))
+    expect(tooBig.status).toBe(400)
+    expect(((await tooBig.json()) as { message: string }).message).toContain("10 MB")
+    expect((await upload("six.md", "x".repeat(MAX_ARTIFACT_BYTES + 1))).status).toBe(400)
   }, 30_000)
 })

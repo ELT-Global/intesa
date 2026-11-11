@@ -98,7 +98,7 @@ intesa task start WEB-12 --pr acme/web#482 --json --fields key,status,pullReques
 intesa task edit WEB-12 --remove-pr 482    # never changes the status; keywords do not link it again
 ```
 
-Attach a file (HTML, PDF, Markdown, Word or OpenDocument, up to 5 MB each; the whole upload is refused with exit 8 if one file is not acceptable) and fetch one back:
+Attach a file (HTML, PDF, Markdown, Word or OpenDocument up to 5 MB each, or a PNG, JPEG, GIF or WebP image up to 10 MB; the whole upload is refused with exit 8 if one file is not acceptable) and fetch one back:
 
 ```sh
 intesa artifact upload WEB-12 spec.pdf notes.md --json
