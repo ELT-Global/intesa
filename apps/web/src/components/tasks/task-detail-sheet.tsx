@@ -1,7 +1,7 @@
 import { relativeTime, STATUS_LABELS } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ChevronRight, Trash2, X } from "lucide-react"
+import { ArrowUpRight, Bug, ChevronRight, Trash2, X } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import { BugStatusBadge } from "@/components/bugs/bug-status-badge"
 import { ErrorState } from "@/components/page"
@@ -244,11 +244,15 @@ function BugLink({ bug, projectId }: { bug: NonNullable<TaskDetail["bug"]>; proj
       to="/w/$slug/projects/$projectId/bugs"
       params={{ slug, projectId }}
       search={{ bug: bug.id }}
-      className="-mb-4 flex items-center gap-1.5 self-start rounded text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`Open bug ${bug.key}`}
+      title={`Open bug ${bug.key}: ${bug.title}`}
+      className="group -mb-3 flex min-w-0 max-w-full items-center gap-2 self-start rounded-md border border-border bg-muted/30 px-2 py-1 text-left text-xs outline-none transition-colors hover:border-ring/50 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
     >
-      Bug: <TaskKey className="text-[inherit]">{bug.key}</TaskKey>
-      <span className="truncate">{bug.title}</span>
+      <Bug className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
+      <TaskKey className="shrink-0 text-[inherit] group-hover:underline">{bug.key}</TaskKey>
+      <span className="truncate group-hover:underline">{bug.title}</span>
       <BugStatusBadge status={bug.status} />
+      <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
     </Link>
   )
 }

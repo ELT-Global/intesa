@@ -123,7 +123,7 @@ export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
   // Details and history are inactive unless open, so this mostly just marks them stale.
   void qc.invalidateQueries({ queryKey: ["tasks"] })
   void qc.invalidateQueries({ queryKey: ["my-tasks"] })
-  // A task's status, title and bug tag drive the bugs it belongs to (keys in lib/bugs.ts).
+  // Bugs show their tasks: status, title, description and bug tag (keys in lib/bugs.ts).
   void qc.invalidateQueries({ queryKey: ["bugs"] })
   void qc.invalidateQueries({
     queryKey: ["workspaces"],

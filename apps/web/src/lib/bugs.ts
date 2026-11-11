@@ -41,7 +41,7 @@ function useSetBug() {
   }
 }
 
-/** Edits a bug's title or description. After the first edit it stops following its first task. */
+/** Edits a bug's own title or description; its tasks are never changed. */
 export function useUpdateBug(bugId: string) {
   const qc = useQueryClient()
   const setBug = useSetBug()

@@ -1,3 +1,4 @@
+import { MarkdownEditor } from "@intesa/markdown-editor"
 import { STATUS_LABELS } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
@@ -90,7 +91,6 @@ function BugBody({ bug }: { bug: BugDetail }) {
       to: ".",
       search: (prev: Record<string, unknown>) => ({ ...prev, bug: undefined, task: taskId }),
     })
-  const first = bug.tasks[0]
   const open = bug.tasks.find((t) => t.status !== "complete")
 
   return (
@@ -117,11 +117,6 @@ function BugBody({ bug }: { bug: BugDetail }) {
         </div>
       </div>
       <div className="flex flex-col gap-7 p-6">
-        {bug.mirroring && first && (
-          <p className="-mb-4 text-xs text-muted-foreground">
-            Follows <TaskKey className="text-[inherit]">{first.key}</TaskKey> until edited
-          </p>
-        )}
         <EditableText
           label="Bug title"
           value={bug.title}
@@ -129,19 +124,28 @@ function BugBody({ bug }: { bug: BugDetail }) {
           onCommit={(title, revert) => patch({ title }, revert)}
           className="text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]"
         />
-        <DescriptionField
-          value={bug.body ?? ""}
-          onCommit={(body, revert) => patch({ body: body || null }, revert)}
-          upload={upload}
-          discard={(id) => deleteImage.mutate(id)}
-        />
+        <section aria-labelledby="bug-description" className="-mt-3 flex flex-col gap-2">
+          <h2 id="bug-description" className="text-xs font-medium text-muted-foreground">
+            Bug description
+          </h2>
+          <DescriptionField
+            label="Bug description"
+            value={bug.body ?? ""}
+            onCommit={(body, revert) => patch({ body: body || null }, revert)}
+            upload={upload}
+            discard={(id) => deleteImage.mutate(id)}
+          />
+        </section>
         <section aria-labelledby="bug-tasks" className="flex flex-col gap-2">
           <h2 id="bug-tasks" className="text-xs font-medium text-muted-foreground">
             Tasks
           </h2>
-          <ul aria-label="Bug tasks" className="flex flex-col gap-px">
+          <p className="text-xs text-muted-foreground">
+            Each task's own description, read-only here. Open a task to change it.
+          </p>
+          <ul aria-label="Bug tasks" className="flex flex-col gap-3">
             {bug.tasks.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="flex flex-col gap-1">
                 <button
                   type="button"
                   onClick={() => openTask(t.id)}
@@ -154,6 +158,18 @@ function BugBody({ bug }: { bug: BugDetail }) {
                     {STATUS_LABELS[t.status]}
                   </span>
                 </button>
+                {t.body ? (
+                  <MarkdownEditor
+                    label={`${t.key} description`}
+                    value={t.body}
+                    readOnly
+                    className="ml-1 border-l-2 border-border pl-3 text-[13px]"
+                  />
+                ) : (
+                  <p className="ml-1 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+                    No description.
+                  </p>
+                )}
               </li>
             ))}
           </ul>

@@ -87,11 +87,13 @@ export function EditableText({
  * that never reached a saved description, when the owner can delete one.
  */
 export function DescriptionField({
+  label = "Description",
   value,
   onCommit,
   upload,
   discard,
 }: {
+  label?: string
   value: string
   onCommit: (value: string, revert: () => void) => void
   upload: (file: File) => Promise<{ id: string; url: string }>
@@ -148,7 +150,7 @@ export function DescriptionField({
 
   return (
     <MarkdownEditor
-      label="Description"
+      label={label}
       placeholder="Add a description."
       maxLength={TASK_BODY_MAX_LENGTH}
       value={draft}
