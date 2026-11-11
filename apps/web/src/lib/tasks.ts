@@ -110,7 +110,10 @@ export const taskHistoryQuery = (taskId: string) =>
     queryFn: async () => (await taskApi.history(taskId)).history,
   })
 
-/** Refreshes every cached view of tasks: lists, details, history, my tasks, home and weekly logs. */
+/**
+ * Refreshes every cached view of tasks: lists, details, history, my tasks, bugs, home and
+ * weekly logs.
+ */
 export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
   void qc.invalidateQueries(
     projectId
@@ -120,6 +123,8 @@ export function invalidateTaskGraph(qc: QueryClient, projectId?: string) {
   // Details and history are inactive unless open, so this mostly just marks them stale.
   void qc.invalidateQueries({ queryKey: ["tasks"] })
   void qc.invalidateQueries({ queryKey: ["my-tasks"] })
+  // A task's status, title and bug tag drive the bugs it belongs to (keys in lib/bugs.ts).
+  void qc.invalidateQueries({ queryKey: ["bugs"] })
   void qc.invalidateQueries({
     queryKey: ["workspaces"],
     predicate: (q) => q.queryKey[2] === "home" || q.queryKey[2] === "week",

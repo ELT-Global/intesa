@@ -1,6 +1,6 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router"
-import { Columns3, Ellipsis, Keyboard, Plus, Table2 } from "lucide-react"
+import { Bug, Columns3, Ellipsis, Keyboard, Plus, Table2 } from "lucide-react"
 import { useRef, useState } from "react"
 import { ErrorState, Message, PageTitle } from "@/components/page"
 import { CustomFieldsDialog } from "@/components/projects/custom-fields-dialog"
@@ -40,7 +40,13 @@ export const Route = createFileRoute("/_app/w/$slug/projects/$projectId")({
   component: ProjectLayout,
 })
 
-type View = "board" | "table"
+type View = "board" | "table" | "bugs"
+
+const VIEW_PATHS = {
+  board: "/w/$slug/projects/$projectId/board",
+  table: "/w/$slug/projects/$projectId/table",
+  bugs: "/w/$slug/projects/$projectId/bugs",
+} as const
 
 function ProjectLayout() {
   const { slug, projectId } = Route.useParams()
@@ -49,7 +55,8 @@ function ProjectLayout() {
   const workspace = workspaces.find((w) => w.slug === slug)
   const project = useQuery(projectQuery(projectId))
   const view: View = useLocation({
-    select: (l) => (l.pathname.endsWith("/table") ? "table" : "board"),
+    select: (l) =>
+      l.pathname.endsWith("/table") ? "table" : l.pathname.endsWith("/bugs") ? "bugs" : "board",
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [fieldsOpen, setFieldsOpen] = useState(false)
@@ -76,13 +83,7 @@ function ProjectLayout() {
   )
 
   function goToView(next: View) {
-    void navigate({
-      to:
-        next === "board"
-          ? "/w/$slug/projects/$projectId/board"
-          : "/w/$slug/projects/$projectId/table",
-      params: { slug, projectId },
-    })
+    void navigate({ to: VIEW_PATHS[next], params: { slug, projectId } })
   }
 
   if (project.isError && !(project.error instanceof ApiError && project.error.status < 500)) {
@@ -114,6 +115,7 @@ function ProjectLayout() {
       segments={[
         { value: "board", label: "Board", icon: <Columns3 /> },
         { value: "table", label: "Table", icon: <Table2 /> },
+        { value: "bugs", label: "Bugs", icon: <Bug /> },
       ]}
     />
   )

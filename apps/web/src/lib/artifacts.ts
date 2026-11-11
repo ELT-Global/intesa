@@ -64,19 +64,28 @@ export function useDeleteArtifact(taskId: string) {
  */
 export function useUploadImage(taskId: string) {
   const write = useWriteArtifact(taskId)
-  return async (file: File) => {
-    try {
-      const invalid = artifactFileError(file)
-      if (invalid) throw new Error(invalid)
+  return (file: File) =>
+    uploadImage(file, async () => {
       const artifact = await write.mutateAsync({ file })
       return { id: artifact.id, url: artifactUrl(taskId, artifact.id) }
-    } catch (err) {
-      notify(
-        `${file.name}: ${err instanceof Error ? err.message : "Could not upload the image."}`,
-        "error",
-      )
-      throw err
-    }
+    })
+}
+
+/**
+ * Checks an image and runs `send`, which stores it and resolves to its id and URL. A refusal is
+ * reported as a notice and rethrown, so the editor drops its placeholder.
+ */
+export async function uploadImage(file: File, send: () => Promise<{ id: string; url: string }>) {
+  try {
+    const invalid = artifactFileError(file)
+    if (invalid) throw new Error(invalid)
+    return await send()
+  } catch (err) {
+    notify(
+      `${file.name}: ${err instanceof Error ? err.message : "Could not upload the image."}`,
+      "error",
+    )
+    throw err
   }
 }
 

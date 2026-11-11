@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
-import { ChevronDown, Plus } from "lucide-react"
+import { Link, useLocation } from "@tanstack/react-router"
+import { Bug, ChevronDown, Plus } from "lucide-react"
 import { useState } from "react"
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog"
 import { Skeleton } from "@/components/skeleton"
 import type { Workspace } from "@/lib/api"
 import { projectsQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
+
+const ACTIVE = "bg-sidebar-accent text-sidebar-accent-foreground"
 
 export function ProjectsSection({
   workspace,
@@ -19,6 +21,8 @@ export function ProjectsSection({
   const [creating, setCreating] = useState(false)
   const list = useQuery(projectsQuery(workspace.id))
   const projects = list.data
+  // On a project's Bugs page its nested Bugs link is the current one, not the project's.
+  const onBugs = useLocation({ select: (l) => l.pathname.endsWith("/bugs") })
 
   return (
     <section aria-label="Projects">
@@ -71,10 +75,20 @@ export function ProjectsSection({
                   params={{ slug: workspace.slug, projectId: p.id }}
                   onClick={onNavigate}
                   className="flex h-7 items-center gap-2 rounded-md px-2 text-[12.5px] text-sidebar-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-                  activeProps={{ className: "bg-sidebar-accent text-sidebar-accent-foreground" }}
+                  activeProps={onBugs ? undefined : { className: ACTIVE }}
                 >
                   <span className="min-w-0 flex-1 truncate">{p.name}</span>
                   <span className="font-mono text-[11px] text-subtle-foreground">{p.key}</span>
+                </Link>
+                <Link
+                  to="/w/$slug/projects/$projectId/bugs"
+                  params={{ slug: workspace.slug, projectId: p.id }}
+                  onClick={onNavigate}
+                  className="ml-4 flex h-6 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  activeProps={{ className: ACTIVE }}
+                >
+                  <Bug aria-hidden className="size-3" />
+                  Bugs
                 </Link>
               </li>
             ))}
