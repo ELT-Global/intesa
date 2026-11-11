@@ -12,7 +12,13 @@ export type BugTask = {
   key: string
   title: string
   status: Status
+  /** When the task joined the bug. */
   createdAt: string
+  /** When the task itself was created. */
+  raisedAt: string
+  /** When the task last moved to `complete`; null unless it is complete now. */
+  completedAt: string | null
+  /** Everyone ever assigned to the task, current or not, once each, by first assignment. */
   assignees: UserRef[]
 }
 
@@ -23,8 +29,13 @@ export type BugSummary = {
   key: string
   title: string
   status: BugStatus
-  /** Oldest link first; `createdAt` is when the task joined the bug. */
+  /** Oldest link first. */
   tasks: BugTask[]
+  /** Tasks after the first, each opened because the bug came back. */
+  regressions: number
+  /** When the bug was resolved: its tasks' latest completion; null while pending or taskless. */
+  fixedAt: string | null
+  /** When the bug was first raised. */
   createdAt: string
   updatedAt: string
 }
@@ -44,9 +55,8 @@ const scopedIds = (db: Db, scope: BugScope) => {
     : q.where("bugs.projectId", "=", scope.projectId)
 }
 
-// Three queries however many bugs match: the bugs, their tasks and those tasks' assignees.
-// Pending bugs
-// come first, then the newest.
+// Three queries however many bugs match: the bugs, their tasks (with when each was last
+// completed) and everyone ever assigned to those tasks. Pending bugs come first, then the newest.
 async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
   const linkedTaskIds = db
@@ -81,17 +91,29 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
         "tasks.title",
         "tasks.status",
         "tasks.body",
+        "tasks.createdAt as raisedAt",
         "projects.key",
       ])
+      .select((eb) =>
+        eb
+          .selectFrom("taskStatusHistory")
+          .select((h) => h.fn.max("taskStatusHistory.updatedAt").as("at"))
+          .whereRef("taskStatusHistory.taskId", "=", "tasks.id")
+          .where("taskStatusHistory.toStatus", "=", "complete")
+          .as("completedAt"),
+      )
       .where("bugTasks.bugId", "in", scopedIds(db, scope))
       .orderBy("bugTasks.createdAt")
       .orderBy("tasks.number")
       .execute(),
+    // Past assignments count too: the people who worked on a task, not only who holds it now.
     db
-      .selectFrom("taskAssignees")
-      .innerJoin("users", "users.id", "taskAssignees.userId")
-      .select(["taskAssignees.taskId", "users.id", "users.name", "users.avatarUrl"])
-      .where("taskAssignees.taskId", "in", linkedTaskIds)
+      .selectFrom("taskAssignments")
+      .innerJoin("users", "users.id", "taskAssignments.userId")
+      .select(["taskAssignments.taskId", "users.id", "users.name", "users.avatarUrl"])
+      .where("taskAssignments.taskId", "in", linkedTaskIds)
+      .groupBy(["taskAssignments.taskId", "users.id", "users.name", "users.avatarUrl"])
+      .orderBy((eb) => eb.fn.min("taskAssignments.assignedAt"))
       .orderBy("users.name")
       .execute(),
   ])
@@ -109,6 +131,8 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
       title: link.title,
       status: link.status as Status,
       createdAt: link.createdAt,
+      raisedAt: link.raisedAt,
+      completedAt: link.status === "complete" ? (link.completedAt ?? null) : null,
       assignees: assigneesByTask.get(link.id) ?? [],
       body: link.body,
     }
@@ -118,14 +142,18 @@ async function loadBugs(db: Db, scope: BugScope): Promise<BugDetail[]> {
   return bugs
     .map((bug): BugDetail => {
       const tasks = tasksByBug.get(bug.id) ?? []
+      const status = tasks.some((t) => t.status !== "complete") ? "pending" : "resolved"
+      const completions = tasks.map((t) => t.completedAt ?? "").sort()
       return {
         id: bug.id,
         projectId: bug.projectId,
         number: bug.number,
         key: bugKey(bug.projectKey, bug.number),
         title: bug.title,
-        status: tasks.some((t) => t.status !== "complete") ? "pending" : "resolved",
+        status,
         tasks,
+        regressions: Math.max(tasks.length - 1, 0),
+        fixedAt: (status === "resolved" && completions.at(-1)) || null,
         createdAt: bug.createdAt,
         updatedAt: bug.updatedAt,
         body: bug.body,

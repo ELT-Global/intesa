@@ -94,7 +94,14 @@ export const isPending = async (db: Db, bugId: string) =>
       .executeTakeFirst(),
   )
 
-export type BugRef = { id: string; key: string; title: string; status: BugStatus }
+export type BugRef = {
+  id: string
+  key: string
+  title: string
+  status: BugStatus
+  /** Tasks opened after the first. */
+  regressions: number
+}
 
 // The bug a task belongs to, for its detail.
 export async function loadTaskBug(db: Db, taskId: string): Promise<BugRef | null> {
@@ -106,10 +113,16 @@ export async function loadTaskBug(db: Db, taskId: string): Promise<BugRef | null
     .where("bugTasks.taskId", "=", taskId)
     .executeTakeFirst()
   if (!bug) return null
+  const { tasks } = await db
+    .selectFrom("bugTasks")
+    .select((eb) => eb.fn.countAll<string>().as("tasks"))
+    .where("bugId", "=", bug.id)
+    .executeTakeFirstOrThrow()
   return {
     id: bug.id,
     key: bugKey(bug.key, bug.number),
     title: bug.title,
     status: (await isPending(db, bug.id)) ? "pending" : "resolved",
+    regressions: Math.max(Number(tasks) - 1, 0),
   }
 }

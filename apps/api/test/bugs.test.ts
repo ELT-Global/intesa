@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { addTag, createTestApp, setupProject, signIn, type TestApp } from "./helpers"
+import { addMember, addTag, createTestApp, setupProject, signIn, type TestApp } from "./helpers"
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -67,9 +67,13 @@ describe("bug creation", () => {
           title: "Login fails",
           status: "todo",
           createdAt: expect.any(String),
+          raisedAt: expect.any(String),
+          completedAt: null,
           assignees: [],
         },
       ],
+      regressions: 0,
+      fixedAt: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     })
@@ -85,6 +89,7 @@ describe("bug creation", () => {
       key: `${project.key}-B1`,
       title: "Login fails",
       status: "pending",
+      regressions: 0,
     })
 
     const plain = await createTask({ title: "Not a bug" })
@@ -105,7 +110,7 @@ describe("bug creation", () => {
 })
 
 describe("assignees", () => {
-  test("each of a bug's tasks lists who it is assigned to", async () => {
+  test("each of a bug's tasks lists everyone who has worked on it", async () => {
     const { owner, createTask, bugTag, bugs } = await setup()
     const me = (await owner.call("GET", "/api/me")).body.user
     const task = await createTask({ title: "Crash", tagIds: [bugTag], assigneeIds: [me.id] })
@@ -114,8 +119,9 @@ describe("assignees", () => {
     expect(bug.tasks).toEqual([expect.objectContaining({ id: task.id, assignees: [assignee] })])
     const detail = (await owner.call("GET", `/api/bugs/${bug.id}`)).body.bug
     expect(detail.tasks[0].assignees).toEqual([assignee])
+    // Unassigned people still worked on it.
     await owner.call("PATCH", `/api/tasks/${task.id}`, { assigneeIds: [] })
-    expect((await bugs())[0].tasks[0].assignees).toEqual([])
+    expect((await bugs())[0].tasks[0].assignees).toEqual([assignee])
   })
 })
 
@@ -168,7 +174,7 @@ describe("own description", () => {
 
 describe("status and regressions", () => {
   test("a bug is resolved when all its tasks are complete; a regression reopens it", async () => {
-    const { owner, project, bugTag, createTask, bugs, complete } = await setup()
+    const { owner, taskBug, project, bugTag, createTask, bugs, complete } = await setup()
     const first = await createTask({ title: "Slow search", tagIds: [bugTag] })
     const [bug] = await bugs()
     const regress = (body: Record<string, unknown> = {}) =>
@@ -195,11 +201,44 @@ describe("status and regressions", () => {
       priority: "high",
       tags: [{ id: bugTag, name: "Bug" }],
     })
-    expect(opened.body.bug).toMatchObject({ id: bug.id, status: "pending" })
+    expect(opened.body.bug).toMatchObject({ id: bug.id, status: "pending", regressions: 1 })
+    // The task's own view of its bug counts the regression too.
+    expect(await taskBug(opened.body.task.id)).toMatchObject({ status: "pending", regressions: 1 })
     expect(opened.body.bug.tasks.map((x: { id: string }) => x.id)).toEqual([
       first.id,
       opened.body.task.id,
     ])
+  })
+
+  test("dates, regressions and past assignees", async () => {
+    const { t, owner, workspaceId, bugTag, createTask, bugs, complete } = await setup()
+    const me = (await owner.call("GET", "/api/me")).body.user
+    await signIn(t.app, "helper@example.com")
+    const helper = { id: await addMember(t, workspaceId, "helper@example.com") }
+    const first = await createTask({ title: "Broken link", tagIds: [bugTag] })
+    // Assigned in turn: the helper leaves, then I take over; both worked on it, helper first.
+    await owner.call("PATCH", `/api/tasks/${first.id}`, { assigneeIds: [helper.id] })
+    await owner.call("PATCH", `/api/tasks/${first.id}`, { assigneeIds: [me.id] })
+    const [pending] = await bugs()
+    expect(pending.tasks[0].assignees.map((u: { id: string }) => u.id)).toEqual([helper.id, me.id])
+    expect(pending.tasks[0].raisedAt <= pending.createdAt).toBe(true)
+    expect(pending).toMatchObject({ regressions: 0, fixedAt: null })
+
+    await complete(first.id)
+    const [fixed] = await bugs()
+    expect(fixed.tasks[0].completedAt).toEqual(expect.any(String))
+    expect(fixed.fixedAt).toBe(fixed.tasks[0].completedAt)
+    expect(fixed.fixedAt >= fixed.createdAt).toBe(true)
+
+    const opened = await owner.call("POST", `/api/bugs/${fixed.id}/tasks`, {})
+    const [regressed] = await bugs()
+    expect(regressed).toMatchObject({ status: "pending", regressions: 1, fixedAt: null })
+    expect(regressed.tasks[0].completedAt).toBe(fixed.fixedAt)
+    expect(regressed.tasks[1]).toMatchObject({
+      id: opened.body.task.id,
+      completedAt: null,
+      assignees: [],
+    })
   })
 
   test("a regression creates the bug tag when it was deleted", async () => {
