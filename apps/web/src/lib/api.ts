@@ -54,6 +54,8 @@ export type WeekPerson = WeekLog["people"][number]
 export type WeekTask = WeekPerson["tasks"][number]
 export type WeekCheck = WeekPerson["checks"][number]
 
+export type Storage = InferResponseType<typeof client.api.storage.$get>
+
 /** The workspace's GitHub webhook, or null; the secret is only returned when it is made. */
 export type GithubWebhook = NonNullable<
   InferResponseType<typeof workspaceApi.github.$get>["github"]
@@ -112,6 +114,7 @@ export const api = {
     unwrap(client.api.auth.device[":userCode"].deny.$post({ param: { userCode } })),
 
   github: (workspaceId: string) => unwrap(workspaceApi.github.$get({ param: { workspaceId } })),
+  storage: () => unwrap(client.api.storage.$get()),
   /** Creates the webhook, or gives it a new secret; the reply holds the secret, once. */
   createGithub: (workspaceId: string) =>
     unwrap(workspaceApi.github.$post({ param: { workspaceId } })),
@@ -140,4 +143,5 @@ export const keys = {
   home: (workspaceId: string) => ["workspaces", workspaceId, "home"] as const,
   week: (workspaceId: string, week: string) => ["workspaces", workspaceId, "week", week] as const,
   github: (workspaceId: string) => ["workspaces", workspaceId, "github"] as const,
+  storage: ["storage"] as const,
 }

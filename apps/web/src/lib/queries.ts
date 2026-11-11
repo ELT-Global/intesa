@@ -50,6 +50,13 @@ export const githubQuery = (workspaceId: string) =>
     queryFn: async () => (await api.github(workspaceId)).github,
   })
 
+export const storageQuery = queryOptions({
+  queryKey: keys.storage,
+  queryFn: api.storage,
+  // Sizes move as people upload; fresh on every visit is enough.
+  staleTime: 0,
+})
+
 /** The client's local calendar day, so "due soon" matches what the user sees. */
 function localToday(): string {
   const d = new Date()
