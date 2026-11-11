@@ -38,6 +38,7 @@ describe("images", () => {
     expect(parseImage('![x](https://example.com/a.png "Title")')?.src).toBe(
       "https://example.com/a.png",
     )
+    expect(parseImage("![x](blob:http://localhost/3f2a)")?.src).toBe("blob:http://localhost/3f2a")
     expect(parseImage("![x](javascript:alert(1))")).toBeNull()
     expect(parseImage("![x](//evil.example/a.png)")).toBeNull()
     expect(parseImage("![x]()")).toBeNull()

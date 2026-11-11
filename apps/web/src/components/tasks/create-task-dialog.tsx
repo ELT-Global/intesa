@@ -17,9 +17,16 @@ import {
 } from "@/components/ui/dialog"
 import { FormError } from "@/components/ui/field"
 import { ApiError } from "@/lib/api"
+import { useHeldImages } from "@/lib/artifacts"
 import { membersQuery, meQuery, projectQuery } from "@/lib/queries"
 import type { Tag } from "@/lib/tags"
-import { TASK_BODY_MAX_LENGTH, type TaskSummary, type UserRef, useCreateTask } from "@/lib/tasks"
+import {
+  TASK_BODY_MAX_LENGTH,
+  type TaskSummary,
+  type UserRef,
+  useCreateTask,
+  useUpdateTask,
+} from "@/lib/tasks"
 import { AssigneePicker } from "./assignee-picker"
 import { DuePicker, PriorityPicker, StatusPicker } from "./properties"
 import { type SignoffAnswers, StatusChangeDialog } from "./status-change-dialog"
@@ -124,20 +131,28 @@ function CreateTaskForm({
   // A task created as Complete is asked who reviewed and tested it first.
   const [signingOff, setSigningOff] = useState(false)
 
+  // Pasted images wait in the browser until the task exists to store them under.
+  const images = useHeldImages()
+  const update = useUpdateTask()
+  const [attaching, setAttaching] = useState(false)
+  const pending = create.isPending || attaching
+
   function submit(e?: FormEvent) {
     e?.preventDefault()
-    if (!title.trim() || create.isPending) return
+    if (!title.trim() || pending) return
     if (status === "complete") setSigningOff(true)
-    else send()
+    else void send()
   }
 
-  function send(signoff?: SignoffAnswers) {
-    const trimmed = title.trim()
-    create.mutate(
-      {
-        title: trimmed,
+  async function send(signoff?: SignoffAnswers) {
+    const text = body.trim()
+    let task: TaskSummary
+    try {
+      // Created with the text alone, so it keeps that even when an image cannot be stored.
+      task = await create.mutateAsync({
+        title: title.trim(),
         status,
-        body: body.trim() || undefined,
+        body: images.without(text) || undefined,
         priority,
         dueAt: dueRef.current,
         assigneeIds: assignees.length ? assignees.map((a) => a.id) : undefined,
@@ -146,19 +161,31 @@ function CreateTaskForm({
           reviewedById: signoff.reviewedBy?.id ?? null,
           testedById: signoff.testedBy?.id ?? null,
         }),
-      },
-      {
-        onSuccess: (task) => {
-          if (createMore) {
-            setTitle("")
-            setBody("")
-            setCreated(task.key)
-            titleRef.current?.focus()
-          }
-          onDone(task, createMore)
-        },
-      },
-    )
+      })
+    } catch {
+      return // Shown below the form.
+    }
+    if (images.shows(text)) {
+      setAttaching(true)
+      try {
+        const withImages = await images.upload(task.id, text)
+        if (withImages !== images.without(text)) {
+          await update
+            .mutateAsync({ taskId: task.id, projectId, patch: { body: withImages } })
+            .catch(() => {}) // Reported by the update itself.
+        }
+      } finally {
+        setAttaching(false)
+      }
+    }
+    if (createMore) {
+      setTitle("")
+      setBody("")
+      images.clear()
+      setCreated(task.key)
+      titleRef.current?.focus()
+    }
+    onDone(task, createMore)
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
@@ -200,6 +227,7 @@ function CreateTaskForm({
               setBody(v)
               setCreated(null)
             }}
+            uploadImage={images.hold}
           />
         </div>
         <div className="flex flex-wrap items-center gap-1 px-4 py-3">
@@ -247,7 +275,7 @@ function CreateTaskForm({
             {created && `Created ${created}.`}
           </p>
           <Kbd aria-hidden>{isMac() ? "⌘↵" : "Ctrl ↵"}</Kbd>
-          <Button type="submit" variant="primary" size="sm" pending={create.isPending}>
+          <Button type="submit" variant="primary" size="sm" pending={pending}>
             Create task
           </Button>
         </DialogFooter>
@@ -256,7 +284,7 @@ function CreateTaskForm({
         target={signingOff ? { projectId, label: "the new task", signoff: true } : null}
         onConfirm={({ signoff }) => {
           setSigningOff(false)
-          send(signoff)
+          void send(signoff)
         }}
         onCancel={() => setSigningOff(false)}
       />

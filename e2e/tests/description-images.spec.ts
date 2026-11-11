@@ -164,6 +164,93 @@ test("a rejected image is reported and leaves the description unchanged", async 
   expect(await savedBody(page, task.id)).toBeNull()
 })
 
+test.describe("in the new task dialog", () => {
+  async function openComposer(page: Page) {
+    await signIn(page, { email: uniqueEmail() })
+    const slug = await createWorkspace(page, uniqueName())
+    const project = await createProject(
+      page,
+      await workspaceIdBySlug(page, slug),
+      uniqueName("Images"),
+    )
+    await page.goto(`/w/${slug}/projects/${project.id}/board`)
+    await page.getByRole("button", { name: "New task" }).click()
+    const composer = page.getByRole("dialog", { name: "New task" })
+    await expect(composer.locator('[data-editor="ready"]')).toBeVisible()
+    return { project, composer, body: composer.getByRole("textbox", { name: "Description" }) }
+  }
+
+  async function createdTask(page: Page, projectId: string, title: string) {
+    await expect(page.getByRole("dialog", { name: "New task" })).toBeHidden()
+    const res = await page.request.get(`/api/projects/${projectId}/tasks`)
+    const { tasks } = (await res.json()) as { tasks: { id: string; title: string }[] }
+    const task = tasks.find((t) => t.title === title)
+    if (!task) throw new Error(`no task ${title}`)
+    return task
+  }
+
+  test("a pasted screenshot is previewed, then stored once the task is created", async ({
+    page,
+  }) => {
+    const { project, composer, body } = await openComposer(page)
+    await composer.getByLabel("Title").fill("Broken header")
+    await body.click()
+    await body.pressSequentially("It overlaps:")
+    await sendImage(body, "paste")
+    // Nothing is uploaded yet: the preview is the page's own copy.
+    await expect(composer.locator("img.cm-lp-image")).toHaveAttribute("src", /^blob:/)
+    await expect
+      .poll(() =>
+        composer.locator("img.cm-lp-image").evaluate((i: HTMLImageElement) => i.naturalWidth),
+      )
+      .toBe(1)
+    await composer.getByRole("button", { name: "Create task" }).click()
+
+    const task = await createdTask(page, project.id, "Broken header")
+    expect(await savedBody(page, task.id)).toMatch(
+      /^It overlaps:\n!\[Screenshot [^\]]+\.png\]\(\/api\/tasks\/[\w-]+\/artifacts\/[\w-]+\)$/,
+    )
+    const url = ((await savedBody(page, task.id)) ?? "").match(/\((\/api\/[^)]+)\)/)?.[1] ?? ""
+    const image = await page.request.get(url)
+    expect((await image.body()).toString("base64")).toBe(PNG_BASE64)
+  })
+
+  test("images taken out before creating are never uploaded", async ({ page }) => {
+    const { project, composer, body } = await openComposer(page)
+    await composer.getByLabel("Title").fill("No picture")
+    await body.click()
+    await sendImage(body, "paste")
+    await expect(composer.locator("img.cm-lp-image")).toBeVisible()
+    await body.press("ControlOrMeta+a")
+    await body.press("Backspace")
+    await body.pressSequentially("Words only")
+    await composer.getByRole("button", { name: "Create task" }).click()
+
+    const task = await createdTask(page, project.id, "No picture")
+    expect(await savedBody(page, task.id)).toBe("Words only")
+    expect(await storedImages(page, task.id)).toBe(0)
+  })
+
+  test("an image that cannot be stored is reported and the task keeps its text", async ({
+    page,
+  }) => {
+    const { project, composer, body } = await openComposer(page)
+    await page.route("**/api/tasks/*/artifacts", (route) =>
+      route.fulfill({ status: 400, json: { code: "VALIDATION_ERROR", message: "Too big" } }),
+    )
+    await composer.getByLabel("Title").fill("Lost picture")
+    await body.click()
+    await body.pressSequentially("Before")
+    await sendImage(body, "paste", "design.png")
+    await expect(composer.locator("img.cm-lp-image")).toBeVisible()
+    await composer.getByRole("button", { name: "Create task" }).click()
+
+    await expect(page.getByText("design.png: Too big")).toBeVisible()
+    const task = await createdTask(page, project.id, "Lost picture")
+    expect(await savedBody(page, task.id)).toBe("Before")
+  })
+})
+
 test("images dropped on Artifacts are pointed to the description", async ({ page }) => {
   const { sheet } = await setup(page)
   const artifacts = sheet.getByRole("region", { name: "Artifacts" })

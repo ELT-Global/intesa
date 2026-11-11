@@ -11,8 +11,9 @@ export function parseImage(markdown: string) {
   const match = IMAGE.exec(markdown)
   if (!match) return null
   const [, alt = "", src = ""] = match
-  // Same-origin paths and web URLs only; anything else (javascript:, file:) stays text.
-  if (!/^(\/(?!\/)|https?:\/\/)/i.test(src)) return null
+  // Same-origin paths, web URLs and this page's own blob: previews of images not yet uploaded;
+  // anything else (javascript:, file:) stays text.
+  if (!/^(\/(?!\/)|https?:\/\/|blob:)/i.test(src)) return null
   return { alt: alt.replace(/\\(.)/g, "$1"), src }
 }
 
