@@ -13,6 +13,7 @@ export function PlainEditor({
   maxLength,
   autoFocus,
   keepsEscape,
+  readOnly,
 }: MarkdownEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
@@ -37,8 +38,9 @@ export function PlainEditor({
       maxLength={maxLength}
       rows={1}
       value={value}
+      readOnly={readOnly}
       data-keeps-escape={keepsEscape ? "" : undefined}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => onChange?.(e.target.value)}
     />
   )
 }

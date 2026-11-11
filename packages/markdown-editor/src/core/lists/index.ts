@@ -43,9 +43,11 @@ export class CheckboxWidget extends WidgetType {
     cb.type = "checkbox"
     cb.checked = this.checked
     cb.className = "cm-lp-checkbox"
+    cb.disabled = view.state.readOnly
     cb.setAttribute("aria-label", this.checked ? "Completed task" : "Incomplete task")
     cb.addEventListener("mousedown", (e) => {
       e.preventDefault()
+      if (view.state.readOnly) return
       const pos = view.posAtDOM(cb)
       const line = view.state.doc.lineAt(pos)
       const match = line.text.match(/^(\s*[-*+]\s)\[([ xX])\]/)

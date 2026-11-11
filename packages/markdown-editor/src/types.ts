@@ -1,9 +1,12 @@
 export interface MarkdownEditorProps {
   value: string
-  onChange: (value: string) => void
+  /** Not needed when `readOnly`. */
+  onChange?: (value: string) => void
   /** Accessible name, announced as the textbox label. */
   label: string
   placeholder?: string
+  /** Shows the document rendered, with nothing to edit and no Markdown revealed at the caret. */
+  readOnly?: boolean
   /** Hard cap on the document length; edits that would exceed it are rejected. */
   maxLength?: number
   autoFocus?: boolean

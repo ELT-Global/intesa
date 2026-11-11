@@ -32,6 +32,7 @@ export default function MarkdownEditorView({
   keepsEscape,
   restore,
   uploadImage,
+  readOnly,
 }: EditorViewProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -63,10 +64,11 @@ export default function MarkdownEditorView({
           placeholder ? placeholderExt(placeholder) : [],
           uploadImage ? imageUploads((file) => uploadRef.current?.(file) ?? Promise.reject()) : [],
           maxLength ? EditorState.changeFilter.of((tr) => tr.newDoc.length <= maxLength) : [],
+          readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
           EditorView.updateListener.of((u) => {
             if (!u.docChanged || u.transactions.some((t) => t.annotation(external))) return
             synced.current = u.state.doc.toString()
-            onChangeRef.current(synced.current)
+            onChangeRef.current?.(synced.current)
           }),
         ],
       }),

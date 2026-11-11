@@ -280,6 +280,21 @@ describe("MarkdownEditor once loaded", () => {
     expect(document.querySelector(".cm-lp-h1")?.textContent).toBe("Heading")
   })
 
+  it("renders a read-only document with no Markdown shown at the caret and nothing to edit", async () => {
+    await mount(
+      <MarkdownEditor label="Task description" value={"# Heading\n\n- [ ] item"} readOnly />,
+    )
+    expect(content()?.getAttribute("contenteditable")).toBe("false")
+    expect(content()?.getAttribute("aria-readonly")).toBe("true")
+    // The caret sits on the heading's line, which an editable editor would show as Markdown.
+    expect(view().state.selection.main.head).toBe(0)
+    expect(document.querySelector(".cm-lp-h1")?.textContent).toBe("Heading")
+    const checkbox = document.querySelector<HTMLInputElement>("input.cm-lp-checkbox")
+    expect(checkbox?.disabled).toBe(true)
+    checkbox?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+    expect(view().state.doc.toString()).toBe("# Heading\n\n- [ ] item")
+  })
+
   it("destroys the view on unmount", async () => {
     await mount(<Controlled />)
     const mountedHost = host as HTMLElement
@@ -300,6 +315,11 @@ describe("MarkdownEditor — textarea stage details", () => {
     mountSync(<Controlled maxLength={12} keepsEscape />)
     expect(textarea()?.maxLength).toBe(12)
     expect(textarea()?.hasAttribute("data-keeps-escape")).toBe(true)
+  })
+
+  it("makes the textarea read-only when the editor is", () => {
+    mountSync(<MarkdownEditor label="d" value="text" readOnly />)
+    expect(textarea()?.readOnly).toBe(true)
   })
 
   it("focuses the textarea with autoFocus and keeps the focus through the swap", async () => {

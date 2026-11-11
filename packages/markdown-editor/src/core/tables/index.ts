@@ -173,7 +173,7 @@ export class TableWidget extends WidgetType {
 
     // A click puts the caret in the clicked cell, which reveals the markdown for editing.
     wrap.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return
+      if (e.button !== 0 || view.state.readOnly) return
       e.preventDefault()
       const target =
         e.target instanceof Element ? e.target.closest<HTMLElement>("[data-offset]") : null
