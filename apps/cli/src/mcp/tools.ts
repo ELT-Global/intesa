@@ -53,6 +53,8 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "member list": "read",
   "tag list": "read",
   "field list": "read",
+  "bug list": "read",
+  "bug view": "read",
   "artifact list": "read",
   "artifact view": "read",
   status: "read",
@@ -71,6 +73,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "tag create": "write",
   "field create": "write",
   "artifact upload": "write",
+  "bug reopen": "write",
 
   "workspace rename": "idempotent",
   "project edit": "idempotent",
@@ -87,6 +90,7 @@ export const TOOL_KINDS: Record<string, ToolKind> = {
   "field edit": "idempotent",
   "me edit": "idempotent",
   "github edit": "idempotent",
+  "bug edit": "idempotent",
 
   "project delete": "destructive",
   "task delete": "destructive",

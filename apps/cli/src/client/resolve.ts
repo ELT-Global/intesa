@@ -1,4 +1,4 @@
-import { PROJECT_KEY_PATTERN, TASK_KEY_PATTERN } from "@intesa/api/schemas"
+import { BUG_KEY_PATTERN, PROJECT_KEY_PATTERN, TASK_KEY_PATTERN } from "@intesa/api/schemas"
 import { cacheWorkspace, readHosts } from "../config/config"
 import { notFound, usageError } from "../output/errors"
 import type { Ctx } from "../registry/define"
@@ -162,6 +162,13 @@ function createResolver(ctx: Deps) {
     return found
   }
 
+  // The project key for a bare number: a key given as context saves listing the projects.
+  async function contextKey(context: string) {
+    return PROJECT_KEY_PATTERN.test(context.toUpperCase())
+      ? context.toUpperCase()
+      : (await project()).key
+  }
+
   // WEB-12 (any case, subtasks too), 12 with a project context, a task id or a web link.
   async function task(ref: string) {
     const id = UUID.test(ref) ? ref : taskIdFromLink(ref)
@@ -177,11 +184,7 @@ function createResolver(ctx: Deps) {
           `task number ${ref} needs a project: pass -p/--project, or use the full key like WEB-${ref}`,
         )
       }
-      // A key from context saves listing the projects just to learn it.
-      const projectKey = PROJECT_KEY_PATTERN.test(context.toUpperCase())
-        ? context.toUpperCase()
-        : (await project()).key
-      key = `${projectKey}-${ref}`
+      key = `${await contextKey(context)}-${ref}`
     }
     if (!TASK_KEY_PATTERN.test(key)) {
       throw usageError(
@@ -193,6 +196,32 @@ function createResolver(ctx: Deps) {
       param: { workspaceId, key: key.toUpperCase() },
     })
     return (await res.json()).task
+  }
+
+  // WEB-B3 (any case), B3 with a project context, or a bug id.
+  async function bug(ref: string) {
+    if (UUID.test(ref)) {
+      const res = await (await client()).api.bugs[":bugId"].$get({ param: { bugId: ref } })
+      return (await res.json()).bug
+    }
+    let key = ref
+    if (/^b\d+$/i.test(ref)) {
+      const context = ctx.context().project?.value
+      if (!context) {
+        throw usageError(
+          `bug ${ref} needs a project: pass -p/--project, or use the full key like WEB-${ref.toUpperCase()}`,
+        )
+      }
+      key = `${await contextKey(context)}-${ref}`
+    }
+    if (!BUG_KEY_PATTERN.test(key)) {
+      throw usageError(`invalid bug "${ref}": use a key like WEB-B3, B3 with -p, or a bug id`)
+    }
+    const { id: workspaceId } = await currentWorkspace()
+    const res = await (await client()).api.workspaces[":workspaceId"].bugs[":key"].$get({
+      param: { workspaceId, key: key.toUpperCase() },
+    })
+    return (await res.json()).bug
   }
 
   const members = once(async () => {
@@ -266,6 +295,7 @@ function createResolver(ctx: Deps) {
     projects,
     project,
     task,
+    bug,
     members,
     member,
     tags,

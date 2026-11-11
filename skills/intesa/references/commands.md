@@ -244,6 +244,24 @@ intesa artifact delete WEB-12 spec.pdf
 intesa a delete WEB-12 spec.pdf --yes
 ```
 
+## bug (alias b)
+
+- `intesa bug list` (alias ls): List a project's bugs
+- `intesa bug view <bug>`: Show a bug
+- `intesa bug edit <bug>`: Change a bug's title or description
+- `intesa bug reopen <bug>`: Open a regression task for a resolved bug
+
+```sh
+intesa bug list -p WEB
+intesa b list --status pending --json --fields key,title
+intesa bug view WEB-B3
+intesa b view web-b3 --json --fields key,status,tasks
+intesa bug edit WEB-B3 -T "Login fails with SSO"
+intesa bug edit WEB-B3 -F steps.md
+intesa bug reopen WEB-B3
+intesa bug reopen WEB-B3 -T "Login fails again" -a @me --priority high
+```
+
 ## config
 
 - `intesa config get <key>`: Print the value of a configuration key

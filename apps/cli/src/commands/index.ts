@@ -66,6 +66,12 @@ export const nouns: NounEntry[] = [
     load: () => import("./artifact").then((m) => m.default),
   },
   {
+    name: "bug",
+    aliases: ["b"],
+    summary: "List, view and edit a project's bugs, and reopen resolved ones",
+    load: () => import("./bug").then((m) => m.default),
+  },
+  {
     name: "status",
     summary: "Show your recent projects, your tasks and what is due soon",
     load: () => import("./status").then((m) => m.default),

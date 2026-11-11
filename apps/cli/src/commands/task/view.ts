@@ -64,6 +64,7 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
     ["Reviewed by", signoff(task.reviewedBy)],
     ["Tested by", signoff(task.testedBy)],
     ["Project", `${task.project.name} (${task.project.key})`],
+    ["Bug", task.bug ? `${task.bug.key}  ${task.bug.title} (${task.bug.status})` : ""],
     ["Parent", task.parent ? `${task.parent.key}  ${task.parent.title}` : ""],
     ["Created", when(task.createdAt)],
     ["Updated", when(task.updatedAt)],

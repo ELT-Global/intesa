@@ -63,6 +63,11 @@ const PARITY: { web: string; cli: string[] }[] = [
       "artifact delete",
     ],
   },
+  {
+    web: "Bugs: list, detail, edit, reopen",
+    cli: ["bug list", "bug view", "bug edit", "bug reopen"],
+  },
+  { web: "Task panel: bug", cli: ["task view"] },
   { web: "Markdown artifact editor", cli: ["artifact edit", "artifact replace"] },
   { web: "Context menu: open, copy link, copy ID", cli: ["task open", "task url", "task view"] },
   { web: "Delete task", cli: ["task delete"] },

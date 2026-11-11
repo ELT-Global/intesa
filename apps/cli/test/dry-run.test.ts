@@ -32,6 +32,8 @@ const READS = [
   "intesa member list",
   "intesa tag list",
   "intesa field list",
+  "intesa bug list",
+  "intesa bug view",
   "intesa artifact list",
   "intesa artifact download",
   "intesa artifact view",
@@ -73,6 +75,10 @@ beforeAll(async () => {
   const parent = await w.addTask({ title: "Parent" })
   await w.addTask({ title: "Kid", parentTaskId: parent.id })
   const other = await w.addTask({ title: "Other" })
+  // A resolved bug, so reopening it is possible.
+  const bugTask = await w.addTask({ title: "Crash", tagIds: [tag.id] })
+  await w.patchTask(bugTask.id, { status: "complete", reviewedById: null, testedById: null })
+  const bug = (await w.getTask(bugTask.id)).bug as { id: string; key: string }
   await session.call("POST", `/api/tasks/${parent.id}/relationships`, {
     type: "blocks",
     taskId: other.id,
@@ -300,6 +306,18 @@ beforeAll(async () => {
       method: "DELETE",
       path: `${task}/artifacts/${artifact.id}`,
     },
+    "intesa bug edit": {
+      args: ["bug", "edit", bug.key, "-T", "Renamed"],
+      method: "PATCH",
+      path: `/api/bugs/${bug.id}`,
+      body: { title: "Renamed" },
+    },
+    "intesa bug reopen": {
+      args: ["bug", "reopen", bug.key, "-T", "Again"],
+      method: "POST",
+      path: `/api/bugs/${bug.id}/tasks`,
+      body: { title: "Again" },
+    },
     "intesa api": {
       args: ["api", "/auth/dev-login", "-f", "email=api-dry@example.com"],
       method: "POST",
@@ -378,6 +396,9 @@ const TABLES = [
   "customFieldDefinitions",
   "taskCustomFieldValues",
   "artifacts",
+  "bugs",
+  "bugTasks",
+  "bugImages",
   "apiTokens",
   "sessions",
   "githubWebhooks",
@@ -459,6 +480,8 @@ describe("--dry-run", () => {
     "intesa artifact edit",
     "intesa artifact replace",
     "intesa artifact delete",
+    "intesa bug edit",
+    "intesa bug reopen",
     "intesa api",
     "intesa config set",
     "intesa token create",

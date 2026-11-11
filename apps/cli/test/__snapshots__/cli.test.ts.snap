@@ -17,6 +17,7 @@ COMMANDS
   tag:         List, create and manage tags
   field:       List, create and manage a project's custom fields
   artifact:    List, upload, download, edit and delete a task's artifacts
+  bug:         List, view and edit a project's bugs, and reopen resolved ones
   status:      Show your recent projects, your tasks and what is due soon
   week:        Show what each person worked on in a week
   api:         Make an authenticated request to the Intesa API

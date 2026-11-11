@@ -32,6 +32,19 @@ const ACCOUNT = ["id", "name", "email", "avatarUrl", "totpEnabled"] as const
 const PROJECT = ["id", "key", "name", "description", "workspaceId", "createdAt", "updatedAt", "url"]
 const ARTIFACT = ["id", "name", "mimeType", "size", "createdAt", "updatedAt", "url"] as const
 
+const BUG = [
+  "id",
+  "projectId",
+  "number",
+  "key",
+  "title",
+  "status",
+  "tasks",
+  "mirroring",
+  "createdAt",
+  "updatedAt",
+] as const
+
 type FieldSet = {
   // What --fields and `intesa schema` accept. JSON names are the API's own (camelCase).
   fields: readonly string[]
@@ -106,6 +119,7 @@ export const FIELD_SETS = {
       "related",
       "customFields",
       "artifacts",
+      "bug",
       "history",
     ],
     columns: ["key", "status", "title"],
@@ -140,6 +154,12 @@ export const FIELD_SETS = {
   },
   // What a delete, removal or revocation reports: the id, what people call it, `deleted: true`.
   deleted: { fields: ["id", "key", "name", "email", "deleted"] },
+  // Bugs as the API lists them; `tasks` are the ones linked to the bug, oldest first.
+  bug: { fields: BUG, columns: ["key", "status", "title"] },
+  // `bug view` and `bug edit`: also the description.
+  bugDetail: { fields: [...BUG, "body"], columns: ["key", "status", "title"] },
+  // `bug reopen`: the new task, with the bug it belongs to.
+  bugReopened: { fields: [...TASK, "bug"], columns: TASK_COLUMNS },
   // `task search`: the API's short task references, matched by title or key.
   taskRef: { fields: ["id", "key", "title", "status"], columns: ["key", "status", "title"] },
   // `task history`: status changes, oldest first.

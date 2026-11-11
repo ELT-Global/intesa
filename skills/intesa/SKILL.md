@@ -105,6 +105,15 @@ intesa artifact upload WEB-12 spec.pdf notes.md --json
 intesa artifact download WEB-12 spec.pdf -o ./downloads    # -o - writes the bytes to stdout
 ```
 
+A task tagged `bug` opens a bug in its project (key `WEB-B3`); the bug is pending while any of its tasks is not complete and resolved when all are, and `task view` shows the task's bug. `bug reopen` opens a regression task for a resolved bug (exit 6, naming the open task, while it is still pending):
+
+```sh
+intesa bug list --status pending -p WEB --json --fields key,title,status
+intesa bug view WEB-B3 --json
+intesa bug edit WEB-B3 -T "Login fails with SSO" -b "Steps: …"
+intesa bug reopen WEB-B3 -a @me --priority high --json --fields key,url
+```
+
 Edit several things of a task in one go through a document. With no flags `task edit` opens the task as a document (front matter with title, status, priority, due, assignees, tags, reviewedBy, testedBy and fields, then the Markdown body). Without a terminal it only works if `INTESA_EDITOR` names a program; intesa runs it with the path of a temporary file as its last argument, and the program edits that file in place and exits 0. A key left out of the front matter changes nothing, an empty value clears it (except `reviewedBy` and `testedBy`, which take a person or `none` for nobody and cannot be emptied once answered), and only the differences are sent. For a few fields, prefer flags (`task edit WEB-12 --priority urgent --add-assignee @me --no-due`).
 
 ```sh
