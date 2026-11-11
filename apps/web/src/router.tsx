@@ -33,6 +33,8 @@ declare module "@tanstack/react-router" {
     title?: string
     /** Page owns the whole main area and scrolls internally. */
     fullBleed?: boolean
+    /** Page spans the main area's full width but scrolls with it. */
+    wide?: boolean
   }
 
   interface Register {

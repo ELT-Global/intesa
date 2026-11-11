@@ -1,6 +1,7 @@
 import { STATUS_LABELS } from "@intesa/task-query"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { AssigneeAvatars, assigneesOf } from "@/components/bugs/assignee-avatars"
 import { BugDetailSheet } from "@/components/bugs/bug-detail-sheet"
 import { BugStatusBadge } from "@/components/bugs/bug-status-badge"
 import { EmptyState, ErrorState } from "@/components/page"
@@ -117,6 +118,7 @@ function BugRow({ bug, onOpen }: { bug: BugSummary; onOpen: () => void }) {
             </li>
           ))}
         </ul>
+        <AssigneeAvatars people={assigneesOf(bug.tasks)} label={`${bug.key} assignees`} />
         <BugStatusBadge status={bug.status} />
       </div>
     </li>

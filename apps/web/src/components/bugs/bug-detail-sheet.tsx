@@ -20,6 +20,7 @@ import {
   useUploadBugImage,
 } from "@/lib/bugs"
 import { cn } from "@/lib/utils"
+import { AssigneeAvatars } from "./assignee-avatars"
 import { BugStatusBadge } from "./bug-status-badge"
 
 /** Right-hand sheet (full screen on mobile) showing one bug, laid out like the task sheet. */
@@ -154,6 +155,7 @@ function BugBody({ bug }: { bug: BugDetail }) {
                   <StatusIcon status={t.status} />
                   <TaskKey className="shrink-0">{t.key}</TaskKey>
                   <span className="min-w-0 flex-1 truncate">{t.title}</span>
+                  <AssigneeAvatars people={t.assignees} label={`${t.key} assignees`} />
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {STATUS_LABELS[t.status]}
                   </span>

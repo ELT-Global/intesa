@@ -75,6 +75,8 @@ export function AppShell({
   const [slot, setSlot] = useState<HTMLElement | null>(null)
   // The kanban board needs the full main area and its own scrolling.
   const fullBleed = useMatches({ select: (ms) => ms.some((m) => m.staticData.fullBleed) })
+  // Wide pages (the table) span the main area like the board but scroll as a page.
+  const wide = useMatches({ select: (ms) => ms.some((m) => m.staticData.wide) })
   return (
     <div className="flex h-dvh overflow-hidden">
       <button
@@ -151,7 +153,11 @@ export function AppShell({
             >
               <div
                 className={cn(
-                  fullBleed ? "flex min-h-0 w-full flex-1 flex-col" : "mx-auto max-w-4xl",
+                  fullBleed
+                    ? "flex min-h-0 w-full flex-1 flex-col"
+                    : wide
+                      ? "w-full"
+                      : "mx-auto max-w-4xl",
                 )}
               >
                 {children}

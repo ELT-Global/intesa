@@ -117,9 +117,11 @@ const Row = memo(function Row({
         return (
           <td
             key={column}
+            // w-full with max-w-0 hands this column the table's spare width, so titles use
+            // what the page gives the table and truncate only once it runs out.
             className={cn(
               cell,
-              "sticky left-0 z-10 bg-card group-hover/row:bg-[color-mix(in_oklab,var(--muted)_40%,var(--card))]",
+              "sticky left-0 z-10 w-full max-w-0 bg-card group-hover/row:bg-[color-mix(in_oklab,var(--muted)_40%,var(--card))]",
             )}
           >
             <button
@@ -129,7 +131,7 @@ const Row = memo(function Row({
                 onOpen(task)
               }}
               data-task-primary
-              className="flex max-w-80 min-w-40 cursor-pointer items-baseline gap-2 text-left outline-none focus-visible:underline"
+              className="flex w-full min-w-40 cursor-pointer items-baseline gap-2 text-left outline-none focus-visible:underline"
             >
               <span className="shrink-0 whitespace-nowrap font-mono text-[12.5px] text-subtle-foreground">
                 {task.key}

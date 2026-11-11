@@ -34,6 +34,16 @@ test("the table lists every task with its status, priority and due date", async 
   await expect(page.getByRole("row")).toHaveCount(3) // header + 2
 })
 
+test("on a wide screen the table spans the main area, like the board", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 })
+  await setup(page, [{ title: "A title long enough to want the room ".repeat(4).trim() }])
+  const main = await page.locator("#main").boundingBox()
+  const table = await page.getByRole("table", { name: "Tasks" }).boundingBox()
+  // Narrower pages are capped at 56rem (896px); the table takes nearly all of main instead.
+  expect(table?.width ?? 0).toBeGreaterThan((main?.width ?? 0) - 120)
+  expect(table?.width ?? 0).toBeGreaterThan(1200)
+})
+
 test("sorting by priority orders urgent to low and puts unset last", async ({ page }) => {
   await setup(page, [
     { title: "Low one", priority: "low" },

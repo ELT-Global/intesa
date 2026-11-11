@@ -12,6 +12,7 @@ import { meQuery } from "@/lib/queries"
 import { projectTasksQuery } from "@/lib/tasks"
 
 export const Route = createFileRoute("/_app/w/$slug/projects/$projectId/table")({
+  staticData: { wide: true },
   component: TablePage,
 })
 

@@ -26,6 +26,20 @@ test("a project's Bugs link unfolds when the project is opened, and folds by its
   await expect(sidebarBugs(page, projectName)).toHaveCount(0)
 })
 
+test("a bug shows the avatars of everyone assigned to its tasks", async ({ page }) => {
+  const { bugTag, createTask, bugsPath, project } = await setup(page)
+  const me = (
+    (await (await page.request.get("/api/me")).json()) as { user: { id: string; name: string } }
+  ).user
+  await createTask({ title: "Crash on save", tagIds: [bugTag], assigneeIds: [me.id] })
+  const bug = await onlyBug(page, project.id)
+  await page.goto(bugsPath)
+  const avatars = bugRow(page, bug.key).getByRole("list", { name: `${bug.key} assignees` })
+  await expect(avatars.getByRole("img", { name: me.name })).toBeVisible()
+  await bugRow(page, bug.key).getByText("Crash on save").click()
+  await expect(bugSheet(page, bug.key).getByRole("img", { name: me.name })).toBeVisible()
+})
+
 // A 1×1 PNG.
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
