@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { ApiError } from "../lib/errors"
 import type { PullRequestState } from "../schemas"
+import { commitFingerprint } from "./fingerprint"
 
 // The parts of GitHub's pull request object that Intesa keeps. The REST API and webhook
 // payloads share this shape. html_url is shown as a link, so only a github.com one is taken.
@@ -101,49 +102,60 @@ export async function fetchGithubPullRequest(
   return parsed.success ? parsed.data : undefined
 }
 
-// Whether `sha` is in the history of `target` (a branch or a commit), by GitHub's compare API:
-// "ahead" or "identical" means it contains the commit, "behind" or "diverged" that it does not.
-// Commit ids make the answer exact. Undefined when GitHub could not be asked or gave no clear
-// answer.
-export async function containsCommit(
-  repo: string,
-  sha: string,
-  target: string,
+// A commit as the REST API describes it, in a PR's commit list or on its own.
+const githubCommit = z.object({
+  commit: z.object({
+    message: z.string(),
+    author: z.object({ email: z.string().nullish(), date: z.string().nullish() }).nullish(),
+  }),
+  parents: z.array(z.unknown()),
+})
+
+// GitHub lists at most this many of a PR's commits.
+export const MAX_PR_COMMITS = 250
+
+// The fingerprints of a PR's commits, leaving out merge commits (a rebase drops them, so they
+// never reach another branch). "too-many" when GitHub may have left some out; undefined when
+// it could not be asked.
+export async function pullRequestCommits(
+  ref: PrRef,
   token: string | null | undefined,
   signal?: AbortSignal,
-): Promise<boolean | undefined> {
-  const path = target.split("/").map(encodeURIComponent).join("/")
-  // Only the status is read, so one commit of the list (not up to 250) is enough.
-  const res = await githubGet(`repos/${repo}/compare/${sha}...${path}?per_page=1`, token, signal)
-  if (!res?.ok) return undefined
-  const status = ((await res.json().catch(() => null)) as { status?: unknown } | null)?.status
-  if (status === "ahead" || status === "identical") return true
-  if (status === "behind" || status === "diverged") return false
-  return undefined
+): Promise<string[] | "too-many" | undefined> {
+  const commits: z.infer<typeof githubCommit>[] = []
+  for (let page = 1; commits.length < MAX_PR_COMMITS; page++) {
+    const res = await githubGet(
+      `repos/${ref.repo}/pulls/${ref.number}/commits?per_page=100&page=${page}`,
+      token,
+      signal,
+    )
+    if (!res?.ok) return undefined
+    const parsed = z.array(githubCommit).safeParse(await res.json().catch(() => null))
+    if (!parsed.success) return undefined
+    commits.push(...parsed.data)
+    if (parsed.data.length < 100) break
+  }
+  if (commits.length >= MAX_PR_COMMITS) return "too-many"
+  return commits
+    .filter((c) => c.parents.length <= 1)
+    .map((c) => commitFingerprint(c.commit))
+    .filter((f) => f !== undefined)
 }
 
-const commitPullRequests = z.array(
-  z.object({
-    merged_at: z.string().nullish(),
-    merge_commit_sha: z.string().nullish(),
-    head: z.object({ sha: z.string() }),
-  }),
-)
-
-// The head commit of the PR whose merge made commit `sha`, so what the PR brought in can be
-// looked for in it even when the merge was a squash or a rebase. Undefined when no merged PR
-// made it (a plain push) or GitHub could not be asked.
-export async function mergedHead(
+// The fingerprint of one commit, and whether it is a merge commit. Undefined when GitHub could
+// not be asked or the commit says too little to be recognised.
+export async function commitDetails(
   repo: string,
   sha: string,
   token: string | null | undefined,
   signal?: AbortSignal,
-): Promise<string | undefined> {
-  const res = await githubGet(`repos/${repo}/commits/${sha}/pulls`, token, signal)
+): Promise<{ fingerprint: string; merge: boolean } | undefined> {
+  const res = await githubGet(`repos/${repo}/commits/${encodeURIComponent(sha)}`, token, signal)
   if (!res?.ok) return undefined
-  const parsed = commitPullRequests.safeParse(await res.json().catch(() => null))
+  const parsed = githubCommit.safeParse(await res.json().catch(() => null))
   if (!parsed.success) return undefined
-  return parsed.data.find((pr) => pr.merged_at && pr.merge_commit_sha === sha)?.head.sha
+  const fingerprint = commitFingerprint(parsed.data.commit)
+  return fingerprint ? { fingerprint, merge: parsed.data.parents.length > 1 } : undefined
 }
 
 // A GET to GitHub's REST API, with the token when there is one. Undefined when GitHub could not

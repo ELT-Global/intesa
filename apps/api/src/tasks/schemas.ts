@@ -84,6 +84,9 @@ export const patchTaskBody = z.object({
   pullRequest: z.string().trim().min(1).max(300).optional(),
   // Unlinks one of the task's pull requests by its id, in the same write as everything else.
   unlinkPullRequestId: z.string().min(1).optional(),
+  // Marks the task's merged pull requests as in the production branch by hand, for code the
+  // webhook cannot follow there (squashed or reworded on the way, say). It cannot be undone.
+  released: z.literal(true).optional(),
 })
 
 export type CreateTaskInput = z.infer<typeof createTaskBody>

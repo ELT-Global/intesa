@@ -804,6 +804,49 @@ const backfillBugs: Migration = {
   },
 }
 
+// Where a task's code is, followed through rebases: a commit is recognised by its fingerprint
+// (author, author date and message), which a rebase keeps while it changes the commit's id.
+// Each merged PR's commits, and every commit seen arriving in the production branch, are kept
+// by fingerprint; a PR is in the branch once all its commits are. A PR can also be marked as
+// there by hand, which records who did.
+const githubCommitFingerprints: Migration = {
+  async up(db) {
+    await atomically(db, async (trx) => {
+      await trx.schema
+        .createTable("pull_request_commits")
+        .addColumn("workspace_id", text, (c) =>
+          c.notNull().references("workspaces.id").onDelete("cascade"),
+        )
+        .addColumn("repo", text, notNull)
+        .addColumn("number", "integer", notNull)
+        .addColumn("fingerprint", text, notNull)
+        // 1 for the commit a squash merge made in the base branch, which stands for all of them.
+        .addColumn("squash", "integer", (c) => c.notNull().defaultTo(0))
+        .addPrimaryKeyConstraint("pull_request_commits_pk", [
+          "workspace_id",
+          "repo",
+          "number",
+          "fingerprint",
+        ])
+        .execute()
+      await trx.schema
+        .createTable("production_commits")
+        .addColumn("workspace_id", text, (c) =>
+          c.notNull().references("workspaces.id").onDelete("cascade"),
+        )
+        .addColumn("repo", text, notNull)
+        .addColumn("fingerprint", text, notNull)
+        .addColumn("created_at", text, notNull)
+        .addPrimaryKeyConstraint("production_commits_pk", ["workspace_id", "repo", "fingerprint"])
+        .execute()
+      await trx.schema
+        .alterTable("task_pull_requests")
+        .addColumn("released_by", text, (c) => c.references("users.id").onDelete("set null"))
+        .execute()
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -820,4 +863,5 @@ export const migrations: Record<string, Migration> = {
   "0013_bugs": bugs,
   "0014_bug_own_description": bugOwnDescription,
   "0015_backfill_bugs": backfillBugs,
+  "0016_github_commit_fingerprints": githubCommitFingerprints,
 }

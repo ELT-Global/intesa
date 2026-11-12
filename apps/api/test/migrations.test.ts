@@ -1041,3 +1041,122 @@ describe.each(targets)("migration 0015 (backfill bugs) on %s", (_name, open) => 
     await close()
   })
 })
+
+describe.each(targets)("migration 0016 (commit fingerprints) on %s", (_name, open) => {
+  test("keeps existing links as they were, and adds the fingerprint tables and who marked a release", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0015_backfill_bugs")).error).toBeUndefined()
+
+    const ts = "2026-01-01T00:00:00.000Z"
+    for (const id of ["u", "marker"])
+      await db
+        .insertInto("users")
+        .values({
+          id,
+          name: id,
+          email: `${id}@x.com`,
+          totpEnabled: 0,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .execute()
+    await db
+      .insertInto("workspaces")
+      .values({ id: "w", name: "W", slug: "w1", createdAt: ts, updatedAt: ts })
+      .execute()
+    await db
+      .insertInto("projects")
+      .values({
+        id: "p",
+        workspaceId: "w",
+        name: "P",
+        key: "PP",
+        taskCounter: 1,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    await db
+      .insertInto("tasks")
+      .values({
+        id: "t",
+        workspaceId: "w",
+        projectId: "p",
+        number: 1,
+        title: "t",
+        status: "review",
+        position: "a1",
+        createdBy: "u",
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .execute()
+    const link = (id: string, number: number, releasedTo: string | null) => ({
+      id,
+      taskId: "t",
+      repo: "acme/web",
+      number,
+      url: `https://github.com/acme/web/pull/${number}`,
+      title: null,
+      author: null,
+      state: "merged" as const,
+      baseBranch: "qa",
+      githubUpdatedAt: ts,
+      source: "auto" as const,
+      linkedBy: null,
+      releasedTo,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    await db
+      .insertInto("taskPullRequests")
+      .values([link("l1", 1, "main"), link("l2", 2, null)])
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+    const links = await db
+      .selectFrom("taskPullRequests")
+      .select(["id", "releasedTo", "releasedBy"])
+      .orderBy("id")
+      .execute()
+    expect(links).toEqual([
+      { id: "l1", releasedTo: "main", releasedBy: null },
+      { id: "l2", releasedTo: null, releasedBy: null },
+    ])
+
+    await db
+      .insertInto("pullRequestCommits")
+      .values({ workspaceId: "w", repo: "acme/web", number: 2, fingerprint: "f1" })
+      .execute()
+    await db
+      .insertInto("productionCommits")
+      .values({ workspaceId: "w", repo: "acme/web", fingerprint: "f1", createdAt: ts })
+      .execute()
+    expect(await db.selectFrom("pullRequestCommits").select("squash").execute()).toEqual([
+      { squash: 0 },
+    ])
+    // A fingerprint is kept once per PR and once per repository.
+    await expect(
+      db
+        .insertInto("productionCommits")
+        .values({ workspaceId: "w", repo: "acme/web", fingerprint: "f1", createdAt: ts })
+        .execute(),
+    ).rejects.toThrow()
+
+    // Whoever marked a release can leave; the mark stays.
+    await db
+      .updateTable("taskPullRequests")
+      .set({ releasedTo: "main", releasedBy: "marker" })
+      .where("id", "=", "l2")
+      .execute()
+    await db.deleteFrom("users").where("id", "=", "marker").execute()
+    expect(
+      await db
+        .selectFrom("taskPullRequests")
+        .select(["releasedTo", "releasedBy"])
+        .where("id", "=", "l2")
+        .executeTakeFirst(),
+    ).toEqual({ releasedTo: "main", releasedBy: null })
+    await close()
+  })
+})

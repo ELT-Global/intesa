@@ -4,6 +4,7 @@ import { type AppEnv, requireUser } from "../auth/middleware"
 import { inTransaction } from "../db"
 import type { Deps } from "../deps"
 import { linkPullRequest, resolvePullRequest, unlinkPullRequest } from "../github/links"
+import { markReleased, RELEASE_CHECK_MS, releaseIfArrived } from "../github/releases"
 import { validate } from "../lib/validate"
 import { addRelationship, removeRelationship } from "../tasks/relationships"
 import { patchTaskBody, RELATION_TYPES } from "../tasks/schemas"
@@ -39,7 +40,12 @@ export function taskRoutes({ db }: Deps) {
           await unlinkPullRequest(trx, task.id, patch.unlinkPullRequestId)
         }
         if (pr) await linkPullRequest(trx, task, pr, "manual", c.var.user.id)
+        if (patch.released) await markReleased(trx, task, c.var.user.id)
       })
+      // A PR linked after it merged may have reached the production branch already.
+      if (pr?.details?.state === "merged") {
+        await releaseIfArrived(db, task.workspaceId, pr, AbortSignal.timeout(RELEASE_CHECK_MS))
+      }
       const [summary] = await loadTaskSummaries(db, [task.id])
       return c.json({ task: summary as NonNullable<typeof summary> })
     })
