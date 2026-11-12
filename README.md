@@ -64,15 +64,29 @@ Tasks can be linked to GitHub pull requests. A linked PR shows on the task, and 
 
 Nothing else changes a status: draft PRs and PRs closed without merging only change the PR's state, and a task someone has moved elsewhere is left there. A PR can also be linked by hand with its link or `owner/repo#482`: in the dialog when a task moves to In progress, from the task's Pull requests section, or with `intesa task start ELT-151 --pr acme/web#482`. Unlinking a PR from a task never changes its status, and the PR stays unlinked even if it still names the task; linking it by hand brings it back. Only the first 10 task keys in a PR are looked at.
 
-Review and Complete cards with a merged PR also show where the task's code is: **In qa** (the merge branch) or **In main** (the production branch). A PR merged straight into the production branch counts at once. At every push to the production branch (a PR merging into it is one), Intesa asks GitHub, for every merged PR of the workspace not yet found there, whether its merge commit is in the branch, and marks those that are; when the push is a PR's merge, they are looked for in that PR's head instead, so a `qa → main` PR merged with squash or rebase counts too. A task shows "In main" once all its merged PRs are there. Commit ids make this exact, and what it cannot see stays "In qa", never the other way round: a fix cherry-picked onto `main`, say. PRs not found, or not checked within GitHub's wait for a reply, are looked for again at the next push. This needs the GitHub token.
+Review and Complete cards with a merged PR also show where the task's code is: **In qa** (the merge branch) or **In main** (the production branch). A PR merged straight into the production branch counts at once. Any other PR counts once all its commits have reached the production branch. Rebasing gives a commit a new id, so with "Rebase and merge", or with `qa` rebased onto `main` before a release, the commits in `main` are never the ones that merged. So Intesa recognises a commit by its author, author date and message, which a rebase, a resolved conflict and a cherry-pick all keep:
+
+- When a linked PR merges into a branch other than the production branch, Intesa asks GitHub for its commits and keeps their fingerprints. When the merge was a squash, it also keeps the commit the squash made.
+- Every push to the production branch (a PR merging into it is one) lists the commits it brought in. Intesa keeps their fingerprints too, so a PR's commits may arrive over several pushes, in any order, even before the PR merged (a fix cherry-picked onto `main` first, say).
+- A PR is marked In main once all its commits, or its squash commit, are there. A task shows "In main" once all its merged PRs are.
+
+Nothing is guessed, so a mistake leaves a task "In qa", never the other way round. A PR GitHub could not list the commits of, at the merge or within its wait for a reply, is asked about again at the next push. This needs the GitHub token.
+
+Some code cannot be recognised in `main`, and its task stays "In qa":
+
+- commits squashed or reworded on the way to `main` (`rebase -i` on `qa`, or a `qa → main` PR merged with "Squash and merge"), or rebased with `--reset-author-date`;
+- a PR with more than 250 commits, which is more than GitHub lists; the delivery reply names it;
+- code that reached `main` before Intesa recognised commits this way.
+
+For these, **Mark as in main** in the task's Pull requests section (or `intesa task edit ELT-151 --released`) marks the task's merged PRs as in the production branch, with the name of whoever did. It cannot be undone, and nothing the webhook hears later changes it. Reverts are not followed: code reverted after reaching `main` still shows "In main".
 
 To set it up, a workspace owner:
 
 1. Opens the workspace's Settings page and creates the webhook (or runs `intesa github create`). Intesa shows its payload URL (`<PUBLIC_URL>/api/webhooks/github/<id>`) and a secret, once. Creating it again gives it a new secret and keeps the URL.
 2. In GitHub, adds a webhook to the organisation or repository with that URL, content type `application/json`, the secret, and the "Pull requests" and "Pushes" events. Deliveries with a missing or wrong signature are refused.
-3. Sets the merge branch (default `qa`), the production branch (default `main`) and a GitHub token: a fine-grained token with read-only access to Pull requests and Contents, which Intesa uses to look a PR up when someone links one by hand and to check which code reached the production branch. Without it, tasks stay "In qa". The token is never shown again.
+3. Sets the merge branch (default `qa`), the production branch (default `main`) and a GitHub token: a fine-grained token with read-only access to Pull requests and Contents, which Intesa uses to look a PR up when someone links one by hand, and to list a merged PR's commits and the commit its merge made. Without it, tasks stay "In qa". The token is never shown again.
 
-GitHub's "Recent Deliveries" list for the webhook shows Intesa's reply to each event: the tasks it linked, unlinked and moved, keys it did not recognise, and after a merge or push into the production branch, the tasks whose code reached it (or which PRs GitHub could not place or check in time). Pushes to any other branch are ignored.
+GitHub's "Recent Deliveries" list for the webhook shows Intesa's reply to each event: the tasks it linked, unlinked and moved, keys it did not recognise, and after a merge or push into the production branch, the tasks whose code reached it (or which PRs' commits GitHub could not list, or not in time). Pushes to any other branch are ignored.
 
 ## PostgreSQL
 
