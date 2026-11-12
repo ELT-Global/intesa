@@ -102,6 +102,7 @@ intesa task edit WEB-12 -T "Fix the login redirect" --priority urgent
 intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due
 intesa task edit WEB-12 --field Estimate=5 --clear-field Stage
 intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none
+intesa task edit WEB-12 --released
 intesa task edit WEB-12 --pr acme/web#482 --remove-pr 480
 intesa task edit WEB-12
 intesa task move WEB-12 review

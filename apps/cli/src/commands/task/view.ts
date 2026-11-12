@@ -105,8 +105,14 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
       pr: `${p.repo}#${p.number}`,
       // Not known until GitHub has been asked or has sent an event.
       state: p.state ?? "unknown",
-      // Where a merged PR's code is: the production branch once found there, else its base.
-      in: p.state === "merged" ? (p.releasedTo ?? p.baseBranch ?? "") : "",
+      // Where a merged PR's code is: the production branch once found there (or marked so by
+      // someone), else its base.
+      in:
+        p.state !== "merged"
+          ? ""
+          : p.releasedBy && p.releasedTo
+            ? `${p.releasedTo} (marked by ${p.releasedBy.name})`
+            : (p.releasedTo ?? p.baseBranch ?? ""),
       title: p.title ?? "",
       url: p.url,
     }))
