@@ -135,3 +135,32 @@ test("Review cards show whether the task's code is in qa or main", async ({ page
   await expect(card(page, "Review", "Still in qa")).toContainText("In qa")
   await expect(card(page, "Review", "Straight to main")).toContainText("In main")
 })
+
+test("a task whose code the webhook cannot follow can be marked as in main by hand", async ({
+  page,
+}) => {
+  await signIn(page, { email: uniqueEmail("github"), name: "Ada Owner" })
+  const slug = await createWorkspace(page, uniqueName("GitHub"))
+  const workspaceId = await workspaceIdBySlug(page, slug)
+  const { url, secret } = await createWebhook(page, slug)
+  const project = await createProject(page, workspaceId, "Project")
+  const task = await createTaskViaApi(page, project.id, { title: "Squashed on the way" })
+  await deliverPullRequest(page, url, secret, `Fixes ${task.key}`, { number: 31 })
+  await deliverPullRequest(page, url, secret, `Fixes ${task.key}`, { number: 31, merged: true })
+
+  await page.goto(`/w/${slug}/projects/${project.id}/board`)
+  await expect(card(page, "Review", "Squashed on the way")).toContainText("In qa")
+
+  await page.goto(`/w/${slug}/projects/${project.id}/board?task=${task.id}`)
+  const section = page.getByRole("region", { name: "Pull requests" })
+  await section.getByRole("button", { name: "Mark as in main" }).click()
+  const dialog = page.getByRole("dialog", { name: "Mark as in main?" })
+  await expect(dialog).toContainText("cannot be undone")
+  await dialog.getByRole("button", { name: "Mark as in main" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(section).toContainText("in main · marked by Ada Owner")
+  await expect(section.getByRole("button", { name: "Mark as in main" })).toHaveCount(0)
+
+  await page.keyboard.press("Escape")
+  await expect(card(page, "Review", "Squashed on the way")).toContainText("In main")
+})
