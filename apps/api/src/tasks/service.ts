@@ -28,8 +28,10 @@ export type PullRequestRef = {
   author: string | null
   state: PullRequestState | null
   baseBranch: string | null
-  /** The production branch (main) once the PR's merge commit has been found in it. */
+  /** The production branch (main) once the PR's commits have been found in it, or marked so. */
   releasedTo: string | null
+  /** Who marked it as in the production branch by hand; null when the webhook found it there. */
+  releasedBy: UserRef | null
   /** "auto" when a keyword in the PR ("Fixes ELT-151") linked it. */
   source: "manual" | "auto"
   linkedBy: UserRef | null
@@ -191,6 +193,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
     db
       .selectFrom("taskPullRequests")
       .leftJoin("users", "users.id", "taskPullRequests.linkedBy")
+      .leftJoin("users as releasers", "releasers.id", "taskPullRequests.releasedBy")
       .select([
         "taskPullRequests.id",
         "taskPullRequests.taskId",
@@ -206,6 +209,9 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
         "users.id as linkedById",
         "users.name as linkedByName",
         "users.avatarUrl as linkedByAvatarUrl",
+        "releasers.id as releasedById",
+        "releasers.name as releasedByName",
+        "releasers.avatarUrl as releasedByAvatarUrl",
       ])
       .where("taskPullRequests.taskId", "in", scopedIds(db, scope))
       .orderBy("taskPullRequests.createdAt")
@@ -242,8 +248,24 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       subtaskCount: Number(counts?.total ?? 0),
       subtaskDoneCount: Number(counts?.done ?? 0),
       pullRequests: (pullRequestsByTask.get(t.id) ?? []).map(
-        ({ taskId, linkedById, linkedByName, linkedByAvatarUrl, ...pr }) => ({
+        ({
+          taskId,
+          linkedById,
+          linkedByName,
+          linkedByAvatarUrl,
+          releasedById,
+          releasedByName,
+          releasedByAvatarUrl,
+          ...pr
+        }) => ({
           ...pr,
+          releasedBy: releasedById
+            ? {
+                id: releasedById,
+                name: releasedByName ?? "",
+                avatarUrl: releasedByAvatarUrl ?? null,
+              }
+            : null,
           linkedBy: linkedById
             ? { id: linkedById, name: linkedByName ?? "", avatarUrl: linkedByAvatarUrl ?? null }
             : null,

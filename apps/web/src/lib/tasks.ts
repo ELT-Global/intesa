@@ -414,18 +414,21 @@ export function useChangeRelationship(taskId: string) {
 }
 
 /**
- * Links a pull request (its link or owner/repo#number) or unlinks one. Linking goes
- * through the task's PATCH, which asks GitHub first, so a PR that does not exist is refused.
+ * Links a pull request (its link or owner/repo#number), unlinks one, or marks the task's merged
+ * ones as in the production branch by hand. Linking goes through the task's PATCH, which asks
+ * GitHub first, so a PR that does not exist is refused.
  */
 export function usePullRequestLink(task: { id: string; projectId: string }) {
   const qc = useQueryClient()
   return useMutation({
     mutationKey: TASK_MUTATION,
     scope: taskScope(task.id),
-    mutationFn: (change: { link: string } | { unlink: string }) =>
+    mutationFn: (change: { link: string } | { unlink: string } | { release: true }) =>
       "link" in change
         ? taskApi.update(task.id, { pullRequest: change.link })
-        : taskApi.unlinkPullRequest(task.id, change.unlink),
+        : "release" in change
+          ? taskApi.update(task.id, { released: true })
+          : taskApi.unlinkPullRequest(task.id, change.unlink),
     onSettled: () => settleTaskMutation(qc, task.projectId),
   })
 }

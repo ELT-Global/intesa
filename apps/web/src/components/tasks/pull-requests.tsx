@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { X } from "lucide-react"
 import { type FormEvent, useState } from "react"
+import { ConfirmDialog } from "@/components/members/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { workspacesQuery } from "@/lib/queries"
+import { githubQuery, workspacesQuery } from "@/lib/queries"
 import { type PullRequestRef, type TaskDetail, usePullRequestLink } from "@/lib/tasks"
 import { PULL_REQUEST_LABELS, PullRequestIcon } from "./properties"
 
@@ -15,6 +16,7 @@ function describe(pr: PullRequestRef) {
     pr.baseBranch && `into ${pr.baseBranch}`,
     // Where its code went after merging; a PR merged straight into it says so already.
     pr.releasedTo && pr.releasedTo !== pr.baseBranch && `in ${pr.releasedTo}`,
+    pr.releasedBy && `marked by ${pr.releasedBy.name}`,
     pr.source === "auto" ? "linked from the PR" : pr.linkedBy && `linked by ${pr.linkedBy.name}`,
   ]
     .filter(Boolean)
@@ -31,6 +33,12 @@ export function PullRequestsSection({ task }: { task: TaskDetail }) {
   )?.github
   const change = usePullRequestLink(task)
   const [ref, setRef] = useState("")
+  const [confirming, setConfirming] = useState(false)
+  // Merged PRs whose code the webhook has not found in the production branch (yet).
+  const waiting = task.pullRequests.some((pr) => pr.state === "merged" && !pr.releasedTo)
+  const production =
+    useQuery({ ...githubQuery(task.project.workspaceId), enabled: waiting }).data
+      ?.productionBranch ?? "main"
   if (!github && task.pullRequests.length === 0) return null
 
   function link(e: FormEvent) {
@@ -97,7 +105,26 @@ export function PullRequestsSection({ task }: { task: TaskDetail }) {
           </Button>
         </form>
       )}
-      <FormError message={change.error?.message} />
+      {waiting && (
+        <div>
+          <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+            Mark as in {production}
+          </Button>
+        </div>
+      )}
+      <FormError message={confirming ? undefined : change.error?.message} />
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Mark as in ${production}?`}
+        description={`For code the webhook could not follow, such as squashed or reworded commits. The task's merged pull requests will show as in ${production}, with your name. This cannot be undone.`}
+        confirmLabel={`Mark as in ${production}`}
+        pending={change.isPending}
+        error={change.error?.message}
+        onConfirm={() =>
+          change.mutate({ release: true }, { onSuccess: () => setConfirming(false) })
+        }
+      />
     </section>
   )
 }

@@ -4,15 +4,21 @@ import { ApiError } from "../lib/errors"
 import type { Status } from "../schemas"
 import { findTaskIdByKey, updateTask } from "../tasks/service"
 import {
-  containsCommit,
   fetchGithubPullRequest,
   fetchPullRequest,
   githubPullRequest,
-  mergedHead,
+  MAX_PR_COMMITS,
   type PrRef,
   prDetails,
 } from "./client"
 import { applyDetails, inWorkspace, linkPullRequest, parseLinkedKeys, releaseMerged } from "./links"
+import {
+  RELEASE_CHECK_MS,
+  recordProductionCommits,
+  releaseByFingerprint,
+  releaseIfArrived,
+  rememberCommits,
+} from "./releases"
 import { GITHUB_USER_ID } from "./settings"
 
 const pullRequestEvent = z.object({
@@ -45,10 +51,18 @@ export type Hook = {
 
 const pushEvent = z.object({
   ref: z.string(),
-  // The commit the branch now points at.
-  after: z.string().optional(),
   deleted: z.boolean().optional(),
   repository: z.object({ full_name: z.string() }),
+  // Every commit new to the branch (GitHub lists up to 2048), whether or not it was pushed to
+  // another branch before.
+  commits: z
+    .array(
+      z.object({
+        message: z.string(),
+        author: z.object({ email: z.string().nullish(), date: z.string().nullish() }).nullish(),
+      }),
+    )
+    .default([]),
 })
 
 // After a push into the production branch.
@@ -59,17 +73,14 @@ export type ReleaseResult = {
   releaseCheck?: string
 }
 
-// At most this many merged PRs are checked against the production branch per delivery, newest
-// first; the rest wait for the next push into it.
+// A merged PR's commits are asked for when it merges. For PRs whose commits are not kept yet (the
+// request failed, or the PR was linked by hand), a push into the production branch asks for at
+// most this many, newest first; the rest wait for the next push into it.
 const MAX_RELEASE_CHECKS = 50
 
 // GitHub is asked about this many of them at once, few enough to stay clear of its limits on
 // concurrent requests.
 const RELEASE_CHECK_BATCH = 10
-
-// GitHub waits 10 seconds for a delivery's reply; whatever is not checked by then waits for the
-// next push.
-const RELEASE_CHECK_MS = 8000
 
 // Anyone who can open a PR on a repository that sends to the webhook can name keys in it, so
 // only this many are looked up; the rest are reported as ignored.
@@ -135,25 +146,26 @@ async function refreshUnknown(db: Db, hook: Hook, ref: PrRef, named: string[]) {
   )
 }
 
-// Records where the workspace's merged PRs in a repository are once its production branch
-// (main) moves to commit `after`: PRs merged into the branch itself are there, and every other
-// merged PR not yet found there is looked for by its merge commit. When a PR's merge made
-// `after`, they are looked for in that PR's head instead, which holds them even when the merge
-// was a squash or a rebase. Nothing is guessed: a PR whose commit GitHub cannot place stays
-// where it was, is named in the reply, and is looked for again at the next push. A PR once
-// found stays released, even if a force push later takes its commit out again. Every write only
-// fills in a releasedTo that is still empty, so deliveries that race or repeat each other report
-// each task once.
+// Records where the workspace's merged PRs in a repository are once a push brings `commits`
+// into its production branch (main): PRs merged into the branch itself are there, and every
+// other merged PR is there once all its commits have arrived, recognised by fingerprint (see
+// github/releases.ts) so that rebasing on the way does not hide them. The PRs whose commits are
+// not kept yet are asked for first. Nothing is guessed: a PR whose commits GitHub cannot list
+// stays where it was, is named in the reply, and is asked for again at the next push. A PR once
+// found stays released, even if a force push later takes its commits out again. Every write
+// only fills in a releasedTo that is still empty, so deliveries that race or repeat each other
+// report each task once.
 async function trackRelease(
   db: Db,
   hook: Hook,
   repo: string,
-  after: string | undefined,
+  commits: z.infer<typeof pushEvent>["commits"],
 ): Promise<ReleaseResult> {
+  await recordProductionCommits(db, hook.workspaceId, repo, commits)
   const released = await releaseMerged(db, hook.workspaceId, repo)
-  // Newest first, so PRs that will never be found (reverted, merged into an abandoned branch)
-  // cannot crowd out the ones merged since.
-  const candidates = await db
+  // Newest first, so PRs whose commits GitHub will never list cannot crowd out the ones merged
+  // since.
+  const unknown = await db
     .selectFrom("taskPullRequests")
     .select(["repo", "number", (eb) => eb.fn.max("mergeCommitSha").as("mergeCommitSha")])
     .where("repo", "=", repo)
@@ -161,6 +173,18 @@ async function trackRelease(
     .where("state", "=", "merged")
     .where("releasedTo", "is", null)
     .where("baseBranch", "!=", hook.productionBranch)
+    .where(({ exists, not, selectFrom }) =>
+      not(
+        exists(
+          selectFrom("pullRequestCommits as c")
+            .select("c.fingerprint")
+            .where("c.workspaceId", "=", hook.workspaceId)
+            .whereRef("c.repo", "=", "taskPullRequests.repo")
+            .whereRef("c.number", "=", "taskPullRequests.number")
+            .where("c.squash", "=", 0),
+        ),
+      ),
+    )
     .groupBy(["repo", "number"])
     .orderBy((eb) => eb.fn.max("githubUpdatedAt"), "desc")
     .orderBy("number", "desc")
@@ -168,64 +192,55 @@ async function trackRelease(
     .execute()
 
   const problems: string[] = []
-  if (candidates.length > 0 && !hook.token) {
+  if (unknown.length > 0 && !hook.token) {
     // Without one GitHub allows 60 requests an hour, fewer than a single push may need.
     problems.push("Set a GitHub token on the webhook to check which PRs reached the branch")
-  } else if (candidates.length > 0) {
+  } else if (unknown.length > 0) {
     const deadline = AbortSignal.timeout(RELEASE_CHECK_MS)
-    const target =
-      (after && (await mergedHead(repo, after, hook.token, deadline))) ??
-      after ??
-      hook.productionBranch
-    const release = (pr: PrRef) =>
-      db
-        .updateTable("taskPullRequests")
-        .set({ releasedTo: hook.productionBranch })
-        .where("repo", "=", pr.repo)
-        .where("number", "=", pr.number)
-        .where("releasedTo", "is", null)
-        .where(inWorkspace(hook.workspaceId))
-        .returning("taskId")
-        .execute()
-    const unplaced: number[] = []
+    const unlisted: number[] = []
+    const tooMany: number[] = []
     const late: number[] = []
-    const check = async (pr: (typeof candidates)[number]) => {
-      let sha = pr.mergeCommitSha
-      if (!sha && !deadline.aborted) {
+    const ask = async (pr: (typeof unknown)[number]) => {
+      // Its merge commit tells a squash merge apart.
+      if (!pr.mergeCommitSha && !deadline.aborted) {
         const fetched = await fetchPullRequest(pr, hook.token, deadline)
-        if (fetched && fetched !== "missing") {
-          await applyDetails(db, hook.workspaceId, pr, fetched)
-          sha = fetched.mergeCommitSha
-        }
+        if (fetched && fetched !== "missing") await applyDetails(db, hook.workspaceId, pr, fetched)
       }
-      const found =
-        sha && !deadline.aborted
-          ? await containsCommit(pr.repo, sha, target, hook.token, deadline)
-          : undefined
-      if (found === undefined) (deadline.aborted ? late : unplaced).push(pr.number)
-      else if (found) released.push(...(await release(pr)))
+      const result = deadline.aborted
+        ? "failed"
+        : await rememberCommits(db, hook.workspaceId, pr, hook.token, deadline)
+      if (result === "too-many") tooMany.push(pr.number)
+      else if (result === "failed") (deadline.aborted ? late : unlisted).push(pr.number)
     }
-    for (let i = 0; i < candidates.length; i += RELEASE_CHECK_BATCH) {
-      await Promise.all(candidates.slice(i, i + RELEASE_CHECK_BATCH).map(check))
+    for (let i = 0; i < unknown.length; i += RELEASE_CHECK_BATCH) {
+      await Promise.all(unknown.slice(i, i + RELEASE_CHECK_BATCH).map(ask))
     }
     const list = (numbers: number[]) =>
       numbers
         .sort((a, b) => a - b)
         .map((n) => `#${n}`)
         .join(", ")
-    if (unplaced.length > 0) {
+    if (unlisted.length > 0) {
       problems.push(
-        `GitHub could not say whether ${repo} ${list(unplaced)} reached ${hook.productionBranch}; ` +
-          "check the branch exists and the GitHub token can read the repository's contents",
+        `GitHub could not list the commits of ${repo} ${list(unlisted)}; ` +
+          `they are asked for again at the next push to ${hook.productionBranch}`,
+      )
+    }
+    if (tooMany.length > 0) {
+      const one = tooMany.length === 1
+      problems.push(
+        `${repo} ${list(tooMany)} ha${one ? "s" : "ve"} more commits than GitHub lists ` +
+          `(${MAX_PR_COMMITS}); mark ${one ? "its" : "their"} tasks as in ${hook.productionBranch} by hand`,
       )
     }
     if (late.length > 0) {
       problems.push(
-        `GitHub was too slow to check ${repo} ${list(late)} in time; ` +
-          `they are checked again at the next push to ${hook.productionBranch}`,
+        `GitHub was too slow to list the commits of ${repo} ${list(late)} in time; ` +
+          `they are asked for again at the next push to ${hook.productionBranch}`,
       )
     }
   }
+  released.push(...(await releaseByFingerprint(db, hook.workspaceId, hook.productionBranch, repo)))
 
   const inMain = await taskKeys(
     db,
@@ -279,7 +294,7 @@ export async function onPullRequest(
     else ignoredKeys.push(key)
   }
   if (action === "closed") await refreshUnknown(db, hook, ref, [...named.keys()])
-  return inTransaction(db, async (trx): Promise<PullRequestResult> => {
+  const result = await inTransaction(db, async (trx): Promise<PullRequestResult> => {
     const links = (
       await trx
         .selectFrom("taskPullRequests")
@@ -387,7 +402,41 @@ export async function onPullRequest(
       }),
     }
   })
+
+  // A merge anywhere but the production branch: its commits are kept now, while GitHub still
+  // has them at hand, so the pushes that later bring them into the production branch need not
+  // ask. Those that arrived there before it merged (a fix cherry-picked onto main first, say)
+  // mark it at once.
+  if (
+    action === "closed" &&
+    details.state === "merged" &&
+    details.baseBranch !== hook.productionBranch &&
+    !result.stale &&
+    (await isLinked(db, hook.workspaceId, ref))
+  ) {
+    const released = await releaseIfArrived(
+      db,
+      hook.workspaceId,
+      ref,
+      AbortSignal.timeout(RELEASE_CHECK_MS),
+    )
+    const inMain = await taskKeys(
+      db,
+      released.map((r) => r.taskId),
+    )
+    if (inMain.length > 0) result.inMain = [...new Set([...(result.inMain ?? []), ...inMain])]
+  }
+  return result
 }
+
+const isLinked = async (db: Db, workspaceId: string, ref: PrRef) =>
+  (await db
+    .selectFrom("taskPullRequests")
+    .select("id")
+    .where("repo", "=", ref.repo)
+    .where("number", "=", ref.number)
+    .where(inWorkspace(workspaceId))
+    .executeTakeFirst()) !== undefined
 
 // Every change to the production branch is a push, a PR merging into it included, so this is
 // where the merged PRs are looked for there; the pull_request delivery of a merge into it only
@@ -405,5 +454,5 @@ export async function onPush(
     return { ignored: `Not the production branch (${hook.productionBranch})` }
   }
   if (deleted) return { ignored: "The branch was deleted" }
-  return trackRelease(db, hook, repository.full_name.toLowerCase(), parsed.data.after)
+  return trackRelease(db, hook, repository.full_name.toLowerCase(), parsed.data.commits)
 }
