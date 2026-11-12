@@ -192,8 +192,10 @@ export type TaskPullRequestTable = {
   githubUpdatedAt: string | null
   // The commit the merge made on the base branch; null until merged (or not yet heard of).
   mergeCommitSha: Generated<string | null>
-  // The production branch, once the merge commit has been found in it.
+  // The production branch, once the PR's commits have been found in it (or it was marked so).
   releasedTo: Generated<string | null>
+  // Who marked it as in the production branch by hand; null when the webhook found it there.
+  releasedBy: Generated<string | null>
   source: "manual" | "auto"
   linkedBy: string | null
   createdAt: string
@@ -206,6 +208,24 @@ export type GithubPullRequestTable = {
   repo: string
   number: number
   githubUpdatedAt: string
+}
+
+// A merged PR's commits, by fingerprint (see github/fingerprint.ts), without merge commits. A
+// squash merge also has the one commit it made in the base branch, marked `squash`.
+export type PullRequestCommitTable = {
+  workspaceId: string
+  repo: string
+  number: number
+  fingerprint: string
+  squash: Generated<number>
+}
+
+// A commit seen arriving in the production branch of one of the workspace's repositories.
+export type ProductionCommitTable = {
+  workspaceId: string
+  repo: string
+  fingerprint: string
+  createdAt: string
 }
 
 // A PR someone unlinked from a task; keywords in it no longer link it there.
@@ -282,6 +302,8 @@ export type Database = {
   taskPullRequests: TaskPullRequestTable
   githubPullRequests: GithubPullRequestTable
   taskPullRequestUnlinks: TaskPullRequestUnlinkTable
+  pullRequestCommits: PullRequestCommitTable
+  productionCommits: ProductionCommitTable
   bugs: BugTable
   bugTasks: BugTaskTable
   bugImages: BugImageTable
