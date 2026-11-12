@@ -157,4 +157,22 @@ describe("pull requests on tasks", () => {
     const json = await w.box.run(["task", "view", task.key, "--json", "--fields", "pullRequests"])
     expect(json.json().pullRequests).toMatchObject([{ number: 9, releasedTo: "main" }])
   })
+
+  test("task edit --released marks merged PRs as in main by hand, once", async () => {
+    const task = await w.addTask({ title: "Squashed", status: "review" })
+    await linkPr(task.id, 11, "merged")
+    await linkPr(task.id, 12, "open")
+    const r = await w.box.run(["task", "edit", task.key, "--released", "--json"])
+    expect(r.exitCode).toBe(0)
+    expect(r.json().pullRequests).toMatchObject([
+      { number: 11, releasedTo: "main", releasedBy: { name: expect.any(String) } },
+      { number: 12, releasedTo: null, releasedBy: null },
+    ])
+    const view = await w.box.run(["task", "view", task.key])
+    expect(view.stdout).toMatch(/acme\/web#11\tmerged\tmain \(marked by [^)]+\)\tPR 11/)
+
+    const again = await w.box.run(["task", "edit", task.key, "--released"])
+    expect(again.exitCode).not.toBe(0)
+    expect(again.stderr).toContain("no merged pull requests")
+  })
 })

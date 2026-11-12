@@ -164,7 +164,9 @@ export const edit = defineCommand({
     "the rest of the task is left as it is. Use `task move` to change the status.\n" +
     "--reviewed-by and --tested-by record who reviewed and who tested it (a person, or none\n" +
     "for nobody), at any status. --pr links a pull request and --remove-pr unlinks one,\n" +
-    "which never changes the status.\n\n" +
+    "which never changes the status. --released marks the task's merged pull requests as in\n" +
+    "the production branch, for code the webhook could not follow there (squashed or\n" +
+    "reworded commits); it records who did, and cannot be undone.\n\n" +
     "Without flags the task opens in your editor as a document: its properties between\n" +
     "--- lines, then the description.\n\n" +
     "  ---\n" +
@@ -219,6 +221,10 @@ export const edit = defineCommand({
       placeholder: "PR",
       description: "Unlink a pull request: its link, owner/repo#number or number",
     }),
+    released: z.boolean().default(false).meta({
+      description:
+        "Mark the task's merged pull requests as in the production branch (main) by hand; cannot be undone",
+    }),
     field: fieldFlag,
     clearField: z.array(z.string()).default([]).meta({
       placeholder: "NAME",
@@ -233,6 +239,7 @@ export const edit = defineCommand({
     "intesa task edit WEB-12 --add-assignee @me --remove-tag blocked --no-due",
     "intesa task edit WEB-12 --field Estimate=5 --clear-field Stage",
     "intesa task edit WEB-12 --reviewed-by mei@example.com --tested-by none",
+    "intesa task edit WEB-12 --released",
     "intesa task edit WEB-12 --pr acme/web#482 --remove-pr 480",
     "intesa task edit WEB-12",
   ],
@@ -251,6 +258,7 @@ export const edit = defineCommand({
         flags.pr,
         flags.removePr,
       ].every((v) => v === undefined) &&
+      !flags.released &&
       !people &&
       !labels &&
       flags.field.length === 0 &&
@@ -294,6 +302,7 @@ export const edit = defineCommand({
       json: {
         pullRequest: flags.pr,
         unlinkPullRequestId,
+        ...(flags.released && { released: true as const }),
         title: flags.title,
         body,
         priority: flags.priority,
