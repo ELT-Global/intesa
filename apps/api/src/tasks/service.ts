@@ -66,6 +66,8 @@ export type TaskDetail = TaskSummary & {
   blocks: TaskRef[]
   related: TaskRef[]
   customFields: Record<string, unknown>
+  /** Who created the task; always set. */
+  createdBy: UserRef
   /** Who reviewed it: a member, null for nobody; absent while unanswered. */
   reviewedBy?: UserRef | null
   /** Who tested it: a member, null for nobody; absent while unanswered. */
@@ -310,8 +312,12 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     .selectFrom("tasks")
     .leftJoin("users as reviewer", "reviewer.id", "tasks.reviewedBy")
     .leftJoin("users as tester", "tester.id", "tasks.testedBy")
+    .innerJoin("users as creator", "creator.id", "tasks.createdBy")
     .select([
       "tasks.workspaceId",
+      "creator.id as creatorId",
+      "creator.name as creatorName",
+      "creator.avatarUrl as creatorAvatarUrl",
       "tasks.reviewedBySet",
       "tasks.testedBySet",
       "reviewer.id as reviewerId",
@@ -367,6 +373,11 @@ export async function loadTaskDetail(db: Db, taskId: string): Promise<TaskDetail
     ...relationships,
     customFields,
     bug,
+    createdBy: {
+      id: task.creatorId,
+      name: task.creatorName ?? "",
+      avatarUrl: task.creatorAvatarUrl,
+    },
     // Unanswered leaves the key out; "nobody" is an explicit null.
     ...(task.reviewedBySet === 1 && {
       reviewedBy: task.reviewerId

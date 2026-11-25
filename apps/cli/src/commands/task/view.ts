@@ -74,7 +74,7 @@ async function format(ctx: Ctx, task: View, raw: boolean) {
       task.bug ? `${task.bug.key}  ${task.bug.title} (${task.bug.status})  ${task.bug.url}` : "",
     ],
     ["Parent", task.parent ? `${task.parent.key}  ${task.parent.title}` : ""],
-    ["Created", when(task.createdAt)],
+    ["Created", `${when(task.createdAt)} by ${task.createdBy.name}`],
     ["Updated", when(task.updatedAt)],
   ]
     .filter(([, value]) => value)

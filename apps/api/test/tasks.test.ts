@@ -34,6 +34,7 @@ describe("task creation", () => {
       project: { id: project.id, name: "Website", key: project.key, workspaceId },
       parent: null,
       subtasks: [],
+      createdBy: { name: "owner" },
     })
 
     const history = await owner.call("GET", `/api/tasks/${task.id}/history`)

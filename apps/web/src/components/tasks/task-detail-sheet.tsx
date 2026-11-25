@@ -184,6 +184,12 @@ function SheetBody({
             onCommit={(title, revert) => patch({ title }, revert)}
             className="text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]"
           />
+          <p className="-mt-4 text-xs text-muted-foreground">
+            Created by <span className="text-foreground">{task.createdBy.name}</span> ·{" "}
+            <time dateTime={task.createdAt} title={shortDate(task.createdAt)}>
+              {relativeTime(task.createdAt)}
+            </time>
+          </p>
           <TaskDescription
             key={`body-${task.id}`}
             taskId={task.id}
