@@ -85,6 +85,12 @@ intesa task create -p WEB -T "Fix login redirect" -b "Steps to reproduce: …" -
 intesa task create --parent WEB-12 -T "Write tests" --json    # a subtask
 \`\`\`
 
+\`task view\` also says who created a task, as \`createdBy\` (\`{id, name, avatarUrl}\`, always set) next to \`createdAt\`:
+
+\`\`\`sh
+intesa task view WEB-12 --json --fields key,createdBy,createdAt
+\`\`\`
+
 Move a task to review and bring its subtasks along. When not interactive the default is to leave subtasks alone (\`keep\`); \`match\` moves them too. The result lists any subtasks still in another status in \`subtasksOutOfSync\`:
 
 \`\`\`sh
@@ -114,10 +120,10 @@ intesa artifact upload WEB-12 spec.pdf notes.md --json
 intesa artifact download WEB-12 spec.pdf -o ./downloads    # -o - writes the bytes to stdout
 \`\`\`
 
-A task tagged \`bug\` opens a bug in its project (key \`WEB-B3\`) with the task's title. The bug's description is its own and starts empty; editing a task never changes its bug, and \`bug view --json\` carries each task's description too. The bug is pending while any of its tasks is not complete and resolved when all are, and \`task view\` shows the task's bug with its link. \`bug reopen\` opens a regression task for a resolved bug (exit 6, naming the open task, while it is still pending):
+A task tagged \`bug\` opens a bug in its project (key \`WEB-B3\`) with the task's title. The bug's description is its own and starts empty; editing a task never changes its bug, and \`bug view --json\` carries each task's description too. The bug is pending while any of its tasks is not complete and resolved when all are, and \`task view\` shows the task's bug with its link. \`bug reopen\` opens a regression task for a resolved bug (exit 6, naming the open task, while it is still pending). In JSON a bug carries \`regressions\` (how many times it came back; a pending bug with regressions shows as \`regressed (n)\` in text output), \`createdAt\` (when it was raised) and \`fixedAt\` (when it was last resolved, \`null\` while pending):
 
 \`\`\`sh
-intesa bug list --status pending -p WEB --json --fields key,title,status
+intesa bug list --status pending -p WEB --json --fields key,title,status,regressions
 intesa bug view WEB-B3 --json
 intesa bug edit WEB-B3 -T "Login fails with SSO" -b "Steps: …"
 intesa bug reopen WEB-B3 -a @me --priority high --json --fields key,url
