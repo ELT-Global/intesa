@@ -1,4 +1,4 @@
-import { sql } from "kysely"
+import { type SelectQueryBuilder, sql } from "kysely"
 import { type Db, inTransaction, isUniqueViolation, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
 import type { RelationType, Status } from "./schemas"
@@ -22,6 +22,54 @@ export async function loadTaskRefs(db: Db, workspaceId: string, ids: string[]): 
     title: r.title,
     status: r.status as Status,
   }))
+}
+
+// Block edges touching the scoped tasks, with the task on the other end, in two queries. The
+// scope is a subquery, so the bound parameters do not grow with the number of tasks. Refs are
+// ordered by key; edges to deleted tasks cascade away with them.
+export async function loadBlockers(
+  db: Db,
+  // biome-ignore lint/suspicious/noExplicitAny: any select from tasks that yields ids
+  scoped: SelectQueryBuilder<any, any, { id: string }>,
+) {
+  const edges = (self: "targetTaskId" | "sourceTaskId", other: "targetTaskId" | "sourceTaskId") =>
+    db
+      .selectFrom("taskRelationships")
+      .innerJoin("tasks", "tasks.id", `taskRelationships.${other}`)
+      .innerJoin("projects", "projects.id", "tasks.projectId")
+      .select([
+        `taskRelationships.${self} as owner`,
+        "tasks.id",
+        "tasks.number",
+        "tasks.title",
+        "tasks.status",
+        "projects.key",
+      ])
+      .where("taskRelationships.type", "=", "blocks")
+      .where(`taskRelationships.${self}`, "in", scoped)
+      .orderBy("projects.key")
+      .orderBy("tasks.number")
+      .execute()
+  const [blockedBy, blocks] = await Promise.all([
+    edges("targetTaskId", "sourceTaskId"),
+    edges("sourceTaskId", "targetTaskId"),
+  ])
+  const group = (rows: typeof blockedBy) => {
+    const map = new Map<string, TaskRef[]>()
+    for (const r of rows) {
+      const ref: TaskRef = {
+        id: r.id,
+        key: `${r.key}-${r.number}`,
+        title: r.title,
+        status: r.status as Status,
+      }
+      const list = map.get(r.owner)
+      if (list) list.push(ref)
+      else map.set(r.owner, [ref])
+    }
+    return map
+  }
+  return { blockedBy: group(blockedBy), blocks: group(blocks) }
 }
 
 // One query for the edges, one for the referenced tasks.

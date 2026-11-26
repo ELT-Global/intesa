@@ -4,6 +4,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Chip } from "@/components/ui/badge"
 import type { TaskSummary } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
+import { BlockerIndicator } from "./blocker-indicator"
 import {
   CodeLocationChip,
   codeLocation,
@@ -44,7 +45,10 @@ export const TaskCard = memo(function TaskCard({
       data-task-primary
     >
       <span className="flex items-center justify-between gap-2">
-        <TaskKey>{task.key}</TaskKey>
+        <span className="flex items-center gap-1">
+          <TaskKey>{task.key}</TaskKey>
+          <BlockerIndicator task={task} />
+        </span>
         {task.assignees.length > 0 && (
           <span className="flex -space-x-1">
             {task.assignees.slice(0, 3).map((a) => (

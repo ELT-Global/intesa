@@ -267,4 +267,33 @@ describe("relationship integrity", () => {
     expect(results.map((r) => r.status).sort()).toEqual([201, 409])
     expect(await rows()).toHaveLength(1)
   })
+
+  test("the project's task list carries blockers for cards, minus related and deleted tasks", async () => {
+    const { owner, project, a, b, c, link, make } = await setup()
+    const d = await make("D")
+    await link(a, "blocks", b)
+    await link(c, "blocks", b)
+    await link(b, "blocks", d)
+    await link(a, "related", d)
+
+    type Ref = { id: string; key: string; title: string; status: string }
+    type Listed = { id: string; blockedBy: Ref[]; blocks: Ref[] }
+    const list = async () =>
+      (await owner.call("GET", `/api/projects/${project.id}/tasks`)).body.tasks as Listed[]
+    const find = (tasks: Listed[], id: string) => tasks.find((t) => t.id === id)
+
+    const tasks = await list()
+    expect(find(tasks, b.id)?.blockedBy).toEqual([
+      { id: a.id, key: a.key, title: "A", status: "todo" },
+      { id: c.id, key: c.key, title: "C", status: "todo" },
+    ])
+    expect(find(tasks, b.id)?.blocks.map((r) => r.key)).toEqual([d.key])
+    expect(find(tasks, a.id)?.blocks.map((r) => r.key)).toEqual([b.key])
+    expect(find(tasks, a.id)?.blockedBy).toEqual([])
+    // Related is not a block, so D is blocked by B alone.
+    expect(find(tasks, d.id)?.blockedBy.map((r) => r.key)).toEqual([b.key])
+
+    expect((await owner.call("DELETE", `/api/tasks/${c.id}`)).status).toBe(204)
+    expect(find(await list(), b.id)?.blockedBy.map((r) => r.key)).toEqual([a.key])
+  })
 })

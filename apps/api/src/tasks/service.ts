@@ -9,7 +9,7 @@ import { type PullRequestState, SIGNOFF_REQUIRED, TASK_KEY_PATTERN } from "../sc
 import type { Role } from "../workspaces/membership"
 import { applyCustomFields, loadCustomFieldValues } from "./custom-fields"
 import { byBoardOrder, positionFor } from "./order"
-import { loadRelationships } from "./relationships"
+import { loadBlockers, loadRelationships } from "./relationships"
 import type { CreateTaskInput, PatchTaskInput, Priority, Status } from "./schemas"
 
 export type TaskRow = Selectable<TaskTable>
@@ -54,6 +54,10 @@ export type TaskSummary = {
   subtaskCount: number
   subtaskDoneCount: number
   pullRequests: PullRequestRef[]
+  /** Tasks that block this one, for the hourglass on cards. */
+  blockedBy: TaskRef[]
+  /** Tasks this one blocks. */
+  blocks: TaskRef[]
   createdAt: string
   updatedAt: string
 }
@@ -62,8 +66,6 @@ export type TaskDetail = TaskSummary & {
   project: { id: string; name: string; key: string; workspaceId: string }
   parent: TaskRef | null
   subtasks: TaskSummary[]
-  blockedBy: TaskRef[]
-  blocks: TaskRef[]
   related: TaskRef[]
   customFields: Record<string, unknown>
   /** Who created the task; always set. */
@@ -140,7 +142,7 @@ const scopedIds = (db: Db, scope: TaskScope) => {
 async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
   if ("ids" in scope && scope.ids.length === 0) return []
 
-  const [tasks, assignees, tags, subtasks, pullRequests] = await Promise.all([
+  const [tasks, assignees, tags, subtasks, pullRequests, blockers] = await Promise.all([
     db
       .selectFrom("tasks")
       .innerJoin("projects", "projects.id", "tasks.projectId")
@@ -218,6 +220,7 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
       .where("taskPullRequests.taskId", "in", scopedIds(db, scope))
       .orderBy("taskPullRequests.createdAt")
       .execute(),
+    loadBlockers(db, scopedIds(db, scope)),
   ])
 
   // Not in SQL: see tasks/order.ts.
@@ -273,6 +276,8 @@ async function summarise(db: Db, scope: TaskScope): Promise<TaskSummary[]> {
             : null,
         }),
       ),
+      blockedBy: blockers.blockedBy.get(t.id) ?? [],
+      blocks: blockers.blocks.get(t.id) ?? [],
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
     }
