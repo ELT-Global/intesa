@@ -8,6 +8,7 @@ import { codeBlockKeymap } from "./code-blocks"
 import { livePreviewPlugin } from "./decorations"
 import { formattingKeymap } from "./formatting"
 import { inputRules } from "./input-rules"
+import { linkClicks, linkPaste } from "./links"
 import { listKeymap } from "./lists"
 import { tables } from "./tables"
 import { editorTheme } from "./theme"
@@ -20,6 +21,8 @@ export function createMarkdownEditorExtensions() {
     livePreviewPlugin,
     tables,
     inputRules,
+    linkClicks,
+    linkPaste,
     Prec.highest(codeBlockKeymap),
     Prec.highest(blockquoteKeymap),
     Prec.high(listKeymap),
@@ -56,6 +59,14 @@ export {
   type UploadImage,
 } from "./images"
 export { backspaceUndoInputRule, INPUT_RULES } from "./input-rules"
+export {
+  linkClicks,
+  linkPaste,
+  literalHref,
+  pastedUrl,
+  safeHref,
+  urlPaste,
+} from "./links"
 export {
   BulletWidget,
   CheckboxWidget,

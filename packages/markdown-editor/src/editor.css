@@ -111,6 +111,22 @@
     text-underline-offset: 3px;
   }
 
+  /* A rendered link (an anchor; raw Markdown at the caret is a span) opens on click. */
+  .cm-doc-editor a.cm-lp-link {
+    cursor: pointer;
+    transition: text-decoration-color 120ms ease;
+  }
+
+  .cm-doc-editor a.cm-lp-link:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .cm-doc-editor a.cm-lp-link:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
   /* ── Blockquotes & alerts ──────────────────────────────────────────────── */
   /* Every blockquote line carries the same left border, so adjacent lines
      join into one continuous bar. */

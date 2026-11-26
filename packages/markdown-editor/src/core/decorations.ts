@@ -11,9 +11,13 @@ import {
 import { AlertBadgeWidget } from "./blockquotes"
 import { decorateCodeBlock } from "./code-blocks/decorate"
 import { ImageWidget, parseImage } from "./images"
+import { linkMark, nodeHref } from "./links"
 import { BulletWidget, CheckboxWidget, formatOrderedMarker, OrderedMarkerWidget } from "./lists"
 import { cursorOnLine, cursorTouches } from "./shared/cursor"
 import { decorateRawTable, tableRevealed } from "./tables"
+
+const plainLink = Decoration.mark({ class: "cm-lp-link" })
+const syntaxMark = Decoration.mark({ class: "cm-lp-syntax" })
 
 // ---------------------------------------------------------------------------
 // Decoration builder
@@ -234,8 +238,12 @@ export function buildDecorations(view: EditorView): DecorationSet {
           return false
         }
 
-        const touching = cursorTouches(view, from, to)
-        ranges.push(Decoration.mark({ class: "cm-lp-link" }).range(from, to))
+        // Like images, an unfocused editor renders its links wherever the caret was left.
+        const touching = view.hasFocus && cursorTouches(view, from, to)
+        const href = nodeHref(state, node.node)
+        ranges.push(
+          (href && !touching ? linkMark(href, !state.readOnly) : plainLink).range(from, to),
+        )
 
         const text = state.doc.sliceString(from, to)
         const bracketClose = text.indexOf("](")
@@ -247,6 +255,31 @@ export function buildDecorations(view: EditorView): DecorationSet {
             ranges.push(Decoration.replace({}).range(from, from + 1))
             ranges.push(Decoration.replace({}).range(from + bracketClose, to))
           }
+        }
+        return false
+      }
+
+      // `<https://…>`: the angle brackets hide away from the caret, like a link's syntax.
+      if (name === "Autolink") {
+        const touching = view.hasFocus && cursorTouches(view, from, to)
+        const href = nodeHref(state, node.node)
+        ranges.push(
+          (href && !touching ? linkMark(href, !state.readOnly) : plainLink).range(from, to),
+        )
+        for (const mark of node.node.getChildren("LinkMark")) {
+          ranges.push(
+            (touching || !href ? syntaxMark : Decoration.replace({})).range(mark.from, mark.to),
+          )
+        }
+        return false
+      }
+
+      // A bare `https://…`, `www.…` or address (GFM autolink literal) is a link as it stands.
+      if (name === "URL") {
+        const touching = view.hasFocus && cursorTouches(view, from, to)
+        const href = nodeHref(state, node.node)
+        if (href) {
+          ranges.push((touching ? plainLink : linkMark(href, !state.readOnly)).range(from, to))
         }
         return false
       }

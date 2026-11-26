@@ -235,6 +235,55 @@ test.describe("composer description", () => {
     await expect(editor).toHaveText("first second")
   })
 
+  test("a pasted URL links the selection, or goes in as a link of its own", async ({ page }) => {
+    await openBoard(page)
+    const dialog = await openComposer(page)
+    await dialog.getByLabel("Title").fill("Pasted links")
+    await expect(editorHost(dialog)).toHaveAttribute("data-editor", "ready")
+    const editor = description(dialog)
+    const pasteText = (text: string) =>
+      editor.evaluate((el, text) => {
+        const data = new DataTransfer()
+        data.setData("text/plain", text)
+        el.dispatchEvent(
+          new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+        )
+      }, text)
+
+    await editor.click()
+    await page.keyboard.type("Read the docs")
+    await page.keyboard.press("Shift+ArrowLeft")
+    await page.keyboard.press("Shift+ArrowLeft")
+    await page.keyboard.press("Shift+ArrowLeft")
+    await page.keyboard.press("Shift+ArrowLeft")
+    await pasteText("https://example.com/docs")
+    await expect(editor).toContainText("Read the [docs](https://example.com/docs)")
+
+    await page.keyboard.press("Enter")
+    await page.keyboard.type("See ")
+    await pasteText("https://example.com/a")
+    // Text that merely contains a URL pastes as it is.
+    await page.keyboard.press("Enter")
+    await pasteText("two: https://example.com/b")
+
+    // Away from the caret, the pasted URLs render as links.
+    await page.keyboard.press("ControlOrMeta+Home")
+    const links = editor.locator("a.cm-lp-link")
+    await expect(links).toHaveText(["docs", "https://example.com/a", "https://example.com/b"])
+    await expect(links.first()).toHaveAttribute("href", "https://example.com/docs")
+    await expect(links.first()).toHaveAttribute("target", "_blank")
+
+    const created = page.waitForRequest(isCreate)
+    await page.keyboard.press("ControlOrMeta+Enter")
+    expect((await created).postDataJSON().body).toBe(
+      [
+        "Read the [docs](https://example.com/docs)",
+        "See https://example.com/a",
+        "two: https://example.com/b",
+      ].join("\n"),
+    )
+  })
+
   test("a paste past 20,000 characters is rejected", async ({ page }) => {
     await openBoard(page)
     const dialog = await openComposer(page)
@@ -397,6 +446,42 @@ test.describe("sheet description", () => {
     // With nothing left to revert, Escape closes the sheet as usual.
     await page.keyboard.press("Escape")
     await expect(sheet).toBeHidden()
+  })
+
+  test("a rendered link opens in a new tab on click; Mod+click edits it", async ({ page }) => {
+    await page
+      .context()
+      .route("https://example.com/**", (route) =>
+        route.fulfill({ contentType: "text/html", body: "<title>Example</title>" }),
+      )
+    const { sheet } = await openSheet(
+      page,
+      "See [the docs](https://example.com/docs) and https://example.com/bare\n\n[bad](javascript:alert(1))",
+    )
+    const editor = description(sheet)
+    const docs = editor.getByRole("link", { name: "the docs" })
+    await expect(docs).toHaveAttribute("href", "https://example.com/docs")
+    await expect(docs).toHaveAttribute("rel", "noopener noreferrer")
+    await expect(docs).toHaveCSS("cursor", "pointer")
+    await expect(editor.getByRole("link", { name: "https://example.com/bare" })).toBeVisible()
+    // An unsafe destination is never an anchor.
+    await expect(editor.getByRole("link", { name: "bad" })).toHaveCount(0)
+
+    const popup = page.waitForEvent("popup")
+    await docs.click()
+    const opened = await popup
+    await expect(opened).toHaveURL("https://example.com/docs")
+    await opened.close()
+    // The click opened the link without putting the caret in it.
+    await expect(editor).not.toBeFocused()
+    await expect(editor).not.toContainText("](")
+
+    await docs.click({ modifiers: ["ControlOrMeta"] })
+    await expect(editor).toBeFocused()
+    await expect(editor).toContainText("[the docs](https://example.com/docs)")
+    await page.keyboard.type("!")
+    // The caret landed inside the label, where the click was.
+    await expect(editor).toContainText(/\[[^\]]*![^\]]*\]\(https:\/\/example\.com\/docs\)/)
   })
 
   test("clearing the description saves it as empty", async ({ page }) => {

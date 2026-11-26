@@ -9,6 +9,8 @@ import {
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view"
 import type { SyntaxNode } from "@lezer/common"
 
+import { linkAttributes, linkGesture, linkTarget, nodeHref, openLink } from "../links"
+
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
@@ -16,7 +18,7 @@ import type { SyntaxNode } from "@lezer/common"
 type Align = "left" | "center" | "right" | null
 
 /** Inline content of a cell: plain text, or a formatting element around more content. */
-type Inline = string | { tag: string; className: string; children: Inline[] }
+type Inline = string | { tag: string; className: string; children: Inline[]; href?: string }
 
 interface Cell {
   /** Where a click on the cell puts the caret, relative to the start of the table. */
@@ -56,9 +58,16 @@ function inlineContent(state: EditorState, node: SyntaxNode): Inline[] {
       out.push(state.sliceDoc(child.from + 1, child.to))
       continue
     }
-    const format = FORMATTING[child.name]
+    // A bare URL is a link of its own, except as the destination inside `<…>`.
+    const literal = child.name === "URL" && node.name !== "Autolink"
+    const format = literal ? FORMATTING.Autolink : FORMATTING[child.name]
     const children = inlineContent(state, child)
-    out.push(format ? { ...format, children } : { tag: "span", className: "", children })
+    const href = format?.className === "cm-lp-link" ? nodeHref(state, child) : null
+    out.push(
+      format
+        ? { ...format, children, ...(href ? { tag: "a", href } : {}) }
+        : { tag: "span", className: "", children },
+    )
   }
   if (pos < end) out.push(state.sliceDoc(pos, end))
   return out
@@ -124,7 +133,7 @@ function tableModel(state: EditorState, table: SyntaxNode): TableModel {
 // Widget
 // ---------------------------------------------------------------------------
 
-function appendInline(parent: HTMLElement, content: Inline[]) {
+function appendInline(parent: HTMLElement, content: Inline[], editable: boolean) {
   for (const item of content) {
     if (typeof item === "string") {
       parent.append(item)
@@ -132,7 +141,12 @@ function appendInline(parent: HTMLElement, content: Inline[]) {
     }
     const el = document.createElement(item.tag)
     if (item.className) el.className = item.className
-    appendInline(el, item.children)
+    if (item.href) {
+      for (const [name, value] of Object.entries(linkAttributes(item.href, editable))) {
+        el.setAttribute(name, value)
+      }
+    }
+    appendInline(el, item.children, editable)
     parent.append(el)
   }
 }
@@ -158,7 +172,7 @@ export class TableWidget extends WidgetType {
         const align = this.model.align[i]
         if (align) el.style.textAlign = align
         el.dataset.offset = String(cell.offset)
-        appendInline(el, cell.content)
+        appendInline(el, cell.content, !view.state.readOnly)
         tr.append(el)
       })
       return tr
@@ -172,14 +186,27 @@ export class TableWidget extends WidgetType {
     wrap.append(table)
 
     // A click puts the caret in the clicked cell, which reveals the markdown for editing.
+    // A plain click on a link opens it instead; Mod+click edits it like any other cell text.
     wrap.addEventListener("mousedown", (e) => {
-      if (e.button !== 0 || view.state.readOnly) return
+      if (e.button !== 0) return
+      if (linkTarget(e) && linkGesture(e) === "open") {
+        e.preventDefault()
+        return
+      }
+      if (view.state.readOnly) return
       e.preventDefault()
       const target =
         e.target instanceof Element ? e.target.closest<HTMLElement>("[data-offset]") : null
       const pos = view.posAtDOM(wrap) + Number(target?.dataset.offset ?? 0)
       view.focus()
       view.dispatch({ selection: EditorSelection.cursor(pos), scrollIntoView: true })
+    })
+    wrap.addEventListener("click", (e) => {
+      const link = linkTarget(e)
+      if (!link) return
+      const gesture = linkGesture(e)
+      if (gesture === "open") openLink(link)
+      if (gesture === "open" || (gesture === "edit" && !view.state.readOnly)) e.preventDefault()
     })
     return wrap
   }

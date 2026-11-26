@@ -278,6 +278,10 @@ describe("markdown-editor-core live preview", () => {
     expect(parent.textContent).not.toContain("(https://example.com)")
     expect(parent.querySelector(".cm-lp-link")).not.toBeNull()
 
+    // Like an image, a link reveals its Markdown at the caret only while the editor has focus.
+    setSelection(view, 2)
+    expect(parent.textContent).not.toContain("(https://example.com)")
+    view.focus()
     setSelection(view, 2)
     expect(parent.textContent).toContain("[Meridian](https://example.com)")
     expect(parent.querySelectorAll(".cm-lp-syntax").length).toBeGreaterThan(0)
