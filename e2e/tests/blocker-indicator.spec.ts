@@ -80,7 +80,9 @@ test("the hourglass appears and disappears as relationships change from the task
   await page.getByRole("combobox").fill("Bravo work")
   await page.getByRole("option", { name: new RegExp(b.key) }).click()
   await page.keyboard.press("Escape")
+  await expect(page.getByRole("listbox")).toHaveCount(0)
   await page.keyboard.press("Escape")
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 
   await expect(card(page, "Alpha work").getByRole("img", { name: "Blocked" })).toBeVisible()
   await expect(card(page, "Bravo work").getByRole("img", { name: "Blocking" })).toBeVisible()
@@ -92,6 +94,7 @@ test("the hourglass appears and disappears as relationships change from the task
     .getByRole("button", { name: `Remove ${b.key}` })
     .click()
   await page.keyboard.press("Escape")
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 
   await expect(card(page, "Alpha work").getByRole("img", { name: /Block/ })).toHaveCount(0)
   await expect(card(page, "Bravo work").getByRole("img", { name: /Block/ })).toHaveCount(0)
