@@ -1,5 +1,6 @@
 import { type Db, newId, now } from "../db"
 import { ApiError } from "../lib/errors"
+import { hasUploadedAvatar } from "./avatars"
 import type { User } from "./session"
 
 export type UserJson = {
@@ -7,6 +8,8 @@ export type UserJson = {
   name: string
   email: string
   avatarUrl: string | null
+  // Whether avatarUrl is an avatar the user uploaded, rather than their Google picture.
+  avatarUploaded: boolean
   totpEnabled: boolean
 }
 
@@ -15,8 +18,26 @@ export const toUserJson = (u: User): UserJson => ({
   name: u.name,
   email: u.email,
   avatarUrl: u.avatarUrl,
+  avatarUploaded: u.avatarUrl !== null && u.avatarUrl !== u.googleAvatarUrl,
   totpEnabled: u.totpEnabled === 1,
 })
+
+// Google picture URLs change over time; keep the latest, and show it unless the user uploaded
+// an avatar of their own.
+async function refreshGooglePicture(db: Db, user: User, picture: string | null | undefined) {
+  if (picture === undefined || picture === user.googleAvatarUrl) return user
+  const uploaded = await hasUploadedAvatar(db, user.id)
+  return db
+    .updateTable("users")
+    .set({
+      googleAvatarUrl: picture,
+      ...(uploaded ? {} : { avatarUrl: picture }),
+      updatedAt: now(),
+    })
+    .where("id", "=", user.id)
+    .returningAll()
+    .executeTakeFirstOrThrow()
+}
 
 export async function findOrCreateUser(
   db: Db,
@@ -36,7 +57,7 @@ export async function findOrCreateUser(
       .selectAll()
       .where("googleSub", "=", input.googleSub)
       .executeTakeFirst()
-    if (bySub) return bySub
+    if (bySub) return refreshGooglePicture(db, bySub, input.avatarUrl)
   }
 
   const byEmail = await db
@@ -55,7 +76,9 @@ export async function findOrCreateUser(
             byEmail.name === email.split("@")[0]
               ? input.name?.trim() || byEmail.name
               : byEmail.name,
+          // An avatar the user already has (an upload, say) stays.
           avatarUrl: byEmail.avatarUrl ?? input.avatarUrl ?? null,
+          googleAvatarUrl: input.avatarUrl ?? null,
           updatedAt: now(),
         })
         .where("id", "=", byEmail.id)
@@ -73,6 +96,7 @@ export async function findOrCreateUser(
       name: input.name?.trim() || email.split("@")[0] || email,
       email,
       avatarUrl: input.avatarUrl ?? null,
+      googleAvatarUrl: input.avatarUrl ?? null,
       googleSub: input.googleSub ?? null,
       totpEnabled: 0,
       createdAt: ts,

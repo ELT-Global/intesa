@@ -25,6 +25,10 @@ const imageSignatures: Record<string, (content: Buffer) => boolean> = {
     c.subarray(8, 12).toString("latin1") === "WEBP",
 }
 
+/** The raster image type the bytes start like (PNG, JPEG, GIF or WebP), if any. */
+export const sniffImage = (content: Buffer) =>
+  Object.keys(imageSignatures).find((mime) => imageSignatures[mime]?.(content))
+
 export async function readFile(req: Request) {
   let form: Awaited<ReturnType<Request["formData"]>>
   try {

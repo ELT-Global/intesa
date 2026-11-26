@@ -1160,3 +1160,44 @@ describe.each(targets)("migration 0016 (commit fingerprints) on %s", (_name, ope
     await close()
   })
 })
+
+describe.each(targets)("migration 0017 (user avatars) on %s", (_name, open) => {
+  test("keeps existing pictures as the Google picture to fall back to", async () => {
+    const { db, migrator, close } = await open()
+    expect((await migrator.migrateTo("0016_github_commit_fingerprints")).error).toBeUndefined()
+    const ts = "2026-01-01T00:00:00.000Z"
+    const user = { totpEnabled: 0, createdAt: ts, updatedAt: ts }
+    await db
+      .insertInto("users")
+      .values([
+        { ...user, id: "g", name: "G", email: "g@x.com", avatarUrl: "https://lh3/a" },
+        { ...user, id: "n", name: "N", email: "n@x.com" },
+      ])
+      .execute()
+
+    expect((await migrator.migrateToLatest()).error).toBeUndefined()
+
+    expect(
+      await db
+        .selectFrom("users")
+        .select(["id", "avatarUrl", "googleAvatarUrl"])
+        .where("id", "in", ["g", "n"])
+        .orderBy("id")
+        .execute(),
+    ).toEqual([
+      { id: "g", avatarUrl: "https://lh3/a", googleAvatarUrl: "https://lh3/a" },
+      { id: "n", avatarUrl: null, googleAvatarUrl: null },
+    ])
+    const content = new Uint8Array([137, 80, 78, 71, 0, 255])
+    await db
+      .insertInto("userAvatars")
+      .values({ userId: "g", mimeType: "image/png", size: 6, content, updatedAt: ts })
+      .execute()
+    const row = await db.selectFrom("userAvatars").select("content").executeTakeFirstOrThrow()
+    expect(new Uint8Array(row.content)).toEqual(content)
+    // An avatar goes with its user.
+    await db.deleteFrom("users").where("id", "=", "g").execute()
+    expect(await db.selectFrom("userAvatars").selectAll().execute()).toEqual([])
+    await close()
+  })
+})

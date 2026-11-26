@@ -137,7 +137,7 @@ function MembersPage() {
                 >
                   <td className="h-10 px-4">
                     <div className="flex items-center gap-2">
-                      <Avatar name={m.name} />
+                      <Avatar name={m.name} src={m.avatarUrl} />
                       <span className="truncate font-medium">{m.name}</span>
                       <span className="truncate text-xs text-muted-foreground">{m.email}</span>
                     </div>

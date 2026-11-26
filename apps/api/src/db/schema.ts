@@ -6,7 +6,11 @@ export type UserTable = {
   id: string
   name: string
   email: string
+  // The picture shown for the user: their uploaded avatar while they have one (see
+  // auth/avatars.ts), otherwise their Google picture.
   avatarUrl: string | null
+  // The picture from their Google profile, which avatarUrl falls back to.
+  googleAvatarUrl: string | null
   googleSub: string | null
   totpSecret: string | null
   totpEnabled: number
@@ -263,6 +267,15 @@ export type BugImageTable = {
   createdAt: string
 }
 
+// An avatar a user uploaded (PNG, JPEG, GIF or WebP), one per user.
+export type UserAvatarTable = {
+  userId: string
+  mimeType: string
+  size: number
+  content: Uint8Array
+  updatedAt: string
+}
+
 export type Database = {
   // A task's handle on a blob.
   artifacts: {
@@ -283,6 +296,7 @@ export type Database = {
     content: Uint8Array
   }
   users: UserTable
+  userAvatars: UserAvatarTable
   sessions: SessionTable
   apiTokens: ApiTokenTable
   deviceAuthorizations: DeviceAuthorizationTable

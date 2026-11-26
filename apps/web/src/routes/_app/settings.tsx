@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ArrowLeft, ShieldCheck, User as UserIcon } from "lucide-react"
-import { useState } from "react"
+import { ArrowLeft, ShieldCheck, Trash2, Upload, User as UserIcon } from "lucide-react"
+import { useRef, useState } from "react"
 import { renderSVG } from "uqr"
 import { PageTitle } from "@/components/page"
 import { AccessTokensPanel } from "@/components/settings/access-tokens"
+import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Field, FormError } from "@/components/ui/field"
 import { Label } from "@/components/ui/input"
@@ -71,7 +72,8 @@ function ProfilePanel() {
   return (
     <Panel>
       <PanelHeader icon={<UserIcon />} title="Profile" />
-      <PanelBody>
+      <PanelBody className="flex flex-col gap-4">
+        <AvatarControl user={user} />
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
@@ -102,6 +104,75 @@ function ProfilePanel() {
         </form>
       </PanelBody>
     </Panel>
+  )
+}
+
+const AVATAR_ACCEPT = "image/png,image/jpeg,image/gif,image/webp"
+
+function AvatarControl({ user }: { user: User }) {
+  const qc = useQueryClient()
+  const input = useRef<HTMLInputElement>(null)
+  const onSuccess = ({ user }: { user: User }) => {
+    qc.setQueryData(keys.me, user)
+    // Members, the week log and tasks carry everyone's picture.
+    void qc.invalidateQueries({ queryKey: ["workspaces"] })
+    void qc.invalidateQueries({ queryKey: ["projects"] })
+  }
+  const upload = useMutation({ mutationFn: api.uploadAvatar, onSuccess })
+  const remove = useMutation({ mutationFn: api.removeAvatar, onSuccess })
+  const pending = upload.isPending || remove.isPending
+  const error = upload.error ?? remove.error
+  return (
+    <div className="flex items-center gap-4">
+      <Avatar name={user.name} src={user.avatarUrl} size="xl" labelled />
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            disabled={pending}
+            pending={upload.isPending}
+            onClick={() => input.current?.click()}
+          >
+            <Upload className="size-3.5" />
+            Upload picture
+          </Button>
+          {user.avatarUploaded && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              pending={remove.isPending}
+              onClick={() => {
+                upload.reset()
+                remove.mutate()
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              Remove
+            </Button>
+          )}
+        </div>
+        <input
+          ref={input}
+          type="file"
+          accept={AVATAR_ACCEPT}
+          aria-label="Upload picture"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ""
+            if (!file) return
+            remove.reset()
+            upload.mutate(file)
+          }}
+        />
+        <p className="text-xs text-muted-foreground">
+          PNG, JPEG, GIF or WebP, up to 2 MB.
+          {!user.avatarUploaded && user.avatarUrl && " Showing your Google picture."}
+        </p>
+        <FormError message={error?.message} />
+      </div>
+    </div>
   )
 }
 

@@ -847,6 +847,31 @@ const githubCommitFingerprints: Migration = {
   },
 }
 
+// People can upload their own avatar. Its bytes live in `user_avatars`, one row per user, so
+// loading a user (every request) never reads them. `users.avatar_url` stays the picture shown
+// everywhere: the upload's URL while there is one, otherwise the Google picture, which is now
+// also kept in `google_avatar_url` so that removing an upload can fall back to it.
+const userAvatars: Migration = {
+  async up(db) {
+    const sqlite = db.getExecutor().adapter instanceof SqliteAdapter
+    await atomically(db, async (trx) => {
+      await trx.schema.alterTable("users").addColumn("google_avatar_url", text).execute()
+      // Every avatar so far came from Google.
+      await sql`update users set google_avatar_url = avatar_url`.execute(trx)
+      await trx.schema
+        .createTable("user_avatars")
+        .addColumn("user_id", text, (c) =>
+          c.primaryKey().references("users.id").onDelete("cascade"),
+        )
+        .addColumn("mime_type", text, notNull)
+        .addColumn("size", "integer", notNull)
+        .addColumn("content", sqlite ? sql`blob` : sql`bytea`, notNull)
+        .addColumn("updated_at", text, notNull)
+        .execute()
+    })
+  },
+}
+
 export const migrations: Record<string, Migration> = {
   "0001_initial": initial,
   "0002_tag_name_unique": tagNameIndex,
@@ -864,4 +889,5 @@ export const migrations: Record<string, Migration> = {
   "0014_bug_own_description": bugOwnDescription,
   "0015_backfill_bugs": backfillBugs,
   "0016_github_commit_fingerprints": githubCommitFingerprints,
+  "0017_user_avatars": userAvatars,
 }

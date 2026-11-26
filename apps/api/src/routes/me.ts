@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { createMiddleware } from "hono/factory"
 import type { Updateable } from "kysely"
 import { z } from "zod"
+import { avatarUploadLimit, readAvatar, removeAvatar, setAvatar } from "../auth/avatars"
 import { type AppEnv, requireUser } from "../auth/middleware"
 import { generateSecret, otpauthUrl, verifyTotp } from "../auth/totp"
 import { toUserJson } from "../auth/users"
@@ -48,6 +49,15 @@ export function meRoutes({ db, attempts }: Deps) {
     .patch("/", validate("json", patchBody), async (c) => {
       const { name } = c.req.valid("json")
       return c.json({ user: toUserJson(await updateUser(c.var.user.id, { name })) })
+    })
+    .put("/avatar", avatarUploadLimit, async (c) => {
+      // Multipart, with the image as `file`; served from /api/users/:userId/avatar.
+      const avatar = await readAvatar(c.req.raw)
+      return c.json({ user: toUserJson(await setAvatar(db, c.var.user.id, avatar)) })
+    })
+    .delete("/avatar", async (c) => {
+      // Back to the Google picture, or none.
+      return c.json({ user: toUserJson(await removeAvatar(db, c.var.user.id)) })
     })
     .post("/2fa/setup", browserOnly, async (c) => {
       const user = c.var.user

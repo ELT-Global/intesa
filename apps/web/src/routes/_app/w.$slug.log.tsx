@@ -296,7 +296,7 @@ function PersonPanel({ slug, person, week }: { slug: string; person: WeekPerson;
   return (
     <Panel aria-label={person.user.name} className="@container">
       <PanelHeader
-        icon={<Avatar name={person.user.name} className="flex" />}
+        icon={<Avatar name={person.user.name} src={person.user.avatarUrl} className="flex" />}
         title={person.user.name}
         note={person.member ? summary : `Former member · ${summary}`}
       />
@@ -562,7 +562,7 @@ function WeeklyLogPage() {
                 <ul className="flex flex-wrap gap-x-4 gap-y-2 px-4 py-3">
                   {idle.map((person) => (
                     <li key={person.user.id} className="flex min-w-0 items-center gap-2 text-sm">
-                      <Avatar name={person.user.name} />
+                      <Avatar name={person.user.name} src={person.user.avatarUrl} />
                       <span className="truncate">{person.user.name}</span>
                     </li>
                   ))}

@@ -25,6 +25,7 @@ import { storageRoutes } from "./routes/storage"
 import { tagRoutes, workspaceTagRoutes } from "./routes/tags"
 import { taskRoutes } from "./routes/tasks"
 import { tokenRoutes } from "./routes/tokens"
+import { userRoutes } from "./routes/users"
 import { workspaceRoutes } from "./routes/workspaces"
 import { serveSpa } from "./static"
 
@@ -49,6 +50,7 @@ export function createApp({ db, config, webDist }: AppDeps) {
     // Before /me so its handlers run ahead of the /me guard (see tokenRoutes).
     .route("/me/tokens", tokenRoutes(deps))
     .route("/me", meRoutes(deps))
+    .route("/users", userRoutes(deps))
     .route("/workspaces", workspaceRoutes(deps))
     .route("/workspaces", workspaceProjectRoutes(deps))
     .route("/workspaces", memberRoutes(deps))

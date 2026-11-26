@@ -111,7 +111,7 @@ function ProfileCard({ onNavigate }: { onNavigate?: () => void }) {
         aria-label="Account menu"
         className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-border bg-background/40 p-2 text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
       >
-        <Avatar name={user.name} size="lg" />
+        <Avatar name={user.name} src={user.avatarUrl} size="lg" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium">{user.name}</span>
           <span className="block truncate text-[11px] text-subtle-foreground">{user.email}</span>

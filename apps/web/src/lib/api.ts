@@ -96,6 +96,12 @@ export const api = {
 
   me: () => unwrap(client.api.me.$get()),
   updateMe: (json: { name: string }) => unwrap(client.api.me.$patch({ json })),
+  uploadAvatar: (file: File): Promise<{ user: User }> => {
+    const body = new FormData()
+    body.set("file", file)
+    return unwrap(fetch("/api/me/avatar", { method: "PUT", body }))
+  },
+  removeAvatar: () => unwrap(client.api.me.avatar.$delete()),
   setup2fa: () => unwrap(client.api.me["2fa"].setup.$post()),
   enable2fa: (code: string) => unwrap(client.api.me["2fa"].enable.$post({ json: { code } })),
   disable2fa: (code: string) => unwrap(client.api.me["2fa"].disable.$post({ json: { code } })),
