@@ -55,6 +55,8 @@ const taskApi = {
     unwrap(projectTasks.$post({ param: { projectId }, json })),
   update: (taskId: string, json: TaskPatch) => unwrap(taskById.$patch({ param: { taskId }, json })),
   remove: (taskId: string) => unwrap(taskById.$delete({ param: { taskId } })),
+  promote: (taskId: string, assigneeIds: string[]) =>
+    unwrap(taskById.promote.$post({ param: { taskId }, json: { assigneeIds } })),
   unlinkPullRequest: (taskId: string, pullRequestId: string) =>
     unwrap(
       taskById["pull-requests"][":pullRequestId"].$delete({ param: { taskId, pullRequestId } }),
@@ -387,6 +389,35 @@ export function useCreateSubtask(parent: { id: string; projectId: string }) {
     mutationFn: (title: string) =>
       taskApi.create(parent.projectId, { title, parentTaskId: parent.id }).then((r) => r.task),
     onSettled: () => settleTaskMutation(qc, parent.projectId),
+  })
+}
+
+/**
+ * Turns a subtask into a top-level task of its project with the given assignees. Not
+ * optimistic: the task joins the board where the server puts it. On success the parent stops
+ * listing it and the task's own detail is the server's answer; everything else is refetched.
+ */
+export function usePromoteSubtask(subtask: { id: string; projectId: string }, parentId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: TASK_MUTATION,
+    scope: taskScope(subtask.id),
+    mutationFn: (assigneeIds: string[]) =>
+      taskApi.promote(subtask.id, assigneeIds).then((r) => r.task),
+    onSuccess: (task) => {
+      qc.setQueryData<TaskDetail>(taskKeys.detail(task.id), task)
+      qc.setQueryData<TaskDetail>(taskKeys.detail(parentId), (old) => {
+        if (!old) return old
+        const subtasks = old.subtasks.filter((t) => t.id !== task.id)
+        return {
+          ...old,
+          subtasks,
+          subtaskCount: subtasks.length,
+          subtaskDoneCount: subtasks.filter((t) => t.status === "complete").length,
+        }
+      })
+    },
+    onSettled: () => settleTaskMutation(qc, subtask.projectId),
   })
 }
 

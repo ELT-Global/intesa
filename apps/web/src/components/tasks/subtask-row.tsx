@@ -14,6 +14,7 @@ import {
 import { type TaskDetail, type TaskSummary, useDeleteTask, useUpdateTask } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { AssigneePicker } from "./assignee-picker"
+import type { PromoteRequest } from "./promote-subtask-dialog"
 import {
   NO_PRIORITY,
   PriorityIcon,
@@ -38,12 +39,14 @@ export function SubtaskRow({
   workspaceId,
   onOpen,
   onRequestDelete,
+  onRequestPromote,
 }: {
   parent: TaskDetail
   subtask: TaskSummary
   workspaceId: string
   onOpen: () => void
   onRequestDelete: (request: DeleteRequest) => void
+  onRequestPromote: (request: PromoteRequest) => void
 }) {
   const update = useUpdateTask()
   const changeStatus = useStatusChange()
@@ -171,6 +174,13 @@ export function SubtaskRow({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={onOpen}>Open subtask</DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() =>
+              onRequestPromote({ subtask, row: rowRef.current, actions: actionsRef.current })
+            }
+          >
+            Convert to task
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() =>
               onRequestDelete({ subtask, row: rowRef.current, actions: actionsRef.current })

@@ -21,6 +21,7 @@ import {
 } from "@/lib/tasks"
 import { cn } from "@/lib/utils"
 import { PickerPopover } from "./picker-popover"
+import { type PromoteRequest, PromoteSubtaskDialog } from "./promote-subtask-dialog"
 import { StatusIcon } from "./properties"
 import { type DeleteRequest, DeleteSubtaskDialog, SubtaskRow } from "./subtask-row"
 import { TaskKey } from "./task-key"
@@ -85,6 +86,7 @@ function SubtasksSection({ task, workspaceId }: { task: TaskDetail; workspaceId:
   const create = useCreateSubtask(task)
   const [title, setTitle] = useState("")
   const [deleting, setDeleting] = useState<DeleteRequest | null>(null)
+  const [promoting, setPromoting] = useState<PromoteRequest | null>(null)
   const done = task.subtasks.filter((s) => s.status === "complete").length
 
   function add(e: FormEvent) {
@@ -118,11 +120,18 @@ function SubtasksSection({ task, workspaceId }: { task: TaskDetail; workspaceId:
               workspaceId={workspaceId}
               onOpen={() => openTask(s.id)}
               onRequestDelete={setDeleting}
+              onRequestPromote={setPromoting}
             />
           ))}
         </ul>
       )}
       <DeleteSubtaskDialog parent={task} request={deleting} onClose={() => setDeleting(null)} />
+      <PromoteSubtaskDialog
+        parent={task}
+        workspaceId={workspaceId}
+        request={promoting}
+        onClose={() => setPromoting(null)}
+      />
       <form onSubmit={add}>
         <input
           aria-label="Add subtask"

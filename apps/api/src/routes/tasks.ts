@@ -6,6 +6,7 @@ import type { Deps } from "../deps"
 import { linkPullRequest, resolvePullRequest, unlinkPullRequest } from "../github/links"
 import { markReleased, RELEASE_CHECK_MS, releaseIfArrived } from "../github/releases"
 import { validate } from "../lib/validate"
+import { promoteSubtask } from "../tasks/promote"
 import { addRelationship, removeRelationship } from "../tasks/relationships"
 import { patchTaskBody, RELATION_TYPES } from "../tasks/schemas"
 import {
@@ -18,6 +19,9 @@ import {
 import { artifactRoutes } from "./artifacts"
 
 const relationBody = z.object({ type: z.enum(RELATION_TYPES), taskId: z.string().min(1) })
+// Turning a subtask into a top-level task (ADR 0033): who it is assigned to, as a full set
+// like a PATCH ([] for nobody).
+const promoteBody = z.object({ assigneeIds: z.array(z.string().min(1)).max(100) })
 
 export function taskRoutes({ db }: Deps) {
   return new Hono<AppEnv>()
@@ -53,6 +57,11 @@ export function taskRoutes({ db }: Deps) {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
       await db.deleteFrom("tasks").where("id", "=", task.id).execute()
       return c.body(null, 204)
+    })
+    .post("/:taskId/promote", validate("json", promoteBody), async (c) => {
+      const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
+      await promoteSubtask(db, c.var.user.id, task, c.req.valid("json").assigneeIds)
+      return c.json({ task: await loadTaskDetail(db, task.id) })
     })
     .post("/:taskId/relationships", validate("json", relationBody), async (c) => {
       const { task } = await requireTask(db, c.var.user.id, c.req.param("taskId"))
