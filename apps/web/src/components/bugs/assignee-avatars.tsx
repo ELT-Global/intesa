@@ -1,6 +1,6 @@
 import { Avatar } from "@/components/ui/avatar"
 
-type Person = { id: string; name: string }
+type Person = { id: string; name: string; avatarUrl?: string | null }
 
 /** Everyone assigned to any of the tasks, once each, in the order first met. */
 export function assigneesOf(tasks: { assignees: Person[] }[]): Person[] {
@@ -29,7 +29,7 @@ export function AssigneeAvatars({
     >
       {people.slice(0, max).map((p) => (
         <li key={p.id} className="flex">
-          <Avatar name={p.name} labelled className="border-background" />
+          <Avatar name={p.name} src={p.avatarUrl} labelled className="border-background" />
         </li>
       ))}
       {rest > 0 && (

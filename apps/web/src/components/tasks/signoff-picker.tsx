@@ -50,7 +50,7 @@ export function SignoffPicker({
           className={cn("text-foreground", field && "min-w-44 justify-start")}
         >
           {!field && <span className="text-muted-foreground">{label}</span>}
-          {value && <Avatar name={value.name} />}
+          {value && <Avatar name={value.name} src={value.avatarUrl} />}
           <span className={cn(value === undefined && "text-muted-foreground")}>{answer}</span>
         </Button>
       }
@@ -71,7 +71,7 @@ export function SignoffPicker({
           label: `${m.name} ${m.email}`,
           selected: value?.id === m.userId,
           onSelect: () => onChange({ id: m.userId, name: m.name, avatarUrl: m.avatarUrl }),
-          content: <PersonOption name={m.name} email={m.email} />,
+          content: <PersonOption name={m.name} email={m.email} avatarUrl={m.avatarUrl} />,
         })),
       ]}
     />

@@ -1,7 +1,7 @@
 import { expect, type Locator, test } from "@playwright/test"
 import { createWorkspace, signIn, uniqueEmail, uniqueName } from "../support/auth"
-import { addMember, pageAs } from "../support/members"
-import { workspaceIdBySlug } from "../support/projects"
+import { addMember, currentUserId, pageAs } from "../support/members"
+import { createProject, createTaskViaApi, workspaceIdBySlug } from "../support/projects"
 
 // A 1×1 PNG.
 const PNG = Buffer.from(
@@ -26,7 +26,8 @@ test("upload a profile picture, see it in the sidebar and for other members, the
   const slug = await createWorkspace(page, uniqueName())
   const graceEmail = uniqueEmail("grace")
   const grace = await pageAs(browser, graceEmail, "Grace Hopper")
-  await addMember(page, await workspaceIdBySlug(page, slug), graceEmail)
+  const workspaceId = await workspaceIdBySlug(page, slug)
+  await addMember(page, workspaceId, graceEmail)
 
   await page.goto("/settings")
   const profile = page.locator("section", {
@@ -66,6 +67,26 @@ test("upload a profile picture, see it in the sidebar and for other members, the
   await expectLoaded(adaRow)
   await expect(adaRow).toHaveAttribute("src", src)
   await grace.context().close()
+
+  // Task cards and the assignee picker show it as well.
+  const project = await createProject(page, workspaceId, "Avatars")
+  const task = await createTaskViaApi(page, project.id, {
+    title: "Paint the portrait",
+    assigneeIds: [await currentUserId(page)],
+  })
+  await page.goto(`/w/${slug}/projects/${project.id}/board`)
+  const onCard = page
+    .getByRole("button", { name: /Paint the portrait/ })
+    .getByRole("img", { name: "Ada Lovelace" })
+    .locator("img")
+  await expectLoaded(onCard)
+  await expect(onCard).toHaveAttribute("src", src)
+  await page.goto(`/w/${slug}/projects/${project.id}/board?task=${task.id}`)
+  await page.getByRole("dialog").getByRole("button", { name: "Change assignees" }).click()
+  const option = page.getByRole("option", { name: /Ada Lovelace/ }).locator("img")
+  await expectLoaded(option)
+  await expect(option).toHaveAttribute("src", src)
+  await page.keyboard.press("Escape")
 
   await page.goto("/settings")
   await profile.getByRole("button", { name: "Remove" }).click()

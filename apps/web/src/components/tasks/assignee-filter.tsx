@@ -85,7 +85,7 @@ export function AssigneeFilter({
             onSelect: () => toggle(m.userId),
             content: (
               <>
-                <Avatar name={m.name} />
+                <Avatar name={m.name} src={m.avatarUrl} />
                 <span className="min-w-0 flex-1 truncate">
                   {m.name}
                   {m.userId === meId && (

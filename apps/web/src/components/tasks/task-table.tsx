@@ -129,7 +129,12 @@ const Row = memo(function Row({
             {task.assignees.length > 0 ? (
               <span className="flex -space-x-1">
                 {task.assignees.slice(0, 4).map((a) => (
-                  <Avatar key={a.id} name={a.name} className="border-background" />
+                  <Avatar
+                    key={a.id}
+                    name={a.name}
+                    src={a.avatarUrl}
+                    className="border-background"
+                  />
                 ))}
                 <span className="sr-only">{task.assignees.map((a) => a.name).join(", ")}</span>
               </span>

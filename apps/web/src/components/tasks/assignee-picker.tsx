@@ -95,6 +95,7 @@ export function AssigneePicker({
                   <Avatar
                     key={a.id}
                     name={a.name}
+                    src={a.avatarUrl}
                     labelled={compact}
                     size={compact ? "sm" : "md"}
                     className="border-background"
@@ -132,7 +133,7 @@ export function AssigneePicker({
           label: `${m.name} ${m.email}`,
           selected: assignedIds.has(m.userId),
           onSelect: () => toggle(m),
-          content: <PersonOption name={m.name} email={m.email} />,
+          content: <PersonOption name={m.name} email={m.email} avatarUrl={m.avatarUrl} />,
         })),
       ]}
     />

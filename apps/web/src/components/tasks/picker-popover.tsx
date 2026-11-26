@@ -18,10 +18,18 @@ export function filterPeople<P extends { name: string; email: string }>(
 }
 
 /** Avatar, name and email: the content of a person's option in a picker. */
-export function PersonOption({ name, email }: { name: string; email: string }) {
+export function PersonOption({
+  name,
+  email,
+  avatarUrl,
+}: {
+  name: string
+  email: string
+  avatarUrl?: string | null
+}) {
   return (
     <>
-      <Avatar name={name} />
+      <Avatar name={name} src={avatarUrl} />
       <span className="min-w-0 flex-1 truncate">
         {name}
         <span className="ml-1.5 text-xs font-normal text-muted-foreground">{email}</span>

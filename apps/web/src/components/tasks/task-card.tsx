@@ -52,7 +52,13 @@ export const TaskCard = memo(function TaskCard({
         {task.assignees.length > 0 && (
           <span className="flex -space-x-1">
             {task.assignees.slice(0, 3).map((a) => (
-              <Avatar key={a.id} name={a.name} labelled className="border-background" />
+              <Avatar
+                key={a.id}
+                name={a.name}
+                src={a.avatarUrl}
+                labelled
+                className="border-background"
+              />
             ))}
           </span>
         )}
